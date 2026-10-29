@@ -1,5 +1,4 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { toFils } from "@filspay/money";
 import { requireApiKey } from "../apiKeys/verify.js";
 import { requireMerchantAuth, requireMerchantRole, requireMerchantWriterActor } from "../auth/requireMerchantAuth.js";
 import { authorizeTransaction, type AuthorizeInput } from "../payments/authorize.js";
@@ -10,7 +9,12 @@ import { openTransactionsExportStream } from "../transactions/exportCsv.js";
 import { getTransactionById, listTransactions } from "../transactions/query.js";
 import { listTransactionEvents } from "../transactions/events.js";
 import { BadRequestError, NotFoundError } from "../lib/errors.js";
-import { parseOptionalInstant, parseOptionalNonNegativeInt, requireUuidParam } from "../lib/requestParams.js";
+import {
+  parseOptionalInstant,
+  parseOptionalNonNegativeInt,
+  parsePositiveAmountFils,
+  requireUuidParam,
+} from "../lib/requestParams.js";
 import type { SimulatedCardInput } from "../acquirer/types.js";
 
 interface AuthorizeBody {
@@ -77,7 +81,7 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
 
       const input: AuthorizeInput = {
         merchantId: request.apiKeyAuth!.merchantId,
-        amountFils: toFils(amountFils),
+        amountFils: parsePositiveAmountFils(amountFils),
         card,
         reference,
         idempotencyKey,
@@ -102,7 +106,7 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
       const result = await captureTransaction(app.db, app.acquirer, {
         transactionId,
         merchantId: request.merchantAuth!.merchantId,
-        amountFils: amountFils !== undefined ? toFils(amountFils) : undefined,
+        amountFils: amountFils !== undefined ? parsePositiveAmountFils(amountFils) : undefined,
         idempotencyKey,
         actor: requireMerchantWriterActor(request.merchantAuth!),
       });

@@ -1,4 +1,15 @@
+import { toFils, type Fils } from "@filspay/money";
 import { BadRequestError } from "./errors.js";
+
+/** A request-body amount: a JSON number that is a positive safe integer of
+ *  fils. Anything else (string, float, NaN, zero, negative, unsafe) is
+ *  400 invalid_amount, raised before any acquirer call. */
+export function parsePositiveAmountFils(value: unknown): Fils {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new BadRequestError("invalid_amount", "amountFils must be a positive integer number of fils");
+  }
+  return toFils(value);
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
