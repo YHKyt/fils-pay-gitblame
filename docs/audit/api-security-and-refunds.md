@@ -156,7 +156,18 @@ Every fix carries a regression test that fails before the change and passes afte
   - Due rows are claimed with `FOR UPDATE SKIP LOCKED` and a lease on `next_attempt_at`.
   - The disbursement is at most one per settlement batch (advisory lock + `NOT EXISTS`).
 - **Test:** `payoutDisbursement.test.ts` — 4 concurrent + 1 repeat → one instruction.
-- **Open (Go, settlement lane):** `payout_notify.go` relies on a unique index on `outbox_events (event_type, aggregate_id)` that does not exist, so daemon + `run-batch` together can enqueue `settlement.paid` twice.
+- **Also fixed (Go):** `payout_notify.go` relied on a unique index on `outbox_events (event_type, aggregate_id)` that does not exist, so daemon + `run-batch` scanning together enqueued `settlement.paid` several times per batch. Each insert now re-checks under a per-batch advisory lock. Test: 12 concurrent scans over 40 batches → one event each (old code: 5 for one batch).
+
+## H1. The stack could not be deployed (hosting prep) — High
+**Where:** `ops/`
+- **What:**
+  - `Dockerfile.node` and `Dockerfile.go` were referenced by compose but missing.
+  - `.env.docker` (with `NODE_ENV=production`) was never loaded: compose auto-reads only `.env`.
+  - Production mode requires `WEBHOOK_SECRET_ENCRYPTION_KEY` and `SETTLEMENT_INTERNAL_TOKEN`, which nothing set.
+  - The acquirer callback secret was committed (`.env` in `.gitignore` does not match `.env.docker`).
+  - Postgres was published on 0.0.0.0 with the dev password.
+- **Fix:** Dockerfiles sized for the 2 GB-disk box (caches removed in-layer, static Go binary with embedded tzdata, non-root); `env_file`; secrets required via `${VAR:?}` from a gitignored `ops/.env` (`ops/.env.example`); committed secret removed (**rotate it**: it is in git history); Postgres on 127.0.0.1.
+- **Verified:** compose parses; settlement cross-compiles static for Linux; the api boots with `NODE_ENV=production` and rejects an unsigned callback. Docker itself was not available on this machine to build the images.
 
 ## P1. Expired payment links could be paid — High
 **Where:** `apps/api/src/paymentLinks/pay.ts`
