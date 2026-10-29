@@ -180,7 +180,9 @@ async function attemptOneDelivery(
   const responseStatusCode = isTransportFailure ? null : result.statusCode;
   // NULL for a transport-level failure that never got a response, matching
   // response_status_code — left() truncation happens in SQL below either way.
-  const responseBodyParam = isTransportFailure ? null : result.body;
+  // Postgres TEXT cannot hold U+0000: a receiver echoing a NUL would make the
+  // outcome UPDATE throw, leaving the row pending and resent forever.
+  const responseBodyParam = isTransportFailure ? null : (result.body ?? "").replace(/\u0000/g, "");
 
   if (!isTransportFailure && result.statusCode! >= 200 && result.statusCode! < 300) {
     await pool.query(

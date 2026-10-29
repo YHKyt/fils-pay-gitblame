@@ -419,3 +419,23 @@ test("backoffDelayMs never exceeds webhookBackoffCapMs, even with maximum upward
   // below the cap, jitter still applies upward
   assert.equal(backoffDelayMs(1, capConfig, () => 1), 1_100);
 });
+
+test("a NUL byte in the receiver's response body does not stop the outcome from being recorded", async () => {
+  const merchantId = await createMerchant("nul-body");
+  const url = `http://nul-body-${randomUUID()}.test/webhook`;
+  const endpoint = await createEndpoint(merchantId, url);
+  const outboxEvent = await enqueueCaptured(merchantId);
+
+  const transport: WebhookTransport = async (req) =>
+    req.url === url ? { statusCode: 200, body: "ok\u0000after-nul" } : { statusCode: 200, body: "" };
+  await runDispatchPass(pool, transport, config);
+
+  const delivery = await getDelivery(String(outboxEvent.id), endpoint.id);
+  assert.equal(delivery.status, "succeeded");
+  assert.equal(delivery.attempt_count, 1);
+  const excerpt = await pool.query<{ response_body_excerpt: string }>(
+    `SELECT response_body_excerpt FROM webhook_deliveries WHERE id = $1`,
+    [delivery.id],
+  );
+  assert.equal(excerpt.rows[0]!.response_body_excerpt, "okafter-nul");
+});
