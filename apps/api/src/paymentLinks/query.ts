@@ -84,3 +84,25 @@ export async function listPaymentLinks(
 
   return { paymentLinks, nextCursor };
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * One link by id, scoped to the merchant. `null` both for "doesn't exist"
+ * and "belongs to another merchant" (the caller answers 404 for both, never
+ * 403, so a foreign link's existence is not confirmed). A non-UUID id is
+ * also `null` rather than a Postgres cast error.
+ */
+export async function getPaymentLinkForMerchant(
+  pool: Pool,
+  config: { checkoutBaseUrl: string },
+  input: { merchantId: string; id: string },
+): Promise<PaymentLinkDto | null> {
+  if (!UUID_RE.test(input.id)) return null;
+  const result = await pool.query<PaymentLinkRow>(
+    `SELECT * FROM payment_links WHERE id = $1 AND merchant_id = $2`,
+    [input.id, input.merchantId],
+  );
+  const row = result.rows[0];
+  return row ? serializePaymentLink(row, config.checkoutBaseUrl) : null;
+}

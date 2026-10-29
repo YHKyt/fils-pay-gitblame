@@ -15,15 +15,19 @@ export function getPaymentLink(token: string): Promise<PaymentLinkPublicDto> {
   return request(`/v1/payment-links/${encodeURIComponent(token)}`);
 }
 
+/** Rejects with an AbortError after `timeoutMs`: the payment may still have
+ *  gone through, so the caller must check the link before paying again. */
 export function payPaymentLink(
   token: string,
   input: { card: SimulatedCardInput; submittedAt?: string },
   idempotencyKey: string,
+  timeoutMs = 30_000,
 ): Promise<PayPaymentLinkResponse> {
   return request(`/v1/payment-links/${encodeURIComponent(token)}/pay`, {
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify(input),
+    timeoutMs,
   });
 }
 
@@ -47,6 +51,14 @@ export function listPaymentLinks(
 ): Promise<PaymentLinkListResponse> {
   return request(
     `/v1/merchants/${encodeURIComponent(merchantId)}/payment-links${buildQuery({ ...query })}`,
+  );
+}
+
+/** One of this merchant's links by id; `404` when it doesn't exist or isn't
+ *  this merchant's (indistinguishable on purpose). */
+export function getMerchantPaymentLink(merchantId: string, id: string): Promise<PaymentLinkDto> {
+  return request(
+    `/v1/merchants/${encodeURIComponent(merchantId)}/payment-links/${encodeURIComponent(id)}`,
   );
 }
 

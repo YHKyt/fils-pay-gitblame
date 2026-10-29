@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   captureTransaction,
@@ -10,6 +10,7 @@ import { ApiError, describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { bhd, dash, dateTime } from "../../format.js";
 import type { TransactionDto, TransactionEventDto } from "../../types.js";
+import { attemptFor, isDefinitiveFailure, type IdempotentAttempt } from "../../utils/idempotencyIntent.js";
 import { RefundDrawer } from "./RefundDrawer.js";
 
 type LoadState =
@@ -35,6 +36,7 @@ export function TransactionDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [captureOpen, setCaptureOpen] = useState(false);
   const [captureAmount, setCaptureAmount] = useState("");
+  const captureAttempt = useRef<IdempotentAttempt | null>(null);
 
   const load = useCallback(async () => {
     if (!id) {
@@ -62,7 +64,7 @@ export function TransactionDetailPage() {
 
   async function handleCapture(event: React.FormEvent): Promise<void> {
     event.preventDefault();
-    if (!id) return;
+    if (!id || submitting) return;
     setSubmitting(true);
     setActionError(null);
     try {
@@ -71,15 +73,22 @@ export function TransactionDetailPage() {
       // everything still outstanding — its own documented default. Computing
       // the remainder here would just be a second, staler copy of that rule.
       const input = trimmed === "" ? {} : { amountFils: Number(trimmed) };
-      // A fresh Idempotency-Key per click, including a retry after a decline —
-      // same discipline as the checkout page's submit handler.
-      await captureTransaction(id, input, crypto.randomUUID());
+      // One Idempotency-Key per capture intent (same rule as RefundDrawer):
+      // a retry after a lost response or 5xx resends the same key, so the
+      // server replays the first capture instead of capturing again. A
+      // different amount, or any submit after a definitive answer, is a new
+      // intent with a new key.
+      const current = attemptFor(captureAttempt.current, JSON.stringify({ id, ...input }));
+      captureAttempt.current = current;
+      await captureTransaction(id, input, current.key);
+      captureAttempt.current = null;
       setCaptureOpen(false);
       setCaptureAmount("");
       // Refetch rather than patch: a capture wrote a new transaction_events
       // row server-side, so the timeline is stale, not merely shorter.
       await load();
     } catch (err) {
+      if (isDefinitiveFailure(err)) captureAttempt.current = null;
       setActionError(describeError(err));
     } finally {
       setSubmitting(false);
@@ -88,7 +97,9 @@ export function TransactionDetailPage() {
 
   /** Only offered while status is authorized. */
   async function handleVoid(): Promise<void> {
-    if (!id) return;
+    // No key needed: void is idempotent by state server-side (void.ts
+    // answers 200 for an already-voided row), so a retry is always safe.
+    if (!id || submitting) return;
     if (!window.confirm("Void this authorization? The held funds are released and cannot be captured afterwards.")) {
       return;
     }
