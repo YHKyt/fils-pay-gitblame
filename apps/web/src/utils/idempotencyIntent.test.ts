@@ -38,6 +38,15 @@ test("after a definitive answer (attempt cleared) the same request is a new inte
   assert.notEqual(next.key, first.key);
 });
 
+test("capture: a retried 'capture everything' after a timeout keeps its key; a partial amount is a new intent", () => {
+  const mint = counter();
+  const full = attemptFor(null, JSON.stringify({ id: "txn-1" }), mint);
+  const retry = attemptFor(full, JSON.stringify({ id: "txn-1" }), mint);
+  assert.equal(retry.key, full.key);
+  const partial = attemptFor(retry, JSON.stringify({ id: "txn-1", amountFils: 250 }), mint);
+  assert.notEqual(partial.key, full.key);
+});
+
 test("only HTTP 4xx answers are definitive; network errors, 5xx, 429 and in-progress are not", () => {
   assert.equal(isDefinitiveFailure({ statusCode: 402, code: "declined" }), true);
   assert.equal(isDefinitiveFailure({ statusCode: 422, code: "idempotency_key_reused" }), true);
