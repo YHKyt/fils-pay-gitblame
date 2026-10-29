@@ -67,6 +67,7 @@ func RebuildAllBalances(ctx context.Context, db *pgxpool.Pool) (map[uuid.UUID]Re
 			UNION
 			SELECT merchant_id FROM merchant_balances
 		) merchants
+		ORDER BY merchant_id -- lock order shared with RefreshBalanceCache, so concurrent rebuilds cannot deadlock
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("ledger: RebuildAllBalances: select merchant ids: %w", err)
