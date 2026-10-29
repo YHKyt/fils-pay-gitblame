@@ -147,6 +147,8 @@ export async function replayWebhookDeliveryArchive(
         endpointId: input.targetEndpointId,
         outboxEventId: entry.outboxEventId,
         eventType: entry.eventType,
+        // The archived envelope's `id` is the original delivery_event_id.
+        deliveryEventId: String(entry.payload.id),
         payload: entry.payload,
       });
       replayedCount++;

@@ -90,8 +90,8 @@ waiting for the worker. Quick, safe, and repeatable.
 
 **Replay a batch** — pick an endpoint, a date range, and which delivery
 statuses to resend (default: `exhausted`; any status can be chosen). Each
-delivery is re-signed and queued; the merchant's receiver sees them as new
-deliveries.
+delivery is re-signed and queued with its original `Webhook-Delivery-Id`,
+so a receiver that already processed it can dedupe it.
 
 **Archive / restore** — before a merchant rotates their webhook URL,
 archive the endpoint's history; after they register the new one, restore

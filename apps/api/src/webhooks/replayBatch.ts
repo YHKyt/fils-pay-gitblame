@@ -73,9 +73,10 @@ export async function replayWebhookDeliveriesBatch(
       endpoint_id: string;
       outbox_event_id: string;
       event_type: string;
+      delivery_event_id: string;
       payload: Record<string, unknown>;
     }>(
-      `SELECT id, endpoint_id, outbox_event_id, event_type, payload
+      `SELECT id, endpoint_id, outbox_event_id, event_type, delivery_event_id, payload
          FROM webhook_deliveries
         WHERE endpoint_id = $1 AND status = ANY($2)
           AND created_at >= $3 AND created_at < $4
@@ -91,6 +92,7 @@ export async function replayWebhookDeliveriesBatch(
         endpointId: row.endpoint_id,
         outboxEventId: row.outbox_event_id,
         eventType: row.event_type,
+        deliveryEventId: row.delivery_event_id,
         payload: row.payload,
       });
       replayedDeliveryIds.push(inserted.deliveryId);
