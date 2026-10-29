@@ -17,9 +17,11 @@ SELECT te.id AS event_id,
   FROM transaction_events te
   JOIN transactions t ON t.id = te.transaction_id
  WHERE te.event_type = 'captured'
-   AND NOT EXISTS (
-     SELECT 1 FROM settlement_batch_events sbe WHERE sbe.transaction_event_id = te.id
-   );
+   -- Batch membership is transaction_events.settlement_batch_id (0023). This
+   -- view used to join a settlement_batch_events table that no migration ever
+   -- creates, so 0054 failed on every fresh database and `docker compose up`
+   -- could not finish migrating.
+   AND te.settlement_batch_id IS NULL;
 
 CREATE OR REPLACE VIEW v_active_api_keys AS
 SELECT ak.id,

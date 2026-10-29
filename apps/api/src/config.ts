@@ -150,7 +150,12 @@ function parseBoolEnv(value: string | undefined, fallback: boolean): boolean {
   return value === "true" || value === "1";
 }
 
-const DEV_FALLBACK_WEBHOOK_KEY_B64 = "dGVzdC1rZXktZm9yLWRldi1vbmx5LW5vdC1mb3ItcHJvZA==";
+// Must decode to exactly 32 bytes (validateWebhookKey below). The previous
+// value was base64("test-key-for-dev-only-not-for-prod") = 34 bytes, so the
+// dev fallback failed its own validation and the api/seed could not start
+// outside production unless a key was set by hand. Dev only — never used when
+// NODE_ENV=production.
+const DEV_FALLBACK_WEBHOOK_KEY_B64 = "ZGV2LW9ubHktd2ViaG9vay1rZXktMzItYnl0ZXMtISE="; // "dev-only-webhook-key-32-bytes-!!"
 
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 
