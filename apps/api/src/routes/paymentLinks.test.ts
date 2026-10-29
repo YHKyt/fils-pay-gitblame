@@ -425,3 +425,57 @@ test("cancel: another merchant's link id is a 404 and the link stays active", as
   const readRes = await getPublicLink(link.token);
   assert.equal(readRes.json().status, "active");
 });
+
+test("get by id: own link is 200 with the merchant DTO", async () => {
+  const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("get-own");
+  const link = await createLink(rawKey, merchantId, { reference: "get-own", amountFils: 1_250 });
+
+  const res = await app.inject({
+    method: "GET",
+    url: `/v1/merchants/${merchantId}/payment-links/${link.id}`,
+    headers: authHeader(rawKey),
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const body = res.json();
+  assert.equal(body.id, link.id);
+  assert.equal(body.token, link.token);
+  assert.equal(body.amountFils, 1_250);
+  assert.equal(body.reference, "get-own");
+  assert.equal(body.status, "active");
+});
+
+test("get by id: another merchant's link is 404 (not 403); unknown and malformed ids are 404", async () => {
+  const victim = await createApprovedMerchantWithApiKey("get-idor-victim");
+  const attacker = await createApprovedMerchantWithApiKey("get-idor-attacker");
+  const link = await createLink(victim.rawKey, victim.merchantId, {});
+
+  const foreign = await app.inject({
+    method: "GET",
+    url: `/v1/merchants/${attacker.merchantId}/payment-links/${link.id}`,
+    headers: authHeader(attacker.rawKey),
+  });
+  assert.equal(foreign.statusCode, 404, foreign.body);
+  assert.equal(foreign.json().error, "payment_link_not_found");
+
+  const unknown = await app.inject({
+    method: "GET",
+    url: `/v1/merchants/${attacker.merchantId}/payment-links/${randomUUID()}`,
+    headers: authHeader(attacker.rawKey),
+  });
+  assert.equal(unknown.statusCode, 404, unknown.body);
+
+  const malformed = await app.inject({
+    method: "GET",
+    url: `/v1/merchants/${attacker.merchantId}/payment-links/not-a-uuid`,
+    headers: authHeader(attacker.rawKey),
+  });
+  assert.equal(malformed.statusCode, 404, malformed.body);
+
+  // Victim's merchant id in the path with the attacker's credentials: 403 (assertOwnMerchant).
+  const crossPath = await app.inject({
+    method: "GET",
+    url: `/v1/merchants/${victim.merchantId}/payment-links/${link.id}`,
+    headers: authHeader(attacker.rawKey),
+  });
+  assert.equal(crossPath.statusCode, 403, crossPath.body);
+});

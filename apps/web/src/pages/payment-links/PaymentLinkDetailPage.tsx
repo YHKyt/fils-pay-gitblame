@@ -1,14 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { cancelPaymentLink, listPaymentLinks } from "../../api/paymentLinks.js";
-import { describeError } from "../../api/client.js";
+import { cancelPaymentLink, getMerchantPaymentLink } from "../../api/paymentLinks.js";
+import { ApiError, describeError } from "../../api/client.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { bhd, dash, dateTime } from "../../format.js";
 import type { PaymentLinkDto } from "../../types.js";
-
-/** The list endpoint's own maximum page size. */
-const LOOKUP_LIMIT = 100;
 
 type LoadState =
   | { kind: "loading" }
@@ -17,18 +14,9 @@ type LoadState =
   | { kind: "loaded"; link: PaymentLinkDto };
 
 /**
- * There is no merchant-authenticated `GET .../payment-links/:id` — the API
- * has the merchant-scoped *list* and the *public* single-token read, and nothing
- * in between. So this page reads the first page of the unfiltered list
- * (newest-first, capped at the endpoint's own 100-row maximum) and finds the
- * row by id.
- *
- * That is correct for a merchant with a normal number of links and genuinely
- * degrades for one whose direct-linked link has aged past row 100 — it will
- * render "not found" for a link that exists. It is left this way deliberately
- * rather than papered over with cursor-walking loops: the real fix is a
- * one-row backend route (`SELECT * ... WHERE id = $1 AND merchant_id = $2`,
- * 404 on no match).
+ * `GET /v1/merchants/:merchantId/payment-links/:id` — merchant-scoped,
+ * one row. A `404` means "doesn't exist or isn't yours", deliberately
+ * indistinguishable.
  */
 export function PaymentLinkDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -43,11 +31,14 @@ export function PaymentLinkDetailPage() {
   const load = useCallback(async () => {
     if (!merchantId || !id) return;
     try {
-      const result = await listPaymentLinks(merchantId, { limit: LOOKUP_LIMIT });
-      const found = result.paymentLinks.find((link) => link.id === id);
-      setState(found ? { kind: "loaded", link: found } : { kind: "not_found" });
+      const link = await getMerchantPaymentLink(merchantId, id);
+      setState({ kind: "loaded", link });
     } catch (err) {
-      setState({ kind: "error", message: describeError(err) });
+      if (err instanceof ApiError && err.statusCode === 404) {
+        setState({ kind: "not_found" });
+      } else {
+        setState({ kind: "error", message: describeError(err) });
+      }
     }
   }, [merchantId, id]);
 
@@ -97,7 +88,7 @@ export function PaymentLinkDetailPage() {
       <section>
         <h1>Payment link not found</h1>
         <p>
-          This link is not among your {LOOKUP_LIMIT} most recent payment links.{" "}
+          No payment link with this id exists on your account.{" "}
           <Link to="/dashboard/payment-links">Back to payment links</Link>
         </p>
       </section>
