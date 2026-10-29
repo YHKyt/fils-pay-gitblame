@@ -87,6 +87,7 @@ export interface ImpersonationGrantLookup {
   adminUserId: string;
   merchantId: string;
   merchantRole: ImpersonationMerchantRole;
+  expiresAt: Date;
 }
 
 /**
@@ -106,8 +107,9 @@ export async function lookupImpersonationGrant(
     admin_user_id: string;
     merchant_id: string;
     admin_role: AdminUserRole;
+    expires_at: Date;
   }>(
-    `SELECT g.id, g.admin_user_id, g.merchant_id, au.role AS admin_role
+    `SELECT g.id, g.admin_user_id, g.merchant_id, g.expires_at, au.role AS admin_role
        FROM admin_impersonation_grants g
        JOIN admin_users au ON au.id = g.admin_user_id
       WHERE g.token_hash = $1
@@ -127,5 +129,6 @@ export async function lookupImpersonationGrant(
     adminUserId: row.admin_user_id,
     merchantId: row.merchant_id,
     merchantRole: "support",
+    expiresAt: row.expires_at,
   };
 }

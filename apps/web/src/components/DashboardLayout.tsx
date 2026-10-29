@@ -1,32 +1,35 @@
-import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useDashboardAuth } from "../auth/DashboardAuthContext.js";
 import { RequireRole } from "../auth/RequireRole.js";
-import { describeError } from "../api/client.js";
+import { dateTime } from "../format.js";
 import "../dashboard.css";
 
-/** Nav shell for every merchant dashboard screen. No impersonation banner
- *  here — nothing in the merchant plane impersonates anyone; when an admin
- *  "views as merchant", they arrive with a `support`-role session and see
- *  exactly what a support user sees. */
+/** Nav shell for every merchant dashboard screen. When an admin "views as
+ *  merchant", `me.impersonation` is set: a banner says so above everything,
+ *  and every role-gated (write) control is hidden, since the API refuses
+ *  all writes from a grant. */
 export function DashboardLayout() {
   const { me, signOut } = useDashboardAuth();
   const navigate = useNavigate();
-  const [error, setError] = useState<string | null>(null);
+  const impersonation = me?.impersonation;
 
-  // sign out clears the cookie server side, local merchantId stays — am
+  // signOut never throws: local state is cleared even when the API call
+  // fails, so the redirect always happens. (The remembered merchant id is
+  // kept on purpose — it is a login convenience, not a credential.)
   async function handleSignOut(): Promise<void> {
-    setError(null);
-    try {
-      await signOut();
-      navigate("/dashboard/login", { replace: true });
-    } catch (err) {
-      setError(describeError(err));
-    }
+    await signOut();
+    navigate("/dashboard/login", { replace: true });
   }
 
   return (
     <div className="dash-shell">
+      {impersonation ? (
+        <div className="dash-impersonation-banner" role="alert">
+          <strong>Admin view of {me?.merchant.displayName} (read only).</strong> This is an
+          impersonation grant expiring {dateTime(impersonation.expiresAt)}. Nothing can be changed
+          from here. End it with <strong>Exit impersonation</strong> in the admin console.
+        </div>
+      ) : null}
       <header className="dash-header">
         <div className="dash-brand">FilsPay</div>
         <nav className="dash-nav">
@@ -47,7 +50,8 @@ export function DashboardLayout() {
         <div className="dash-identity">
           {me ? (
             <span>
-              {me.email} <span className="dash-role-chip">{me.role}</span>
+              {me.email ?? "Admin (view as merchant)"}{" "}
+              <span className="dash-role-chip">{impersonation ? "read only" : me.role}</span>
               <span className="dash-muted"> · {me.merchant.displayName}</span>
             </span>
           ) : null}
@@ -57,11 +61,10 @@ export function DashboardLayout() {
         </div>
       </header>
 
-      {error ? <p className="dash-error">{error}</p> : null}
-
       <main className="dash-main">
         <Outlet />
       </main>
+      <footer className="dash-main dash-muted">All dates and times are Asia/Bahrain time (UTC+3).</footer>
     </div>
   );
 }

@@ -309,3 +309,11 @@
   min-width: 1px;
   background: #4a7ebb;
 }
+
+/* Admin "view as merchant" - must be impossible to miss. */
+.dash-impersonation-banner {
+  padding: 0.75rem 1.5rem;
+  background: #7a0016;
+  color: #fff;
+  border-bottom: 4px solid #ffcc00;
+}

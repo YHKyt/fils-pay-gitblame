@@ -25,7 +25,7 @@ const SEARCH_DEBOUNCE_MS = 300;
  * query param — nothing fetches an unfiltered page and narrows it in the
  * browser, which would both lie about the result count and break pagination.
  */
-// YA: from/to are UTC day starts, see dayStartIso
+// from/to are Asia/Bahrain day starts (business days), see dayStartIso
 export function TransactionListPage() {
   const [statuses, setStatuses] = useState<TransactionStatus[]>([]);
   const [from, setFrom] = useState("");
@@ -102,7 +102,7 @@ export function TransactionListPage() {
       <fieldset className="dash-filters">
         <legend>Filter</legend>
         <label>
-          From
+          From (Bahrain day)
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
         </label>
         <label>
@@ -110,7 +110,7 @@ export function TransactionListPage() {
               `occurred_at < to` — labelled rather than quietly shifted by a
               day here, which would make this page and the API disagree about
               what a filter means. */}
-          To (exclusive)
+          To (Bahrain day, exclusive)
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         </label>
         <label>

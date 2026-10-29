@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { getMerchant, listMerchants } from "../../api/merchants.js";
 import { replayBatch } from "../../api/webhooks.js";
 import { describeError } from "../../api/client.js";
+import { bahrainInputToIso, toBahrainInputValue } from "../../format.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import type {
   AdminMerchantDetail,
@@ -17,19 +18,13 @@ const SUPPORT_REPLAYABLE_STATUSES: WebhookDeliveryStatus[] = ["exhausted", "fail
  *  super_admin only (the API answers 403 to anyone else). */
 const FINANCE_REPLAYABLE_STATUSES: WebhookDeliveryStatus[] = ["pending", "succeeded"];
 
-/** `<input type="datetime-local">` wants a local-time `YYYY-MM-DDTHH:mm`
- *  string; the API wants ISO-8601 instants. Convert at both edges rather
- *  than making the operator think about timezones. */
-function toLocalInputValue(date: Date): string {
-  const offsetMs = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
-}
-
-// default window is local time — am
+/** `<input type="datetime-local">` holds a zone-less `YYYY-MM-DDTHH:mm`;
+ *  the API wants ISO-8601 instants. The inputs are Asia/Bahrain wall time
+ *  (the console's business timezone), converted at both edges. */
 function defaultRange(): { from: string; to: string } {
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  return { from: toLocalInputValue(weekAgo), to: toLocalInputValue(now) };
+  return { from: toBahrainInputValue(weekAgo), to: toBahrainInputValue(now) };
 }
 
 /**
@@ -94,14 +89,20 @@ export function WebhookReplayPage() {
   async function handleReplay(event: React.FormEvent): Promise<void> {
     event.preventDefault();
     if (!merchantId || !endpointId) return;
+    const from = bahrainInputToIso(range.from);
+    const to = bahrainInputToIso(range.to);
+    if (!from || !to) {
+      setError("From and To must be valid dates and times.");
+      return;
+    }
     setBusy(true);
     setError(null);
     setResult(null);
     try {
       setResult(
         await replayBatch(merchantId, endpointId, {
-          from: new Date(range.from).toISOString(),
-          to: new Date(range.to).toISOString(),
+          from,
+          to,
           statuses: statuses.length > 0 ? statuses : undefined,
         }),
       );
@@ -182,7 +183,7 @@ export function WebhookReplayPage() {
           </select>
         </label>
         <label>
-          From
+          From (Bahrain time)
           <input
             type="datetime-local"
             required
@@ -191,7 +192,7 @@ export function WebhookReplayPage() {
           />
         </label>
         <label>
-          To
+          To (Bahrain time)
           <input
             type="datetime-local"
             required

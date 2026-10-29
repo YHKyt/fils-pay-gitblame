@@ -7,20 +7,13 @@ import { issueCredit } from "../../api/credits.js";
 import { rotateApiKey } from "../../api/apiKeys.js";
 import { startImpersonation } from "../../api/impersonation.js";
 import { describeError, WEB_BASE_URL } from "../../api/client.js";
+import { bahrainDate, date, dateTime } from "../../format.js";
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import type { AdminMerchantDetail, CreditReasonCode, RotatedApiKey } from "../../types.js";
 
 function bhd(fils: number): string {
   return `${formatBhd(toFils(fils, { allowNegative: true }))} BHD`;
-}
-
-// browser local date not bahrain, fine for bahrain staff — am
-function todayIso(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
-    now.getDate(),
-  ).padStart(2, "0")}`;
 }
 
 export function MerchantDetailPage() {
@@ -47,7 +40,7 @@ export function MerchantDetailPage() {
   const [creditReason, setCreditReason] = useState<CreditReasonCode>("goodwill");
   const [creditMemo, setCreditMemo] = useState("");
   const [creditReverseFee, setCreditReverseFee] = useState(false);
-  const [creditEffectiveDate, setCreditEffectiveDate] = useState(todayIso());
+  const [creditEffectiveDate, setCreditEffectiveDate] = useState(() => bahrainDate());
 
   const [adjustDeltaFils, setAdjustDeltaFils] = useState("");
   const [adjustReason, setAdjustReason] = useState("");
@@ -267,13 +260,13 @@ export function MerchantDetailPage() {
         <dt>Current negotiated rate</dt>
         <dd>
           {detail.currentFeeSchedule
-            ? `${(detail.currentFeeSchedule.mdrBps / 100).toFixed(2)}% (${detail.currentFeeSchedule.mdrBps} bps), effective ${new Date(detail.currentFeeSchedule.effectiveFrom).toLocaleDateString()}`
+            ? `${(detail.currentFeeSchedule.mdrBps / 100).toFixed(2)}% (${detail.currentFeeSchedule.mdrBps} bps), effective ${date(detail.currentFeeSchedule.effectiveFrom)}`
             : "no negotiated schedule on file (uses MDR above)"}
         </dd>
         <dt>Mode</dt>
         <dd>{merchant.testMode ? "test" : "live"}</dd>
         <dt>Created</dt>
-        <dd>{new Date(merchant.createdAt).toLocaleString()}</dd>
+        <dd>{dateTime(merchant.createdAt)}</dd>
         {profile ? (
           <>
             <dt>Legal name</dt>
@@ -301,7 +294,7 @@ export function MerchantDetailPage() {
       {detail.balance ? (
         <p>
           Cached payable: <strong>{bhd(detail.balance.cachedPayableFils)}</strong> (updated{" "}
-          {new Date(detail.balance.updatedAt).toLocaleString()}). The ledger remains authoritative;
+          {dateTime(detail.balance.updatedAt)}). The ledger remains authoritative;
           this figure is a cache, rebuildable from Settlement ops.
         </p>
       ) : (
@@ -464,7 +457,7 @@ export function MerchantDetailPage() {
                 <td>{review.outcome}</td>
                 <td>{review.reviewerIdentifier}</td>
                 <td>{review.notes ?? "-"}</td>
-                <td>{new Date(review.reviewedAt).toLocaleString()}</td>
+                <td>{dateTime(review.reviewedAt)}</td>
               </tr>
             ))}
           </tbody>
@@ -512,9 +505,9 @@ export function MerchantDetailPage() {
                   <code>{key.prefix}</code>
                 </td>
                 <td>{key.label ?? "-"}</td>
-                <td>{new Date(key.createdAt).toLocaleDateString()}</td>
-                <td>{key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : "never"}</td>
-                <td>{key.revokedAt ? new Date(key.revokedAt).toLocaleString() : "-"}</td>
+                <td>{date(key.createdAt)}</td>
+                <td>{dateTime(key.lastUsedAt, "never")}</td>
+                <td>{dateTime(key.revokedAt)}</td>
                 <td>
                   {key.revokedAt ? null : (
                     <RequireRole
@@ -584,7 +577,7 @@ export function MerchantDetailPage() {
                 <td>
                   <code>{endpoint.secretPrefix}</code>
                 </td>
-                <td>{new Date(endpoint.createdAt).toLocaleDateString()}</td>
+                <td>{date(endpoint.createdAt)}</td>
               </tr>
             ))}
           </tbody>

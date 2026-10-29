@@ -1,7 +1,6 @@
-import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAdminAuth } from "../auth/AdminAuthContext.js";
-import { describeError, WEB_BASE_URL } from "../api/client.js";
+import { WEB_BASE_URL } from "../api/client.js";
 import { ImpersonationBanner } from "./ImpersonationBanner.js";
 
 /** Nav shell for every admin-plane screen: who you are signed in as, the
@@ -11,16 +10,17 @@ import { ImpersonationBanner } from "./ImpersonationBanner.js";
 export function AdminLayout() {
   const { admin, signOut, impersonation } = useAdminAuth();
   const navigate = useNavigate();
-  const [error, setError] = useState<string | null>(null);
 
+  // signOut drops local state even when the API call fails (its finally),
+  // so always leave for the login screen rather than strand the operator on
+  // a console whose session state is already gone.
   async function handleSignOut(): Promise<void> {
-    setError(null);
     try {
       await signOut();
-      navigate("/login", { replace: true });
     } catch (err) {
-      setError(describeError(err));
+      console.warn("admin logout request failed; local session cleared anyway", err);
     }
+    navigate("/login", { replace: true });
   }
 
   return (
@@ -48,8 +48,6 @@ export function AdminLayout() {
         </div>
       </header>
 
-      {error ? <p className="admin-error">{error}</p> : null}
-
       {impersonation ? (
         // An explicit "exit view-as-merchant" action is required before
         // admin-plane screens are shown again. This is a UX safeguard so the
@@ -72,6 +70,7 @@ export function AdminLayout() {
           <Outlet />
         </main>
       )}
+      <footer className="admin-main admin-muted">All dates and times are Asia/Bahrain time (UTC+3).</footer>
     </div>
   );
 }
