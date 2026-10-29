@@ -49,8 +49,26 @@ export function errorHandler(
     return;
   }
 
+  // Safety net for request input that reached SQL unvalidated: a
+  // non-UUID id (22P02 raised by string_to_uuid) or an unparseable
+  // timestamp (22007 / 22008). Routes validate these up front; this only
+  // keeps a missed one from reading as a crash. Deliberately narrow: 22P02
+  // from any other type (e.g. NaN into a bigint money column) is a server
+  // bug and stays a 500.
+  if (isPgInvalidInput(err)) {
+    request.log.warn({ err }, "invalid input reached the database");
+    reply.code(400).send({ error: "invalid_request", message: "a request parameter has an invalid format" });
+    return;
+  }
+
   request.log.error({ err, occurredOn: formatIsoDate(new Date()) }, "unhandled error");
   reply.code(500).send({ error: "internal_error" });
+}
+
+function isPgInvalidInput(err: unknown): boolean {
+  const { code, routine } = err as { code?: unknown; routine?: unknown };
+  if (code === "22007" || code === "22008") return true; // invalid_datetime_format / datetime_field_overflow
+  return code === "22P02" && routine === "string_to_uuid";
 }
 
 const FASTIFY_CLIENT_ERROR_CODES: Record<string, string> = {

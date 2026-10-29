@@ -4,6 +4,7 @@ import { runTransactionsReport, type TransactionReportFilter } from "../reportin
 import { resolveReportMerchantId } from "../reporting/scope.js";
 import { createSavedFilter, listSavedFilters } from "../reporting/savedFilters.js";
 import { BadRequestError } from "../lib/errors.js";
+import { isUuid } from "../lib/requestParams.js";
 
 interface ReportQuery {
   filter?: string;
@@ -12,6 +13,29 @@ interface ReportQuery {
 interface SaveFilterBody {
   name?: string;
   filter?: Record<string, unknown>;
+}
+
+/** Valid JSON is not yet a valid filter: `null`, an array, a non-string
+ *  field, a non-UUID merchantId or an unparseable from/to used to reach
+ *  the code or SQL below and come back as a 500. */
+function assertValidReportFilter(parsed: unknown): asserts parsed is Partial<TransactionReportFilter> {
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new BadRequestError("invalid_filter", "filter must be a JSON object");
+  }
+  const f = parsed as Record<string, unknown>;
+  for (const key of ["merchantId", "status", "from", "to"] as const) {
+    if (f[key] !== undefined && typeof f[key] !== "string") {
+      throw new BadRequestError("invalid_filter", `filter.${key} must be a string`);
+    }
+  }
+  if (f.merchantId !== undefined && f.merchantId !== "" && !isUuid(f.merchantId)) {
+    throw new BadRequestError("invalid_filter", "filter.merchantId must be a UUID");
+  }
+  for (const key of ["from", "to"] as const) {
+    if (f[key] && Number.isNaN(new Date(f[key] as string).getTime())) {
+      throw new BadRequestError("invalid_filter", `filter.${key} must be an ISO-8601 date-time`);
+    }
+  }
 }
 
 /**
@@ -32,6 +56,7 @@ export async function reportingRoutes(app: FastifyInstance): Promise<void> {
         } catch {
           throw new BadRequestError("invalid_filter", "filter must be valid JSON");
         }
+        assertValidReportFilter(parsed);
       }
 
       const merchantId = await resolveReportMerchantId(
