@@ -3,15 +3,18 @@ import type { Config } from "../config.js";
 import { randomToken } from "../lib/crypto.js";
 import { BadRequestError } from "../lib/errors.js";
 import { decodeEncryptionKey, encryptSecret } from "./secretCrypto.js";
+import { isBlockedHostname } from "./urlPolicy.js";
 
 /**
  * Validates a webhook endpoint URL: must parse as an absolute URL with
  * scheme http/https; https is required once config.nodeEnv === 'production'
  * (http is permitted otherwise so a local http.createServer test receiver
- * and a merchant's own localhost dev setup both work).
+ * and a merchant's own localhost dev setup both work). In production the
+ * host must also be public: loopback/private/link-local (cloud metadata)
+ * IP literals and single-label/internal names are rejected (SSRF) — https
+ * alone is not SSRF protection. Names that resolve to private addresses are
+ * refused at send time by the transport.
  */
-// MK: https-only in prod is our SSRF protection
-// used to block localhost in dev too, removed for the local receiver — am
 export function validateWebhookUrl(rawUrl: string, config: Pick<Config, "nodeEnv">): URL {
   let parsed: URL;
   try {
@@ -24,6 +27,9 @@ export function validateWebhookUrl(rawUrl: string, config: Pick<Config, "nodeEnv
   }
   if (config.nodeEnv === "production" && parsed.protocol !== "https:") {
     throw new BadRequestError("invalid_url");
+  }
+  if (config.nodeEnv === "production" && (isBlockedHostname(parsed.hostname) || parsed.username || parsed.password)) {
+    throw new BadRequestError("invalid_url", "webhook url must point at a public host");
   }
   return parsed;
 }
