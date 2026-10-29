@@ -249,12 +249,36 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 
 	for i, line := range lines {
 		truncated := TruncateToSchemeAmount(line.grossFils)
+		// `amount` is the 2-decimal BD value the scheme file sends. ADR-0002:
+		// it must be exactly amount_fils / 1000. It used to be the untruncated
+		// gross as a float64 (SchemeAmountBD), which Postgres rounded half-up
+		// into numeric(10,2) — 4747 fils went out as 4.75 while we booked
+		// 4740. Rounded >= truncated on every line, so the scheme statement
+		// was always a few fils over ours, never under (Finance, Evidence 02).
 		_, err = tx.Exec(ctx, `
 			INSERT INTO scheme_export_lines (settlement_batch_id, transaction_id, amount_fils, amount, line_sequence)
-			VALUES ($1, $2, $3, $4, $5)
-		`, batchID, line.transactionID, int64(truncated), SchemeAmountBD(line.grossFils), i+1)
+			VALUES ($1, $2, $3, $4::text::numeric(10,2), $5)
+		`, batchID, line.transactionID, int64(truncated), formatFilsAsTwoDecimalString(truncated), i+1)
 		if err != nil {
 			return BatchResult{}, fmt.Errorf("settlement: CloseBatch: insert scheme export line: %w", err)
+		}
+
+		// ADR-0002 option A: journal the 0-9 fils truncated off this line,
+		// which the scheme will never pay, out of card_scheme_clearing into
+		// the scheme_rounding_residue suspense account. The ADR is marked
+		// implemented but nothing posted it, so the residue sat unexplained
+		// in clearing and the ledger could not tie to the scheme statement.
+		if residue := line.grossFils - truncated; residue > 0 {
+			_, err = tx.Exec(ctx, `
+				INSERT INTO ledger_entries
+				  (entry_group_id, merchant_id, transaction_id, settlement_batch_id, account_id, direction, amount_fils, occurred_at, description)
+				VALUES
+				  ($1, $2, $3, $4, 'card_scheme_clearing',    'credit', $5, now(), 'scheme export: rounding residue'),
+				  ($1, $2, $3, $4, 'scheme_rounding_residue', 'debit',  $5, now(), 'scheme export: rounding residue')
+			`, uuid.New(), merchantID, line.transactionID, batchID, int64(residue))
+			if err != nil {
+				return BatchResult{}, fmt.Errorf("settlement: CloseBatch: post scheme rounding residue: %w", err)
+			}
 		}
 	}
 
