@@ -6,6 +6,7 @@ import {
   listCreditRequests,
   rejectCreditRequest,
 } from "../admin/credits.js";
+import { readIdempotencyKeyHeader } from "../admin/adminIdempotency.js";
 import { UUID_RE } from "../admin/merchants.js";
 import { NotFoundError, UnauthorizedError } from "../lib/errors.js";
 
@@ -66,11 +67,13 @@ export async function adminCreditRoutes(app: FastifyInstance): Promise<void> {
         if (!adminAuth) throw new UnauthorizedError("unauthenticated");
 
         assertUuidParam(request.params.id, "merchant_not_found");
+        const idempotencyKey = readIdempotencyKeyHeader(request);
 
         const record = await createCreditRequest(app.db, {
           merchantId: request.params.id,
           adminUserId: adminAuth.adminUserId,
           body: request.body,
+          idempotencyKey,
         });
         reply.code(201).send(record);
       },

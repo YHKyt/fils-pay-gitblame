@@ -3,6 +3,8 @@ import { toFils, type Fils } from "@filspay/money";
 import { insertAdminAuditLog } from "../adminAudit/log.js";
 import { withTransaction } from "../db/withTransaction.js";
 import { NotFoundError } from "../lib/errors.js";
+import { completeIdempotencyKey } from "../payments/idempotency.js";
+import { claimAdminIdempotencyKey } from "./adminIdempotency.js";
 import { postLedgerAdjustment } from "./ledgerAdjustments.js";
 
 export interface BalanceAdjustmentInput {
@@ -11,6 +13,9 @@ export interface BalanceAdjustmentInput {
   /** A correction can go either way, so this is a signed delta. */
   deltaFils: Fils;
   reason: string;
+  /** With a key (the console always sends one), a retry with the same key and
+   *  body returns the first result and moves nothing; see claimAdminIdempotencyKey. */
+  idempotencyKey?: string;
 }
 
 /** Before/after are read under the same row lock as the UPDATE, so the pair is exact. */
@@ -35,6 +40,22 @@ export async function applyBalanceCorrection(
     if (!row) {
       throw new NotFoundError("merchant_balance_not_found");
     }
+
+    let idempotencyClaimId: string | null = null;
+    if (input.idempotencyKey !== undefined) {
+      const claim = await claimAdminIdempotencyKey(client, {
+        adminUserId: input.adminUserId,
+        merchantId: input.merchantId,
+        endpoint: "admin.balance_adjustments.create",
+        key: input.idempotencyKey,
+        request: { deltaFils: input.deltaFils, reason: input.reason },
+      });
+      if ("replay" in claim) {
+        return claim.replay as BalanceAdjustmentResult;
+      }
+      idempotencyClaimId = claim.claimId;
+    }
+
     const before = toFils(Number(row.cached_payable_fils), { allowNegative: true });
 
     const updated = await client.query<{ cached_payable_fils: string }>(
@@ -54,12 +75,16 @@ export async function applyBalanceCorrection(
       metadata: { deltaFils: input.deltaFils, reason: input.reason, before, after },
     });
 
-    return {
+    const result: BalanceAdjustmentResult = {
       merchantId: input.merchantId,
       deltaFils: input.deltaFils,
       cachedPayableFilsBefore: before,
       cachedPayableFilsAfter: after,
     };
+    if (idempotencyClaimId !== null) {
+      await completeIdempotencyKey(client, idempotencyClaimId, { statusCode: 200, body: result });
+    }
+    return result;
   });
 }
 

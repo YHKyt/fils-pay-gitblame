@@ -84,4 +84,66 @@ as a manual credit would wait for a second approver, because credits above 50.00
     on approve).
   - Fail-before: with the old `adjustmentImport.ts`, the old route and the old `log.ts`, the
     first four of these fail (`201 !== 409`, `expected: 'pending_approval'`, `403` vs `404`).
-    With the fix, all 28 import tests pass.
+    With the fix, all 27 import tests pass (16 route tests, 11 unit tests).
+
+## Issue credit and adjust balance post twice when retried — Medium
+
+**Where:** `apps/api/src/admin/credits.ts` (`createCreditRequest`),
+`apps/api/src/admin/balanceAdjustments.ts` (`applyBalanceCorrection`), their routes
+`routes/adminCredits.ts` and `routes/adminBalanceAdjustments.ts`, and the two submit
+handlers in `apps/admin/src/pages/merchants/MerchantDetailPage.tsx`.
+
+**Evidence:** a finance admin issues a 40 BD credit; the response is lost (timeout, proxy
+reset) and they press the button again, or a client retries. On the old code both requests
+return `201` with two different credit ids: two `credit_requests` rows, two ledger groups,
+and the cache at 80,000 fils for a 40 BD credit. The same retry of a balance adjustment
+moves the cache twice. Two simultaneous submits do the same.
+
+- **What:** the two admin actions that move money had no idempotency at all. The merchant
+  API protects authorize, capture and refunds with an `Idempotency-Key`; the admin plane
+  had nothing, and the console sent nothing that could tell a retry from a new request.
+- **Why:** a request that times out may or may not have been applied. Without a key the
+  server cannot know that the second request is the same intent, so it does the work again.
+  The UI also clears the form only on success, so a failed-looking credit invites a resubmit.
+- **Breaks:** a merchant is credited twice (real money paid out at the next settlement) and
+  the audit log shows two deliberate actions. Below the 50 BD approval limit nobody else
+  reviews it, so the duplicate goes straight to the ledger.
+- **Fix:**
+  - **Server.** Both routes read an optional `Idempotency-Key` header
+    (`admin/adminIdempotency.ts`). The key is claimed in the *same* transaction that posts the
+    money, through the platform's existing `claimIdempotencyKey` / `completeIdempotencyKey`
+    and `idempotency_keys` table (called, not changed). The scope is
+    (merchant, `admin.credits.create` or `admin.balance_adjustments.create`,
+    `<admin user id>:<key>`), so a key is private to the admin who sent it: one admin can
+    never replay, or collide with, another admin's action. The request hash covers the body,
+    so the same key with a different amount is `422 idempotency_key_reused`. A completed key
+    replays the stored response (same status, same body, same credit id) and writes nothing:
+    no new credit row, ledger group, cache move or audit row. A concurrent duplicate blocks on
+    the unique index until the first commits, then replays it. Because claim and posting
+    commit or roll back together, a request that failed leaves no claim and its retry runs
+    fresh. An empty or over-long key is `400 invalid_idempotency_key`.
+  - **Console.** Each form keeps one attempt (`utils/idempotencyIntent.ts`, the same helper
+    the merchant dashboard uses for refunds): a re-submit of the same merchant and body after
+    a network error, a 5xx, a 429 or `409 request_in_progress` reuses the key; a success or a
+    definitive 4xx clears it, and any change to the inputs mints a new key.
+  - **Design choice: the header is optional.** Requiring it would break any existing client
+    or script that calls these admin routes today. With no key the behaviour is exactly as
+    before; the console, which is the client that actually retries, always sends one.
+    Making it required later is a one-line change in `readIdempotencyKeyHeader`.
+  - **Smallest change:** no migration and no new table; `payments/idempotency.ts` is reused
+    as is. The money logic of both actions (four-eyes by admin id, effective date, fee
+    reversal at the effective rate) is untouched; the claim sits right after the merchant is
+    found and the response is stored right before commit.
+- **Test:** `apps/api/src/routes/adminCredits.test.ts` and
+  `apps/api/src/routes/adminBalanceAdjustments.test.ts`, plus
+  `apps/admin/src/utils/idempotencyIntent.test.ts` for the console rule.
+  - *a retried credit with the same Idempotency-Key posts once and replays the first
+    response*: one credit row, one ledger group, cache 40,000 fils, one audit row.
+  - *two concurrent credits with the same Idempotency-Key post once*: both `201`, same id.
+  - *a key reused for another amount is a 422, a key is private to its admin, and a bad key
+    is a 400*.
+  - *a retried adjustment with the same Idempotency-Key moves the balance once* and
+    *reusing an adjustment key for a different delta is a 422 and moves nothing*.
+  - Fail-before: with the old `credits.ts`, `balanceAdjustments.ts` and both old routes, these
+    five fail (two different credit ids for one key; `422` expected, `200` / `201` actual).
+    With the fix all 26 tests in the two route files pass.

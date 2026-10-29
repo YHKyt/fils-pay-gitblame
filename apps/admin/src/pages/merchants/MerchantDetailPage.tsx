@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { formatBhd, parseBhdToFils, toFils } from "@filspay/money";
 import { getMerchant, recomputeTransactionStatuses, submitKycReview } from "../../api/merchants.js";
@@ -8,6 +8,7 @@ import { rotateApiKey } from "../../api/apiKeys.js";
 import { startImpersonation } from "../../api/impersonation.js";
 import { describeError, WEB_BASE_URL } from "../../api/client.js";
 import { bahrainDate, date, dateTime } from "../../format.js";
+import { attemptFor, isDefinitiveFailure, type IdempotentAttempt } from "../../utils/idempotencyIntent.js";
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import type { AdminMerchantDetail, CreditReasonCode, RotatedApiKey } from "../../types.js";
@@ -44,6 +45,12 @@ export function MerchantDetailPage() {
 
   const [adjustDeltaFils, setAdjustDeltaFils] = useState("");
   const [adjustReason, setAdjustReason] = useState("");
+
+  /** The unresolved credit / adjustment attempt, if any: a retry of the same
+   *  request after a timeout or 5xx reuses its Idempotency-Key, so the server
+   *  replays the first result instead of posting the money twice. */
+  const creditAttempt = useRef<IdempotentAttempt | null>(null);
+  const adjustAttempt = useRef<IdempotentAttempt | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -113,11 +120,15 @@ export function MerchantDetailPage() {
       setActionError("Enter a non-zero whole number of fils.");
       return;
     }
+    const input = { deltaFils, reason: adjustReason.trim() };
+    const attempt = attemptFor(adjustAttempt.current, JSON.stringify([id, input]));
+    adjustAttempt.current = attempt;
     setBusy(true);
     setActionError(null);
     setNotice(null);
     try {
-      const result = await adjustBalance(id, { deltaFils, reason: adjustReason.trim() });
+      const result = await adjustBalance(id, input, attempt.key);
+      adjustAttempt.current = null;
       setNotice(
         `Balance adjusted by ${bhd(result.deltaFils)}: ${bhd(
           result.cachedPayableFilsBefore,
@@ -127,6 +138,7 @@ export function MerchantDetailPage() {
       setAdjustReason("");
       await load();
     } catch (err) {
+      if (adjustAttempt.current === attempt && isDefinitiveFailure(err)) adjustAttempt.current = null;
       setActionError(describeError(err));
     } finally {
       setBusy(false);
@@ -139,17 +151,22 @@ export function MerchantDetailPage() {
     setBusy(true);
     setActionError(null);
     setNotice(null);
+    let attempt: IdempotentAttempt | null = null;
     try {
       // BD in, integer fils out, via the platform's own string-based parser —
       // never parseFloat, which cannot represent the third decimal exactly.
       const baseAmountFils = parseBhdToFils(creditAmountBhd);
-      const record = await issueCredit(id, {
+      const input = {
         baseAmountFils,
         reasonCode: creditReason,
         effectiveDate: creditEffectiveDate,
         reverseFee: creditReverseFee,
         memo: creditMemo.trim() ? creditMemo.trim() : undefined,
-      });
+      };
+      attempt = attemptFor(creditAttempt.current, JSON.stringify([id, input]));
+      creditAttempt.current = attempt;
+      const record = await issueCredit(id, input, attempt.key);
+      creditAttempt.current = null;
       setNotice(
         record.status === "posted"
           ? `Credit of ${bhd(record.postedAmountFils)} posted to the ledger (entry group ${
@@ -162,6 +179,7 @@ export function MerchantDetailPage() {
       setCreditReverseFee(false);
       await load();
     } catch (err) {
+      if (attempt && creditAttempt.current === attempt && isDefinitiveFailure(err)) creditAttempt.current = null;
       setActionError(err instanceof RangeError ? err.message : describeError(err));
     } finally {
       setBusy(false);
