@@ -1576,6 +1576,53 @@ test("a settlement action whose audit row cannot be written never makes the call
   assert.equal(settlementSpy.rebuildCalls, 0, "an unloggable action must be BLOCKED, not merely unlogged");
 });
 
+test("cross-process admin actions: the pre-call audit row says 'requested', never 'succeeded', until the call returns", async () => {
+  const admin = await signedInAdmin("finance", "audit-requested");
+  const { merchantId } = await createMerchant("audit-requested");
+  const outcomeNow = async (action: string) => {
+    const rows = await pool.query<{ outcome: string }>(
+      `SELECT outcome FROM admin_audit_log WHERE admin_user_id = $1 AND action = $2`,
+      [admin.id, action],
+    );
+    return rows.rows.map((r) => r.outcome);
+  };
+
+  const seen: Record<string, string[]> = {};
+  settlementSpy.runBatchImpl = async () => {
+    seen.settlement_run_batch = await outcomeNow("settlement_run_batch");
+    return { businessDate: "2026-09-09", merchantResults: [] };
+  };
+  settlementSpy.rebuildImpl = async () => {
+    seen.balance_rebuild = await outcomeNow("balance_rebuild");
+    return { rebuiltCount: 0, changed: [] };
+  };
+  settlementSpy.recalcMdrImpl = async () => {
+    seen.mdr_recalculation = await outcomeNow("mdr_recalculation");
+    return { batchesConsidered: 0, adjusted: [] };
+  };
+  try {
+    for (const [url, payload] of [
+      ["/v1/admin/settlement/run-batch", { date: "2026-09-09" }],
+      ["/v1/admin/balances/rebuild", {}],
+      [`/v1/admin/merchants/${merchantId}/mdr-recalculation`, { from: "2026-09-01", to: "2026-09-02" }],
+    ] as const) {
+      const res = await app.inject({ method: "POST", url, headers: { cookie: admin.cookie }, payload });
+      assert.equal(res.statusCode, 200, res.body);
+    }
+  } finally {
+    settlementSpy.runBatchImpl = async () => ({ businessDate: "2026-09-09", merchantResults: [] });
+    settlementSpy.rebuildImpl = async () => ({ rebuiltCount: 0, changed: [] });
+    settlementSpy.recalcMdrImpl = async () => ({ batchesConsidered: 0, adjusted: [] });
+  }
+
+  // While the call is in flight (and forever, if the process dies or the
+  // outcome update fails) nothing has confirmed success.
+  for (const action of ["settlement_run_batch", "balance_rebuild", "mdr_recalculation"]) {
+    assert.deepEqual(seen[action], ["requested"], `${action} during the call`);
+    assert.deepEqual(await outcomeNow(action), ["succeeded"], `${action} after the call returned`);
+  }
+});
+
 test("cookieValue helper sanity: the impersonation and admin cookies are genuinely different tokens", async () => {
   const admin = await signedInAdmin("support", "cookie-sanity");
   const { merchantId } = await createMerchant("cookie-sanity");

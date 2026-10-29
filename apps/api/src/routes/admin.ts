@@ -129,6 +129,7 @@ export async function adminRoutes(app: FastifyInstance, options: AdminRoutesOpti
           targetType: merchantId ? "merchant" : "platform",
           targetId: merchantId ?? null,
           metadata: { date, merchantId: merchantId ?? null },
+          outcome: "requested",
         }),
       );
 
@@ -181,6 +182,7 @@ export async function adminRoutes(app: FastifyInstance, options: AdminRoutesOpti
           targetType: "platform",
           targetId: null,
           metadata: {},
+          outcome: "requested",
         }),
       );
 
@@ -284,6 +286,7 @@ export async function adminRoutes(app: FastifyInstance, options: AdminRoutesOpti
           targetType: "merchant",
           targetId: request.params.id,
           metadata: { from, to },
+          outcome: "requested",
         }),
       );
 
