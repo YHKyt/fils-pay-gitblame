@@ -300,8 +300,9 @@ export async function getReconciliationReport(
           AND status IN ('closed', 'paid')`,
       [input.merchantId, input.from, input.to],
     ),
-    pool.query<{ amount_fils: string | number; fee_fils: string | null }>(
-      `SELECT te.amount_fils, te.metadata->>'feeFils' AS fee_fils
+    pool.query<{ amount_fils: string | number; fee_fils: string | null; discount_applied: boolean }>(
+      `SELECT te.amount_fils, te.metadata->>'feeFils' AS fee_fils,
+              COALESCE(te.metadata ? 'discountBps', false) AS discount_applied
          FROM transaction_events te
          JOIN transactions t ON t.id = te.transaction_id
         WHERE t.merchant_id = $1 AND te.event_type IN ('captured', 'partially_captured')
@@ -331,8 +332,12 @@ export async function getReconciliationReport(
       row.fee_fils !== null && row.fee_fils !== undefined
         ? Number(row.fee_fils)
         : Number(applyRateFils(toFils(amountFils), mdrBps));
-    // Mirrors applyCaptureDiscountAdjustment's merchant_payable credit.
-    const discountFils = discountBps > 0 && feeFils > 0 ? Number(applyRateFils(toFils(feeFils), discountBps)) : 0;
+    // Events that carry discountBps recorded the fee net of the negotiated
+    // discount (capture.ts books it in the same transaction). Older events
+    // recorded the pre-discount fee, and a separate adjustment credited the
+    // merchant applyRateFils(fee, discountBps) afterwards — mirror that.
+    const discountFils =
+      !row.discount_applied && discountBps > 0 && feeFils > 0 ? Number(applyRateFils(toFils(feeFils), discountBps)) : 0;
     pendingUnbatchedFils += amountFils - feeFils + discountFils;
   }
 

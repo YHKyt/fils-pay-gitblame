@@ -4,7 +4,6 @@ import { requireApiKey } from "../apiKeys/verify.js";
 import { requireMerchantAuth, requireMerchantRole, requireMerchantWriterActor } from "../auth/requireMerchantAuth.js";
 import { authorizeTransaction, type AuthorizeInput } from "../payments/authorize.js";
 import { captureTransaction } from "../payments/capture.js";
-import { applyCaptureDiscountAdjustment } from "../payments/discountAdjustment.js";
 import { voidTransaction } from "../payments/void.js";
 import { openTransactionsExportStream } from "../transactions/exportCsv.js";
 import { getTransactionById, listTransactions } from "../transactions/query.js";
@@ -104,15 +103,6 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
         idempotencyKey,
         actor: requireMerchantWriterActor(request.merchantAuth!),
       });
-      // discount applied after capture commits, separate txn. on a replayed 200 this runs again
-      // but the count guard makes it a no-op — MK 2026-06
-      // am: and if this throws, the capture is committed but the discount never lands? retry = replay = ...
-      if (result.statusCode === 200) {
-        await applyCaptureDiscountAdjustment(app.db, {
-          merchantId: request.merchantAuth!.merchantId,
-          transactionId: request.params.id,
-        });
-      }
       reply.code(result.statusCode).send(result.body);
     },
   );

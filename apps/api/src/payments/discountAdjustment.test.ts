@@ -1,13 +1,20 @@
 /**
- * Tests for the negotiated-discount capture adjustment, against a real,
- * migrated Postgres (no DB mocking) — same as transactions.test.ts and
- * settlement.test.ts.
+ * Negotiated discount at capture, against a real, migrated Postgres (no DB
+ * mocking). The discount reduces the amount the MDR is charged on
+ * (docs/ARCHITECTURE.md, apps/settlement ComputeSettlementFee) and is booked
+ * inside captureTransaction, so every capture path — the merchant capture
+ * route and the payment-link checkout — gets it exactly once per capture.
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { Pool } from "pg";
-import { applyCaptureDiscountAdjustment } from "./discountAdjustment.js";
+import type { AcquirerSimulator } from "../acquirer/types.js";
+import { buildApp } from "../app.js";
+import { loadConfig } from "../config.js";
+import { issueApiKey } from "../apiKeys/issue.js";
+import { recordKycReview } from "../onboarding/review.js";
+import { payPaymentLink } from "../paymentLinks/pay.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -16,111 +23,157 @@ if (!databaseUrl) {
   );
 }
 
-const pool = new Pool({ connectionString: databaseUrl, max: 5 });
+const config = loadConfig({
+  DATABASE_URL: databaseUrl,
+  NODE_ENV: "test",
+  INTERNAL_API_TOKEN: "test-internal-token",
+  ACQUIRER_FAILURE_RATE: "0",
+  ACQUIRER_LATENCY_MIN_MS: "0",
+  ACQUIRER_LATENCY_MAX_MS: "1",
+  WEBHOOK_SECRET_ENCRYPTION_KEY: "Y1ZTGTcYbe30GZJebys9w7T3OYZNKewuOH3SUCEdRQk=",
+});
+
+const pool = new Pool({ connectionString: databaseUrl, max: 10 });
+const app = buildApp(config, pool);
 
 test.after(async () => {
+  await app.close();
   await pool.end();
 });
 
-async function seedCapturedTransaction(opts: {
-  mdrBps: number;
-  discountBps: number;
-  capturedFils: number;
-  feeFils: number;
-}): Promise<{ merchantId: string; transactionId: string }> {
-  const merchantResult = await pool.query<{ id: string }>(
-    `INSERT INTO merchants (display_name, mdr_bps, negotiated_discount_bps)
-     VALUES ($1, $2, $3) RETURNING id`,
-    [`Discount Test ${randomUUID()}`, opts.mdrBps, opts.discountBps],
-  );
-  const merchantId = merchantResult.rows[0]!.id;
+const VALID_CARD = { pan: "4242424242424242", expiryMonth: 12, expiryYear: 2030, cvv: "123" };
 
-  const txnResult = await pool.query<{ id: string }>(
-    `INSERT INTO transactions (merchant_id, status, amount_fils, captured_fils, acquirer_reference)
-     VALUES ($1, 'captured', $2, $2, $3) RETURNING id`,
-    [merchantId, opts.capturedFils, `acq_${randomUUID()}`],
-  );
-  const transactionId = txnResult.rows[0]!.id;
+const approvingAcquirer: AcquirerSimulator = {
+  async authorize() {
+    return { outcome: "approved", acquirerReference: `acq_${randomUUID()}`, latencyMs: 0 };
+  },
+  async capture(req) {
+    return { outcome: "approved", acquirerReference: req.acquirerReference, latencyMs: 0 };
+  },
+  async refund(req) {
+    return { outcome: "approved", acquirerReference: req.acquirerReference, latencyMs: 0 };
+  },
+};
 
-  await pool.query(
-    `INSERT INTO transaction_events (transaction_id, event_type, amount_fils, actor_type, metadata)
-     VALUES ($1, 'captured', $2, 'system', $3)`,
-    [transactionId, opts.capturedFils, JSON.stringify({ feeFils: opts.feeFils })],
+async function merchant(mdrBps: number, discountBps: number) {
+  const m = await pool.query<{ id: string }>(
+    `INSERT INTO merchants (display_name, mdr_bps, negotiated_discount_bps) VALUES ($1, $2, $3) RETURNING id`,
+    [`Discount Test ${randomUUID()}`, mdrBps, discountBps],
   );
-
-  return { merchantId, transactionId };
+  const merchantId = m.rows[0]!.id;
+  const u = await pool.query<{ id: string }>(
+    `INSERT INTO merchant_users (merchant_id, email, role, password_hash)
+     VALUES ($1, $2, 'owner', 'unused') RETURNING id`,
+    [merchantId, `owner-${randomUUID()}@example.test`],
+  );
+  await recordKycReview(pool, { merchantId, outcome: "approved", reviewerIdentifier: "test" });
+  const rawKey = (await issueApiKey(pool, config, { merchantId, createdBy: u.rows[0]!.id, label: "t" })).rawKey;
+  return { merchantId, rawKey };
 }
 
-async function adjustmentLegs(transactionId: string): Promise<Array<{ account_id: string; direction: string; amount_fils: string }>> {
-  const result = await pool.query<{ account_id: string; direction: string; amount_fils: string }>(
-    `SELECT account_id, direction, amount_fils FROM ledger_entries
-      WHERE transaction_id = $1 AND description = 'capture: negotiated discount adjustment'
-      ORDER BY account_id`,
+async function authorize(rawKey: string, amountFils: number): Promise<string> {
+  const res = await app.inject({
+    method: "POST",
+    url: "/v1/transactions",
+    headers: { authorization: `Bearer ${rawKey}`, "idempotency-key": randomUUID() },
+    payload: { amountFils, card: VALID_CARD },
+  });
+  assert.equal(res.statusCode, 201, res.body);
+  return (res.json() as { id: string }).id;
+}
+
+function capture(rawKey: string, transactionId: string, payload: { amountFils?: number } = {}) {
+  return app.inject({
+    method: "POST",
+    url: `/v1/transactions/${transactionId}/capture`,
+    headers: { authorization: `Bearer ${rawKey}`, "idempotency-key": randomUUID() },
+    payload,
+  });
+}
+
+/** Net fee the platform kept on a transaction (fee credits less any debits). */
+async function netPlatformFee(transactionId: string): Promise<number> {
+  const r = await pool.query<{ net: string }>(
+    `SELECT COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END), 0)::text AS net
+       FROM ledger_entries WHERE transaction_id = $1 AND account_id = 'platform_fee_revenue'`,
     [transactionId],
   );
-  return result.rows;
+  return Number(r.rows[0]!.net);
 }
 
-/** Fee first, then discount: 602 fils @ 275 bps = 17 fils fee; 12.5% of 17 rounds to 2. */
-test("posts a rebate leg pair sized by the discount applied to the fee already charged", async () => {
-  // 602 fils captured at 275bps MDR charges 17 fils; a 1250bps negotiated
-  // discount rebates bankersRoundDiv(17*1250, 10000) = 2 fils, leaving the
-  // merchant charged 15 fils net.
-  const { merchantId, transactionId } = await seedCapturedTransaction({
-    mdrBps: 275,
-    discountBps: 1250,
-    capturedFils: 602,
-    feeFils: 17,
-  });
+async function assertBalanced(transactionId: string): Promise<void> {
+  const r = await pool.query<{ entry_group_id: string; debits: string; credits: string }>(
+    `SELECT entry_group_id,
+            SUM(CASE WHEN direction = 'debit' THEN amount_fils ELSE 0 END)::text AS debits,
+            SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE 0 END)::text AS credits
+       FROM ledger_entries WHERE transaction_id = $1 GROUP BY entry_group_id`,
+    [transactionId],
+  );
+  assert.ok(r.rows.length > 0);
+  for (const g of r.rows) assert.equal(g.debits, g.credits, `group ${g.entry_group_id} unbalanced`);
+}
 
-  await applyCaptureDiscountAdjustment(pool, { merchantId, transactionId });
+test("the discount reduces the amount the MDR is charged on: 602 fils @ 275 bps, 12.5% off = 14 fils", async () => {
+  // Discount first: 602 - round(602 * 12.5%) = 602 - 75 = 527; 527 @ 2.75% =
+  // 14.49 -> 14. (Fee first, as before: 17 - round(17 * 12.5%) = 15.)
+  const { rawKey } = await merchant(275, 1250);
+  const txnId = await authorize(rawKey, 602);
+  const res = await capture(rawKey, txnId);
+  assert.equal(res.statusCode, 200, res.body);
 
-  const legs = await adjustmentLegs(transactionId);
-  assert.deepEqual(legs, [
-    { account_id: "merchant_payable", direction: "credit", amount_fils: "2" },
-    { account_id: "platform_fee_revenue", direction: "debit", amount_fils: "2" },
-  ]);
+  assert.equal(await netPlatformFee(txnId), 14);
+  const ev = await pool.query<{ fee: string }>(
+    `SELECT metadata->>'feeFils' AS fee FROM transaction_events
+      WHERE transaction_id = $1 AND event_type IN ('captured', 'partially_captured')`,
+    [txnId],
+  );
+  assert.deepEqual(ev.rows.map((r) => Number(r.fee)), [14]);
+  await assertBalanced(txnId);
 });
 
-test("a merchant with no negotiated discount produces no rows at all", async () => {
-  const { merchantId, transactionId } = await seedCapturedTransaction({
-    mdrBps: 275,
-    discountBps: 0,
-    capturedFils: 602,
-    feeFils: 17,
-  });
-
-  await applyCaptureDiscountAdjustment(pool, { merchantId, transactionId });
-
-  assert.deepEqual(await adjustmentLegs(transactionId), []);
+test("a merchant with no negotiated discount is charged the plain MDR", async () => {
+  const { rawKey } = await merchant(275, 0);
+  const txnId = await authorize(rawKey, 602);
+  assert.equal((await capture(rawKey, txnId)).statusCode, 200);
+  assert.equal(await netPlatformFee(txnId), 17); // 602 @ 2.75% = 16.555 -> 17
+  await assertBalanced(txnId);
 });
 
-test("a fee that rounds the discount down to zero posts nothing", async () => {
-  // 7 fils of fee at 100bps rebates bankersRoundDiv(700, 10000) = 0 fils —
-  // ledger_entries has a CHECK (amount_fils > 0), so no leg is written.
-  const { merchantId, transactionId } = await seedCapturedTransaction({
-    mdrBps: 275,
-    discountBps: 100,
-    capturedFils: 250,
-    feeFils: 7,
+test("a payment-link capture gets the negotiated discount too", async () => {
+  const { merchantId } = await merchant(275, 1250);
+  const token = `disc-${randomUUID()}`;
+  await pool.query(
+    `INSERT INTO payment_links (merchant_id, token, amount_fils, expires_at, created_by_type, created_by_id)
+     VALUES ($1, $2, 602, now() + interval '1 hour', 'merchant_api_key', gen_random_uuid())`,
+    [merchantId, token],
+  );
+  const result = await payPaymentLink(pool, approvingAcquirer, { paymentLinkReservationTimeoutSeconds: 60 }, {
+    token,
+    card: VALID_CARD,
+    idempotencyKey: randomUUID(),
   });
+  assert.equal(result.statusCode, 200, JSON.stringify(result.body));
+  const txnId = (result.body as { transactionId: string }).transactionId;
 
-  await applyCaptureDiscountAdjustment(pool, { merchantId, transactionId });
-
-  assert.deepEqual(await adjustmentLegs(transactionId), []);
+  assert.equal(await netPlatformFee(txnId), 14);
+  await assertBalanced(txnId);
 });
 
-// this is the FP-219 regression test — FH
-test("re-running against the same capture event does not rebate the fee twice", async () => {
-  const { merchantId, transactionId } = await seedCapturedTransaction({
-    mdrBps: 275,
-    discountBps: 1250,
-    capturedFils: 602,
-    feeFils: 17,
-  });
+test("concurrent partial captures each get their own discount, booked once", async () => {
+  // 12,000 + 8,000 at 250 bps with 10% off: (12,000 - 1,200) @ 2.5% = 270 and
+  // (8,000 - 800) @ 2.5% = 180, so 450 in total — never 440/460 from one
+  // capture's discount being applied twice and the other's never.
+  const { rawKey } = await merchant(250, 1000);
+  for (let i = 0; i < 5; i++) {
+    const txnId = await authorize(rawKey, 20_000);
+    const [a, b] = await Promise.all([
+      capture(rawKey, txnId, { amountFils: 12_000 }),
+      capture(rawKey, txnId, { amountFils: 8_000 }),
+    ]);
+    assert.equal(a.statusCode, 200, a.body);
+    assert.equal(b.statusCode, 200, b.body);
 
-  await applyCaptureDiscountAdjustment(pool, { merchantId, transactionId });
-  await applyCaptureDiscountAdjustment(pool, { merchantId, transactionId });
-
-  assert.equal((await adjustmentLegs(transactionId)).length, 2);
+    assert.equal(await netPlatformFee(txnId), 450);
+    await assertBalanced(txnId);
+  }
 });
