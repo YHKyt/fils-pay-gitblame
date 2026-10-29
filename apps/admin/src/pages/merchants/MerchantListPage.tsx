@@ -15,6 +15,11 @@ const ONBOARDING_STATUSES: MerchantOnboardingStatus[] = [
 
 const PAGE_SIZE = 25;
 
+/** Bulk approve only ever affects merchants in this state (docs/ADMIN.md). */
+function isBulkApprovable(merchant: AdminMerchantSummary): boolean {
+  return merchant.onboardingStatus === "under_review";
+}
+
 /** The platform's one legitimately cross-merchant view. Searchable by
  *  display name / id / contact email, filterable by onboarding status, and
  *  keyset-paginated like every other list endpoint here. */
@@ -32,6 +37,9 @@ export function MerchantListPage() {
 
   const load = useCallback(
     async (cursor: string | null) => {
+      // Any change of filter, search or page invalidates the selection, so a
+      // tick made under a previous view can never ride along into a bulk call.
+      setSelectedIds(new Set());
       setLoading(true);
       setError(null);
       try {
@@ -71,24 +79,31 @@ export function MerchantListPage() {
     });
   }
 
-  /** Header checkbox: select or clear every row currently loaded into the
-   *  table, i.e. exactly what the operator can see under the active
-   *  search/status filters. */
+  /** Rows the operator can see right now that bulk approve could act on. */
+  const approvableIds = merchants.filter(isBulkApprovable).map((m) => m.id);
+  /** What a bulk approve actually sends: visible, under_review AND ticked. */
+  const effectiveSelection = approvableIds.filter((id) => selectedIds.has(id));
+
+  /** Header checkbox: select or clear every under_review row currently
+   *  loaded into the table under the active search/status filters. */
   function toggleSelectAllLoaded(): void {
-    setSelectedIds((previous) =>
-      previous.size === merchants.length ? new Set() : new Set(merchants.map((m) => m.id)),
+    setSelectedIds(
+      effectiveSelection.length === approvableIds.length ? new Set() : new Set(approvableIds),
     );
   }
 
-  // only approves the under_review ones (filtered) — am
-  // FH: sends every selected id, the server doesn't check status
   async function approveSelected(): Promise<void> {
+    if (effectiveSelection.length === 0) return;
     setBulkBusy(true);
     setError(null);
     setBulkNotice(null);
     try {
-      const result = await bulkApproveKyc([...selectedIds]);
-      setBulkNotice(`Approved KYC for ${result.approvedCount} merchant(s).`);
+      const result = await bulkApproveKyc(effectiveSelection);
+      const skippedCount = result.skippedMerchantIds.length;
+      setBulkNotice(
+        `Approved KYC for ${result.approvedCount} merchant(s).` +
+          (skippedCount > 0 ? ` ${skippedCount} skipped (no longer under review).` : ""),
+      );
       setSelectedIds(new Set());
       await load(null);
     } catch (err) {
@@ -98,7 +113,8 @@ export function MerchantListPage() {
     }
   }
 
-  const allLoadedSelected = merchants.length > 0 && selectedIds.size === merchants.length;
+  const allLoadedSelected =
+    approvableIds.length > 0 && effectiveSelection.length === approvableIds.length;
 
   return (
     <section>
@@ -140,9 +156,9 @@ export function MerchantListPage() {
       {error ? <p className="admin-error">{error}</p> : null}
       {bulkNotice ? <p className="admin-muted">{bulkNotice}</p> : null}
 
-      {selectedIds.size > 0 ? (
+      {effectiveSelection.length > 0 ? (
         <div className="admin-form admin-form-inline">
-          <span>{selectedIds.size} selected</span>
+          <span>{effectiveSelection.length} selected</span>
           <RequireRole allow={["finance", "super_admin"]}>
             <button type="button" disabled={bulkBusy} onClick={() => void approveSelected()}>
               Bulk approve KYC
@@ -160,9 +176,9 @@ export function MerchantListPage() {
             <th>
               <input
                 type="checkbox"
-                aria-label="Select all loaded merchants"
+                aria-label="Select all loaded merchants under review"
                 checked={allLoadedSelected}
-                disabled={merchants.length === 0}
+                disabled={approvableIds.length === 0}
                 onChange={toggleSelectAllLoaded}
               />
             </th>
@@ -182,7 +198,8 @@ export function MerchantListPage() {
                 <input
                   type="checkbox"
                   aria-label={`Select ${merchant.displayName}`}
-                  checked={selectedIds.has(merchant.id)}
+                  checked={isBulkApprovable(merchant) && selectedIds.has(merchant.id)}
+                  disabled={!isBulkApprovable(merchant)}
                   onChange={() => toggleSelected(merchant.id)}
                 />
               </td>
