@@ -62,6 +62,7 @@ export function DashboardLayout() {
       <main className="dash-main">
         <Outlet />
       </main>
+      <footer className="dash-main dash-muted">All dates and times are Asia/Bahrain time (UTC+3).</footer>
     </div>
   );
 }

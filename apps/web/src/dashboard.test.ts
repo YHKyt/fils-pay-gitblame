@@ -51,16 +51,14 @@ test("dash renders absent values as an em dash but keeps zero", () => {
   assert.equal(dash(0), "0");
 });
 
-test("dayStartIso converts a date input to a UTC day boundary", () => {
-  assert.equal(dayStartIso("2026-09-12"), "2026-09-12T00:00:00.000Z");
+test("dayStartIso converts a date input to the Asia/Bahrain day boundary", () => {
+  assert.equal(dayStartIso("2026-09-12"), "2026-09-11T21:00:00.000Z");
   assert.equal(dayStartIso(""), undefined);
 });
 
 test("localDateTimeToIso rejects garbage instead of sending Invalid Date", () => {
   assert.equal(localDateTimeToIso(""), null);
   assert.equal(localDateTimeToIso("not-a-date"), null);
-  // A real value round-trips to the same instant it names.
-  const iso = localDateTimeToIso("2026-09-12T14:30");
-  assert.notEqual(iso, null);
-  assert.equal(new Date(iso ?? "").getTime(), new Date("2026-09-12T14:30").getTime());
+  // A real value is read as Bahrain wall time, whatever the browser zone.
+  assert.equal(localDateTimeToIso("2026-09-12T14:30"), "2026-09-12T11:30:00.000Z");
 });

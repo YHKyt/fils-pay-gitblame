@@ -96,7 +96,7 @@ export function PaymentLinkCreatePage() {
           <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} />
         </label>
         <label>
-          Expires at
+          Expires at (Bahrain time)
           <input
             type="datetime-local"
             required

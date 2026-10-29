@@ -3,6 +3,7 @@ import { formatBhd, toFils } from "@filspay/money";
 import { rebuildAnalytics, rebuildBalances, runBatch } from "../../api/settlement.js";
 import { recalculateMdr } from "../../api/mdrRecalculation.js";
 import { describeError } from "../../api/client.js";
+import { bahrainDate } from "../../format.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import type {
   AnalyticsRebuildSummary,
@@ -13,13 +14,6 @@ import type {
 
 function bhd(fils: number): string {
   return `${formatBhd(toFils(fils, { allowNegative: true }))} BHD`;
-}
-
-// YA: browser-local yesterday
-function yesterdayIso(): string {
-  const date = new Date();
-  date.setDate(date.getDate() - 1);
-  return date.toISOString().slice(0, 10);
 }
 
 /**
@@ -33,7 +27,8 @@ function yesterdayIso(): string {
  * transaction of SQL, so its audit row is simply part of that transaction.
  */
 export function SettlementPage() {
-  const [date, setDate] = useState(yesterdayIso());
+  // Yesterday's Asia/Bahrain business day — the day a batch run is keyed on.
+  const [date, setDate] = useState(() => bahrainDate(-1));
   const [merchantId, setMerchantId] = useState("");
   const [runBusy, setRunBusy] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);

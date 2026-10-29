@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { login, verifyOtp } from "../../api/auth.js";
 import { describeError } from "../../api/client.js";
+import { time } from "../../format.js";
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import type { AdminLoginResponse } from "../../types.js";
 
@@ -106,7 +107,7 @@ export function LoginPage() {
         <form onSubmit={(e) => void handleOtp(e)} className="admin-form">
           <p>
             A one-time code was issued for <strong>{email}</strong>. It expires at{" "}
-            {new Date(step.challenge.otpExpiresAt).toLocaleTimeString()}.
+            {time(step.challenge.otpExpiresAt)} (Bahrain time).
           </p>
           {step.challenge.devOtpCode ? (
             <p className="admin-muted">

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { listMerchants } from "../../api/merchants.js";
 import { bulkApproveKyc } from "../../api/merchantsBulk.js";
 import { describeError } from "../../api/client.js";
+import { date } from "../../format.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import type { AdminMerchantSummary, MerchantOnboardingStatus } from "../../types.js";
 
@@ -214,7 +215,7 @@ export function MerchantListPage() {
               <td>{merchant.kycPassed ? "passed" : "not passed"}</td>
               <td>{(merchant.mdrBps / 100).toFixed(2)}%</td>
               <td>{merchant.testMode ? "test" : "live"}</td>
-              <td>{new Date(merchant.createdAt).toLocaleDateString()}</td>
+              <td>{date(merchant.createdAt)}</td>
             </tr>
           ))}
           {merchants.length === 0 && !loading ? (

@@ -72,6 +72,7 @@ export function AdminLayout() {
           <Outlet />
         </main>
       )}
+      <footer className="admin-main admin-muted">All dates and times are Asia/Bahrain time (UTC+3).</footer>
     </div>
   );
 }
