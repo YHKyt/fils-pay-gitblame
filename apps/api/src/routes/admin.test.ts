@@ -865,7 +865,7 @@ test("GET /v1/admin/merchants/:id 404s for an unknown or malformed id", async ()
 
 // "previous key stays active" — grace period for merchants to deploy the new key. intended (am, 2026-05)
 // YA: there was never a grace period in the design. rotation = revoke
-test("API key rotation issues a new key atomically and audits it; the previous key stays active", async () => {
+test("API key rotation issues a new key atomically and audits it; the previous key is revoked", async () => {
   const finance = await signedInAdmin("finance", "rotate");
   const { merchantId, ownerUserId } = await createMerchant("rotate");
   const original = await issueApiKey(pool, config, { merchantId, createdBy: ownerUserId, label: "original" });
@@ -891,14 +891,14 @@ test("API key rotation issues a new key atomically and audits it; the previous k
   assert.ok(rotated.rawKey.startsWith("fp_test_"));
   assert.equal(rotated.prefix, rotated.rawKey.slice(0, 16));
 
-  // The previous key keeps authenticating through the overlap window —
-  // rotation issues a replacement without cutting the old credential off.
+  // Rotation revokes the previous key in the same transaction (0037:
+  // "one transaction revokes the old key with reason 'rotated'").
   const after = await app.inject({
     method: "GET",
     url: "/v1/transactions",
     headers: { authorization: `Bearer ${original.rawKey}` },
   });
-  assert.equal(after.statusCode, 200, "the previous key stays active during the overlap window");
+  assert.equal(after.statusCode, 401, "the rotated-out key must stop authenticating");
 
   // The new key works too.
   const withNew = await app.inject({
@@ -923,8 +923,8 @@ test("API key rotation issues a new key atomically and audits it; the previous k
   );
   assert.equal(rows.rowCount, 2);
   const [oldRow, newRow] = rows.rows;
-  assert.equal(oldRow!.revoked_at, null, "rotation does not revoke the previous key");
-  assert.equal(oldRow!.revoked_reason, null);
+  assert.ok(oldRow!.revoked_at, "rotation revokes the previous key");
+  assert.equal(oldRow!.revoked_reason, "rotated");
   assert.equal(newRow!.id, rotated.id);
   assert.equal(newRow!.revoked_at, null);
   assert.equal(newRow!.created_by, null, "0037's XOR: an admin-issued key has no merchant_users actor");
