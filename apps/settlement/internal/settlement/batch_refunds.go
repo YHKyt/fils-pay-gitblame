@@ -40,18 +40,24 @@ func (r claimedRefunds) netDeductionFils() money.Fils {
 // Refund timeline events (transaction_events 'refunded'/'refund_partial')
 // are deliberately not stamped: the refunds row is the settlement record,
 // and RecalculateMDR rates every event carrying a batch id.
+//
+// A refund of a test-mode transaction is never claimed: its capture never
+// settled, so there is nothing to deduct it from (migration 0091).
 func claimBatchRefunds(ctx context.Context, tx pgx.Tx, merchantID, batchID uuid.UUID, windowEnd time.Time) (claimedRefunds, error) {
 	var r claimedRefunds
 	var amount, reversed int64
 	err := tx.QueryRow(ctx, `
 		WITH claimed AS (
-			UPDATE refunds
+			UPDATE refunds r
 			   SET settlement_batch_id = $2
-			 WHERE merchant_id = $1
-			   AND status = 'succeeded'
-			   AND settlement_batch_id IS NULL
-			   AND occurred_at < $3
-			RETURNING amount_fils, fee_reversed_fils
+			  FROM transactions t
+			 WHERE t.id = r.transaction_id
+			   AND NOT t.test_mode
+			   AND r.merchant_id = $1
+			   AND r.status = 'succeeded'
+			   AND r.settlement_batch_id IS NULL
+			   AND r.occurred_at < $3
+			RETURNING r.amount_fils, r.fee_reversed_fils
 		)
 		SELECT COALESCE(SUM(amount_fils), 0), COALESCE(SUM(fee_reversed_fils), 0) FROM claimed
 	`, merchantID, batchID, windowEnd).Scan(&amount, &reversed)

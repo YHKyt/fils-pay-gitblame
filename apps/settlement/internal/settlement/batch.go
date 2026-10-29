@@ -151,11 +151,14 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 	// direction. Every amount is read from te.amount_fils — the exact
 	// incremental delta capture.ts already recorded for that one real
 	// event — never from transactions.captured_fils (a running total).
+	// A transaction made while the merchant was in test mode never settles,
+	// even when the merchant has gone live since (migration 0091).
 	rows, err := tx.Query(ctx, `
 		SELECT te.id, te.transaction_id, te.amount_fils, te.occurred_at
 		  FROM transaction_events te
 		  JOIN transactions t ON t.id = te.transaction_id
 		 WHERE t.merchant_id = $1
+		   AND NOT t.test_mode
 		   AND te.event_type IN ('captured', 'partially_captured')
 		   AND te.settlement_batch_id IS NULL
 		   AND te.occurred_at >= $2 AND te.occurred_at < $3
