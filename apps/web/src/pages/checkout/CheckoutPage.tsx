@@ -26,6 +26,16 @@ export function CheckoutPage() {
   const [payState, setPayState] = useState<PayState>({ kind: "idle" });
   const [card, setCard] = useState<SimulatedCardInput>(EMPTY_CARD);
   const [brandHint, setBrandHint] = useState<string | null>(null);
+  // One Idempotency-Key per payment attempt, kept across network failures:
+  // if the request reached the server but the response was lost, the retry
+  // replays that payment instead of charging the card a second time. It is
+  // rotated only once the server has given a definitive answer.
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  // Different card details = a different payment (the server would reject
+  // the old key with a different body as a reused key).
+  useEffect(() => {
+    setIdempotencyKey(crypto.randomUUID());
+  }, [card]);
 
   // FH: memory leak — this effect never aborts the fetch on unmount (React warning in console?)
   // theres a cancelled flag in the cleanup tho. warning must be from somewhere else — am
@@ -51,20 +61,19 @@ export function CheckoutPage() {
 
   async function handleSubmit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
-    if (!token) return;
+    if (!token || payState.kind === "submitting") return;
 
-    // A fresh Idempotency-Key per explicit user action — every click,
-    // including a "try again" after a decline, is a new attempt.
-    const idempotencyKey = crypto.randomUUID();
-    const submittedAt = new Date().toISOString();
     setPayState({ kind: "submitting" });
 
     try {
-      const result = await payPaymentLink(token, { card, submittedAt }, idempotencyKey);
+      const result = await payPaymentLink(token, { card }, idempotencyKey);
       setPayState({ kind: "success", result });
     } catch (err) {
       if (err instanceof ApiError) {
         const { statusCode, body } = err;
+        // A decline or other definitive answer ends this attempt; "try
+        // again" (e.g. with another card) is a new one. 5xx keeps the key.
+        if (statusCode < 500) setIdempotencyKey(crypto.randomUUID());
         if (statusCode === 402) {
           const stageLabel = body.stage === "capture" ? "Your payment could not be completed." : "Your card was declined.";
           setPayState({ kind: "declined", message: stageLabel, retryable: true });
