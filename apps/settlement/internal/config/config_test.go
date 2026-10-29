@@ -10,7 +10,7 @@ func withEnv(t *testing.T, kv map[string]string) {
 }
 
 func TestLoad_DatabaseURLRequired(t *testing.T) {
-	withEnv(t, map[string]string{"DATABASE_URL": ""})
+	withEnv(t, map[string]string{"DATABASE_URL": "", "PGCONN_SETTLEMENT": ""})
 	if _, err := Load(); err == nil {
 		t.Fatal("expected an error when DATABASE_URL is unset")
 	}
@@ -27,9 +27,11 @@ func TestLoad_UsesDatabaseURLByDefault(t *testing.T) {
 	}
 }
 
-// FH: came in with 'test: config' (b64cd3c). it locks in the override, doesn't say the override is right
-// MK: it's right.
-func TestLoad_PgconnSettlementOverridesWhenSet(t *testing.T) {
+// Replaces TestLoad_PgconnSettlementOverridesWhenSet, which asserted the
+// bug: PGCONN_SETTLEMENT (a replica / settlement role) beating DATABASE_URL
+// for the worker's only pool, so every batch write went to the replica.
+// ops/README.md: it only takes effect when DATABASE_URL is unset.
+func TestLoad_DatabaseURLWinsOverPgconnSettlement(t *testing.T) {
 	withEnv(t, map[string]string{
 		"DATABASE_URL":      "postgres://a/db",
 		"PGCONN_SETTLEMENT": "postgres://b/settlement-replica",
@@ -38,7 +40,21 @@ func TestLoad_PgconnSettlementOverridesWhenSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.DatabaseURL != "postgres://b/settlement-replica" {
-		t.Fatalf("expected the PGCONN_SETTLEMENT override to win, got %q", cfg.DatabaseURL)
+	if cfg.DatabaseURL != "postgres://a/db" {
+		t.Fatalf("expected DATABASE_URL to win over PGCONN_SETTLEMENT, got %q", cfg.DatabaseURL)
+	}
+}
+
+func TestLoad_PgconnSettlementOnlyWhenDatabaseURLUnset(t *testing.T) {
+	withEnv(t, map[string]string{
+		"DATABASE_URL":      "",
+		"PGCONN_SETTLEMENT": "postgres://b/settlement",
+	})
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.DatabaseURL != "postgres://b/settlement" {
+		t.Fatalf("expected the PGCONN_SETTLEMENT fallback when DATABASE_URL is unset, got %q", cfg.DatabaseURL)
 	}
 }
