@@ -81,7 +81,9 @@ func main() {
 		if err := cfg.RequireInternalToken(); err != nil {
 			log.Fatalf("settlement: %v", err)
 		}
+		serveDone := make(chan struct{})
 		go func() {
+			defer close(serveDone)
 			if err := internalapi.Serve(ctx, pool, cfg); err != nil {
 				log.Fatalf("settlement daemon: internal api: %v", err)
 			}
@@ -89,6 +91,9 @@ func main() {
 
 		// FH: if internalapi fails to bind we log.Fatalf from the goroutine and skip the deferred pool.Close -- ok?
 		scheduler.Run(ctx, pool, cfg)
+		// Let an in-flight admin request finish (Serve drains it for up to
+		// 30 s) before main returns and the deferred pool.Close runs.
+		<-serveDone
 
 	case "run-batch":
 		fs := flag.NewFlagSet("run-batch", flag.ExitOnError)
@@ -104,6 +109,9 @@ func main() {
 		businessDate, err := time.Parse("2006-01-02", *dateFlag)
 		if err != nil {
 			log.Fatalf("settlement run-batch: invalid --date: %v", err)
+		}
+		if err := settlement.RequireBusinessDayOver(businessDate, time.Now()); err != nil {
+			log.Fatalf("settlement run-batch: %v", err)
 		}
 
 		var onlyMerchant *uuid.UUID

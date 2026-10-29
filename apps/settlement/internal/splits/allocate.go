@@ -6,6 +6,7 @@ package splits
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -104,6 +105,12 @@ func PayoutSplitBatch(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) 
 		return SplitPayoutResult{}, err
 	}
 	rows.Close()
+
+	// Before anything is posted: the batch stays 'closed' and the error
+	// stops the run, rather than over- or under-paying the children.
+	if err := ValidateWeights(weights); err != nil {
+		return SplitPayoutResult{}, fmt.Errorf("splits: PayoutSplitBatch(%s): parent %s: %w", batchID, parentMerchantID, err)
+	}
 
 	// Allocate exactly (largest remainder) so the children's shares add up to
 	// the batch's net payout; per-child rounding used to strand a few fils

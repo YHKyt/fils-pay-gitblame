@@ -1,6 +1,7 @@
 package splits
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/filspay/settlement/internal/money"
@@ -38,11 +39,32 @@ func TestChildShares_ExactOnNonRoundSplits(t *testing.T) {
 	}
 }
 
-func TestChildShares_PartialWeightsLeaveParentRemainder(t *testing.T) {
-	// weights sum to 6000 bps: children get 60% of 1000 = 600 exactly.
-	ws := []ChildWeight{{WeightBps: 3000}, {WeightBps: 3000}}
-	got := ChildShares(1000, ws)
-	if got[0]+got[1] != 600 {
-		t.Fatalf("children got %d, want 600", got[0]+got[1])
+// This test used to assert that partial weights (6000 bps) "leave a parent
+// remainder". That remainder is never paid out by any later batch, so a split
+// must cover exactly 10000 bps; anything else is refused before payout.
+func TestValidateWeights_RequiresExactly10000(t *testing.T) {
+	cases := []struct {
+		weights []int64
+		ok      bool
+	}{
+		{[]int64{3000, 3000}, false},
+		{[]int64{6000, 6000}, false},
+		{[]int64{9999}, false},
+		{nil, false},
+		{[]int64{10000}, true},
+		{[]int64{3333, 3333, 3334}, true},
+	}
+	for _, tc := range cases {
+		ws := make([]ChildWeight, len(tc.weights))
+		for i, w := range tc.weights {
+			ws[i] = ChildWeight{WeightBps: w}
+		}
+		err := ValidateWeights(ws)
+		if tc.ok && err != nil {
+			t.Errorf("weights %v: got %v, want nil", tc.weights, err)
+		}
+		if !tc.ok && !errors.Is(err, ErrSplitWeightsNotWhole) {
+			t.Errorf("weights %v: got %v, want ErrSplitWeightsNotWhole", tc.weights, err)
+		}
 	}
 }

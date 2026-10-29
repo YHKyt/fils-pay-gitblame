@@ -42,7 +42,8 @@ settlement run-batch --date=YYYY-MM-DD --merchant=<uuid>
 ```
 
 `--date` is the Bahrain business date. Safe to repeat: a batch that's
-already closed or paid is left alone.
+already closed or paid is left alone. A day that has not ended yet (today
+or later, Bahrain time) is refused with a non-zero exit.
 
 > **— unsigned:** re-running a date from before a merchant went live can settle their test captures. check go-live dates first
 

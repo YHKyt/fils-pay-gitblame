@@ -1,6 +1,8 @@
 package splits
 
 import (
+	"errors"
+	"fmt"
 	"sort"
 
 	"github.com/filspay/settlement/internal/money"
@@ -11,10 +13,31 @@ type ChildWeight struct {
 	WeightBps int64
 }
 
+// ErrSplitWeightsNotWhole is returned when a parent's split weights do not
+// add up to exactly 10000 bps (100%) of its payout.
+var ErrSplitWeightsNotWhole = errors.New("splits: sub-merchant split weights must sum to exactly 10000 bps")
+
+// ValidateWeights refuses a split whose weights do not sum to exactly 10000.
+// Over 10000 pays the children more than the batch's net payout (the
+// parent's merchant_payable goes negative); under 10000 marks the batch paid
+// while the remainder sits in the parent's merchant_payable, which no later
+// batch ever pays out. The database only checks each row (0045), not the sum.
+func ValidateWeights(children []ChildWeight) error {
+	var sum int64
+	for _, c := range children {
+		sum += c.WeightBps
+	}
+	if sum != 10000 {
+		return fmt.Errorf("%w: got %d", ErrSplitWeightsNotWhole, sum)
+	}
+	return nil
+}
+
 // ChildShares distributes netPayout across children by their weights (basis
 // points of the parent's payout), so that the shares sum EXACTLY to the
 // amount owed to the children: netPayout * sum(weights) / 10000, which is the
-// whole netPayout when the weights add up to 10000.
+// whole netPayout when the weights add up to 10000. PayoutSplitBatch calls
+// ValidateWeights first, so in a payout they always do.
 //
 // Each child's exact share is netPayout*w/10000. Rounding every child
 // independently (the previous ApplyRateFils-per-child approach) loses or
