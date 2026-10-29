@@ -7,6 +7,7 @@ demo instance uses the same compose file with a different `.env`.
 ## Quick start
 
 ```
+cp ops/.env.example ops/.env   # then fill in the three secrets
 docker compose -f ops/docker-compose.yml up -d postgres
 docker compose -f ops/docker-compose.yml run --rm migrate
 docker compose -f ops/docker-compose.yml run --rm seed
@@ -26,9 +27,7 @@ each package), not services with their own database connection.
 | `Dockerfile.node` | image for api, reporting, migrate and seed (`node:20`, full install) |
 | `Dockerfile.go` | multi-stage build of `apps/settlement` |
 
-> **AM (July):** the two Dockerfiles aren't in the repo for me. built my own
->
-> **MK:** they were in the initial ops commit. check you're on main
+`.env.example` lists the secrets every host must supply in `ops/.env` (gitignored).
 
 ## Database
 
@@ -55,13 +54,11 @@ first.
 | Service | Needs | Where it comes from in compose |
 |---|---|---|
 | api | `DATABASE_URL`, `SETTLEMENT_INTERNAL_URL` | `environment:` |
-| api | `WEBHOOK_SECRET_ENCRYPTION_KEY` | only outside dev; a dev key is used otherwise |
-| api | `ACQUIRER_CALLBACK_SIGNING_SECRET`, `NODE_ENV` | `.env.docker` |
+| api | `WEBHOOK_SECRET_ENCRYPTION_KEY`, `ACQUIRER_CALLBACK_SIGNING_SECRET`, `SETTLEMENT_INTERNAL_TOKEN` | `ops/.env` (required; compose refuses to start without them) |
+| api, reporting | `NODE_ENV=production`, `PORT` | `.env.docker` via `env_file` |
 | settlement | `DATABASE_URL` | `environment:` |
-| settlement | `SETTLEMENT_INTERNAL_TOKEN` | defaults to `dev-token` |
+| settlement | `SETTLEMENT_INTERNAL_TOKEN` | `ops/.env` — no default; `daemon` exits without it; must match the api |
 | reporting | `DATABASE_URL` | `environment:`; runs `worker` by default |
-
-> **MK:** the api won't boot without WEBHOOK_SECRET_ENCRYPTION_KEY in any environment. set it on the hosted box.
 
 ## Resource sizing
 
@@ -69,4 +66,7 @@ The hosted demo box is 0.5 vCPU / 2 GB RAM / 2 GB disk; the API container is
 limited to 512 MB. Postgres defaults are fine at this size. The settlement
 image is built on the box with `go build` from `Dockerfile.go`.
 
-> **AM:** first build on the box filled the disk (go build cache). cleared it and it went through on the second try
+`Dockerfile.go` deletes the Go build and module caches in the same layer that
+creates them, and `Dockerfile.node` drops the npm cache, so a first build fits
+the 2 GB disk. The api has `mem_limit: 512m`. Postgres is published on
+127.0.0.1 only.

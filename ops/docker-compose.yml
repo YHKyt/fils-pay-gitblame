@@ -21,8 +21,10 @@ services:
       POSTGRES_USER: filspay
       POSTGRES_PASSWORD: filspay_dev_password
       POSTGRES_DB: filspay
+    # Loopback only: the dev password is in this file, so the database must
+    # never be reachable from outside the host (it was published on 0.0.0.0).
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - filspay_pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -73,9 +75,19 @@ services:
     # WEBHOOK_SECRET_ENCRYPTION_KEY isn't needed in dev; the api uses a built-in
     # dev key unless NODE_ENV=production. (copilot, pasted by FH — unverified)
     command: ["npx", "tsx", "apps/api/src/index.ts"]
+    # .env.docker is NOT loaded automatically by compose (only `.env` is, and
+    # only for ${...} interpolation) — it has to be named here.
+    env_file: .env.docker
+    mem_limit: 512m
+    restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
+      # Required with NODE_ENV=production: the api refuses to boot without
+      # them. Supplied from ops/.env (see .env.example), never committed.
+      WEBHOOK_SECRET_ENCRYPTION_KEY: ${WEBHOOK_SECRET_ENCRYPTION_KEY:?set in ops/.env}
+      SETTLEMENT_INTERNAL_TOKEN: ${SETTLEMENT_INTERNAL_TOKEN:?set in ops/.env}
+      ACQUIRER_CALLBACK_SIGNING_SECRET: ${ACQUIRER_CALLBACK_SIGNING_SECRET:?set in ops/.env}
       # One application role (filspay) owns the whole database in this
       # environment. Every service here, and the one-off migrate/seed jobs
       # above, authenticate as that same role, which keeps local
@@ -92,17 +104,13 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.go
-    # The daemon falls back to SETTLEMENT_INTERNAL_TOKEN=dev-token when it isn't
-    # set, so nothing extra is needed here for local runs.
-    # FH: it exits at boot without the token for me. set it.
+    # `daemon` exits at boot without SETTLEMENT_INTERNAL_TOKEN (there is no
+    # dev-token fallback). It must equal the api's value.
     command: ["./settlement", "daemon"]
+    restart: unless-stopped
     environment:
+      SETTLEMENT_INTERNAL_TOKEN: ${SETTLEMENT_INTERNAL_TOKEN:?set in ops/.env}
       DATABASE_URL: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable
-      # Batch close and scheme export get their own pool so a long close
-      # can't starve the API's connections.
-      # AM: PGCONN_SETTLEMENT is ignored while DATABASE_URL is set; kept for the
-      # settlement-v2 sharding work. safe to leave.
-      PGCONN_SETTLEMENT: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable
     depends_on:
       postgres:
         condition: service_healthy
@@ -113,6 +121,8 @@ services:
       dockerfile: ops/Dockerfile.node
     # No subcommand = `worker`. (MK)
     command: ["npx", "tsx", "apps/reporting/src/index.ts"]
+    env_file: .env.docker
+    restart: unless-stopped
     environment:
       DATABASE_URL: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable
     depends_on:
