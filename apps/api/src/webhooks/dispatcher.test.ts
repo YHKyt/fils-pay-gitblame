@@ -439,3 +439,29 @@ test("a NUL byte in the receiver's response body does not stop the outcome from 
   );
   assert.equal(excerpt.rows[0]!.response_body_excerpt, "okafter-nul");
 });
+
+test("a pending delivery whose endpoint was disabled after the row was created is not sent", async () => {
+  const merchantId = await createMerchant("disabled-after-pending");
+  const url = `http://disabled-after-${randomUUID()}.test/webhook`;
+  const endpoint = await createEndpoint(merchantId, url);
+  const outboxEvent = await enqueueCaptured(merchantId);
+
+  const sentToUrl: WebhookTransportRequest[] = [];
+  const failing: WebhookTransport = async (req) => {
+    if (req.url === url) sentToUrl.push(req);
+    return { statusCode: 500, body: "" };
+  };
+  await runDispatchPass(pool, failing, config);
+  assert.equal(sentToUrl.length, 1);
+  const delivery = await getDelivery(String(outboxEvent.id), endpoint.id);
+  assert.equal(delivery.status, "pending");
+
+  await pool.query(`UPDATE webhook_endpoints SET status = 'disabled' WHERE id = $1`, [endpoint.id]);
+  await forceDueNow(delivery.id);
+  await runDispatchPass(pool, failing, config);
+
+  assert.equal(sentToUrl.length, 1, "no request may go to a disabled endpoint");
+  const after = await getDelivery(String(outboxEvent.id), endpoint.id);
+  assert.equal(after.status, "pending");
+  assert.equal(after.attempt_count, 1);
+});

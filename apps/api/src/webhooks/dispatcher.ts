@@ -233,6 +233,9 @@ async function attemptDueDeliveries(pool: Pool, transport: WebhookTransport, con
         WHERE wd.id IN (
           SELECT id FROM webhook_deliveries
            WHERE status = 'pending' AND next_attempt_at <= now()
+             -- a disabled endpoint's pending rows wait (unclaimed) until it is re-enabled
+             AND EXISTS (SELECT 1 FROM webhook_endpoints we
+                          WHERE we.id = webhook_deliveries.endpoint_id AND we.status = 'active')
            ORDER BY next_attempt_at ASC
            LIMIT $1
            FOR UPDATE SKIP LOCKED)
