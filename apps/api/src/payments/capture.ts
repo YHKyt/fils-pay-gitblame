@@ -141,6 +141,27 @@ export async function captureTransaction(
       return { statusCode: 409, body };
     }
 
+    // The authorization lapses when its hold does: authorize.ts sets
+    // holds.expires_at (now() + 7 days, the scheme's CNP window) and
+    // expire_holds.ts flips it to 'expired' after that. A transaction with
+    // no hold row (deleted by the old FP-219 janitor) falls back to the
+    // same window from its own created_at.
+    const expiryResult = await client.query<{ expired: boolean }>(
+      `SELECT CASE
+                WHEN EXISTS (SELECT 1 FROM holds WHERE transaction_id = $1)
+                  THEN EXISTS (SELECT 1 FROM holds
+                                WHERE transaction_id = $1
+                                  AND (status = 'expired' OR expires_at <= now()))
+                ELSE (SELECT created_at + interval '7 days' <= now() FROM transactions WHERE id = $1)
+              END AS expired`,
+      [txn.id],
+    );
+    if (expiryResult.rows[0]?.expired) {
+      const body = { error: "authorization_expired" };
+      await completeIdempotencyKey(client, claim.row.id, { statusCode: 409, body });
+      return { statusCode: 409, body };
+    }
+
     // — YA: authorised vs captured. finance says "amount" and means both.
     const amountAuthorized = toFils(Number(txn.amount_fils));
     const capturedSoFar = toFils(Number(txn.captured_fils));
@@ -153,8 +174,8 @@ export async function captureTransaction(
       return { statusCode: 422, body };
     }
 
-    const merchantResult = await client.query<{ mdr_bps: number }>(
-      `SELECT mdr_bps FROM merchants WHERE id = $1`,
+    const merchantResult = await client.query<{ mdr_bps: number; negotiated_discount_bps: number }>(
+      `SELECT mdr_bps, negotiated_discount_bps FROM merchants WHERE id = $1`,
       [input.merchantId],
     );
     const merchant = merchantResult.rows[0];
@@ -195,8 +216,15 @@ export async function captureTransaction(
     }
 
     // outcome === 'approved'. Integer math throughout — no float ever
-    // enters this path.
-    const feeFils = applyRateFils(requestedAmount, Math.max(0, effectiveMdrBps - volumeTierBonusBps));
+    // enters this path. The negotiated discount reduces the amount the MDR
+    // is charged on (docs/ARCHITECTURE.md "Settlement"; the same per-event
+    // formula as apps/settlement's ComputeSettlementFee): discount the
+    // amount first, then apply the MDR, each step rounded half-even.
+    // Computed here, under the row lock, so every capture path gets it,
+    // exactly once per capture event.
+    const discountBps = merchant.negotiated_discount_bps;
+    const discountedAmount = subtractFils(requestedAmount, applyRateFils(requestedAmount, discountBps));
+    const feeFils = applyRateFils(discountedAmount, Math.max(0, effectiveMdrBps - volumeTierBonusBps));
     const newCapturedFils = addFils(capturedSoFar, requestedAmount);
     const newStatus = compareFils(newCapturedFils, amountAuthorized) === 0 ? "captured" : "partially_captured";
 
@@ -258,7 +286,10 @@ export async function captureTransaction(
       eventType: newStatus === "captured" ? "captured" : "partially_captured",
       amountFils: requestedAmount,
       actor: input.actor,
-      metadata: { feeFils, acquirerReference: acquirerResult.acquirerReference },
+      // feeFils is the fee actually charged, discount included; discountBps
+      // marks it as such for readers of older events (which recorded the
+      // pre-discount fee and had a separate adjustment posted after commit).
+      metadata: { feeFils, discountBps, acquirerReference: acquirerResult.acquirerReference },
     });
 
     const body = serializeTransaction(updatedTxn);

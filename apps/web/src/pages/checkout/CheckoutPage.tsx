@@ -3,7 +3,9 @@ import { useParams } from "react-router-dom";
 import { formatBhd, toFils } from "@filspay/money";
 import { getPaymentLink, payPaymentLink } from "../../api/paymentLinks.js";
 import { ApiError } from "../../api/client.js";
-import type { PaymentLinkPublicDto, PayPaymentLinkResponse, SimulatedCardInput } from "../../types.js";
+import { bahrainDateTime } from "../../format.js";
+import type { PaymentLinkPublicDto, SimulatedCardInput } from "../../types.js";
+import { isOutcomeUnknown, resolveLostPayment } from "../../utils/checkoutRecovery.js";
 import "./CheckoutPage.css";
 
 type LoadState =
@@ -11,10 +13,23 @@ type LoadState =
   | { kind: "not_found" }
   | { kind: "loaded"; link: PaymentLinkPublicDto };
 
+/** transactionId / paidAt are known only when the pay response itself
+ *  arrived; a payment confirmed by polling the public read has neither. */
+interface Receipt {
+  amountFils: number;
+  transactionId: string | null;
+  paidAt: string | null;
+}
+
+/** Pay request timeout, and how long to poll the link after a lost response. */
+const PAY_TIMEOUT_MS = 30_000;
+const VERIFY_POLL = { attempts: 5, delayMs: 2_000 };
+
 type PayState =
   | { kind: "idle" }
   | { kind: "submitting" }
-  | { kind: "success"; result: PayPaymentLinkResponse }
+  | { kind: "verifying" }
+  | { kind: "success"; receipt: Receipt }
   | { kind: "declined"; message: string; retryable: boolean }
   | { kind: "terminal"; message: string };
 
@@ -61,14 +76,24 @@ export function CheckoutPage() {
 
   async function handleSubmit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
-    if (!token || payState.kind === "submitting") return;
+    if (!token || payState.kind === "submitting" || payState.kind === "verifying") return;
 
     setPayState({ kind: "submitting" });
 
     try {
-      const result = await payPaymentLink(token, { card }, idempotencyKey);
-      setPayState({ kind: "success", result });
+      const result = await payPaymentLink(token, { card }, idempotencyKey, PAY_TIMEOUT_MS);
+      setPayState({
+        kind: "success",
+        receipt: { amountFils: result.amountFils, transactionId: result.transactionId, paidAt: result.paidAt },
+      });
     } catch (err) {
+      if (isOutcomeUnknown(err)) {
+        // Timeout, network drop or 5xx: the charge may have happened. Ask
+        // the link before offering to pay again. The key is kept, so any
+        // re-pay replays this attempt instead of charging twice.
+        await verifyAfterLostResponse(token);
+        return;
+      }
       if (err instanceof ApiError) {
         const { statusCode, body } = err;
         // A decline or other definitive answer ends this attempt; "try
@@ -93,6 +118,42 @@ export function CheckoutPage() {
       } else {
         setPayState({ kind: "declined", message: "Something went wrong. Please try again.", retryable: true });
       }
+    }
+  }
+
+  async function verifyAfterLostResponse(linkToken: string): Promise<void> {
+    setPayState({ kind: "verifying" });
+    const resolution = await resolveLostPayment(() => getPaymentLink(linkToken), VERIFY_POLL);
+    switch (resolution.kind) {
+      case "paid":
+        setLoadState({ kind: "loaded", link: resolution.link });
+        setPayState({
+          kind: "success",
+          receipt: { amountFils: resolution.link.amountFils, transactionId: null, paidAt: null },
+        });
+        return;
+      case "closed":
+        // Expired or canceled meanwhile: the status views below take over.
+        setLoadState({ kind: "loaded", link: resolution.link });
+        setPayState({ kind: "idle" });
+        return;
+      case "retryable":
+        setLoadState({ kind: "loaded", link: resolution.link });
+        setPayState({
+          kind: "declined",
+          message: "Your payment did not go through. Please try again.",
+          retryable: true,
+        });
+        return;
+      case "unknown":
+        setPayState({
+          kind: "declined",
+          message:
+            "We could not confirm whether your payment went through. Please wait a moment and try again — " +
+            "you will not be charged twice.",
+          retryable: true,
+        });
+        return;
     }
   }
 
@@ -121,10 +182,28 @@ export function CheckoutPage() {
         <h1>Payment successful</h1>
         <p>Thank you — your payment has been received.</p>
         <dl>
-          <dt>Transaction ID</dt>
-          <dd>{payState.result.transactionId}</dd>
-          <dt>Paid at</dt>
-          <dd>{payState.result.paidAt}</dd>
+          <dt>Merchant</dt>
+          <dd>{link.merchantDisplayName}</dd>
+          <dt>Amount</dt>
+          <dd>{formatBhd(toFils(payState.receipt.amountFils))} BHD</dd>
+          {link.reference ? (
+            <>
+              <dt>Reference</dt>
+              <dd>{link.reference}</dd>
+            </>
+          ) : null}
+          {payState.receipt.transactionId ? (
+            <>
+              <dt>Transaction ID</dt>
+              <dd>{payState.receipt.transactionId}</dd>
+            </>
+          ) : null}
+          {payState.receipt.paidAt ? (
+            <>
+              <dt>Paid at</dt>
+              <dd>{bahrainDateTime(payState.receipt.paidAt)}</dd>
+            </>
+          ) : null}
         </dl>
       </main>
     );
@@ -174,7 +253,7 @@ export function CheckoutPage() {
 
   // link.status === 'active'
   const amount = formatBhd(toFils(link.amountFils));
-  const submitting = payState.kind === "submitting";
+  const submitting = payState.kind === "submitting" || payState.kind === "verifying";
 
   return (
     <main className="checkout-page">
@@ -244,7 +323,7 @@ export function CheckoutPage() {
           </label>
         </div>
         <button type="submit" disabled={submitting}>
-          {submitting ? "Processing..." : `Pay ${amount} BHD`}
+          {payState.kind === "verifying" ? "Checking payment status..." : submitting ? "Processing..." : `Pay ${amount} BHD`}
         </button>
       </form>
 

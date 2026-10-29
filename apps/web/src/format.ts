@@ -23,6 +23,28 @@ export function dateTime(iso: string | null | undefined): string {
   return iso ? new Date(iso).toLocaleString() : "—";
 }
 
+const BAHRAIN_PARTS = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Asia/Bahrain",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+/** An instant in the business timezone (Asia/Bahrain, UTC+3), independent
+ *  of the viewer's browser zone: `2026-10-29 12:00:05 (Bahrain time)`. For
+ *  customer-facing receipts. */
+export function bahrainDateTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  const part = Object.fromEntries(BAHRAIN_PARTS.formatToParts(date).map((p) => [p.type, p.value]));
+  return `${part.year}-${part.month}-${part.day} ${part.hour}:${part.minute}:${part.second} (Bahrain time)`;
+}
+
 /**
  * An `<input type="date">` value (YYYY-MM-DD) as a full ISO instant at the
  * UTC day boundary — what the `from`/`to` transaction filters take. No

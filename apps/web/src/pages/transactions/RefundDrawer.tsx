@@ -1,9 +1,10 @@
-import { useState } from "react";
-import { ApiError, describeError, request } from "../../api/client.js";
+import { useRef, useState } from "react";
+import { describeError, request } from "../../api/client.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { bhd } from "../../format.js";
 import type { TransactionDto } from "../../types.js";
+import { attemptFor, isDefinitiveFailure, type IdempotentAttempt } from "../../utils/idempotencyIntent.js";
 
 interface RefundResponse {
   id: string;
@@ -35,10 +36,11 @@ export function RefundDrawer({ txn, onRefunded }: RefundDrawerProps) {
   const [amount, setAmount] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // One key per refund *intent*, not per click: a double-click or a retry
-  // after a timeout replays the same refund instead of issuing a second one.
-  // Rotated only once the server has given a definitive answer.
-  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  // One key per refund *intent*, not per click or keystroke: a double-click
+  // or a retry after a timeout replays the same refund instead of issuing a
+  // second one. A new key only when the submitted amount differs from the
+  // last attempt's, or after the server has given a definitive answer.
+  const attempt = useRef<IdempotentAttempt | null>(null);
 
   const merchantId = me?.merchant.id;
   const remainingFils = txn.capturedFils - txn.refundedFils;
@@ -59,13 +61,17 @@ export function RefundDrawer({ txn, onRefunded }: RefundDrawerProps) {
       // still refundable.
       const body = trimmed === "" ? { transactionId: txn.id } : { transactionId: txn.id, amountFils: Number(trimmed) };
 
+      const payload = JSON.stringify(body);
+      const current = attemptFor(attempt.current, payload);
+      attempt.current = current;
+
       await request<RefundResponse>(`/v1/merchants/${encodeURIComponent(merchantId)}/refunds`, {
         method: "POST",
-        headers: { "Idempotency-Key": idempotencyKey },
-        body: JSON.stringify(body),
+        headers: { "Idempotency-Key": current.key },
+        body: payload,
       });
 
-      setIdempotencyKey(crypto.randomUUID());
+      attempt.current = null;
       setOpen(false);
       setAmount("");
       // Refetch rather than patch: the refund wrote a new transaction_events
@@ -75,20 +81,11 @@ export function RefundDrawer({ txn, onRefunded }: RefundDrawerProps) {
       // A 4xx is a final answer for this key (a replay would return it
       // again), so the next attempt needs a fresh one. A network error or
       // 5xx keeps the key so the retry is deduplicated server-side.
-      if (err instanceof ApiError && err.statusCode < 500) {
-        setIdempotencyKey(crypto.randomUUID());
-      }
+      if (isDefinitiveFailure(err)) attempt.current = null;
       setError(describeError(err));
     } finally {
       setSubmitting(false);
     }
-  }
-
-  function updateAmount(value: string): void {
-    // Changing the amount is a different refund: it must not reuse the key
-    // of an earlier attempt (the server would reject it as a reused key).
-    setAmount(value);
-    setIdempotencyKey(crypto.randomUUID());
   }
 
   return (
@@ -105,7 +102,7 @@ export function RefundDrawer({ txn, onRefunded }: RefundDrawerProps) {
                 step={1}
                 max={remainingFils}
                 value={amount}
-                onChange={(e) => updateAmount(e.target.value)}
+                onChange={(e) => setAmount(e.target.value)}
               />
             </label>
             <p className="dash-muted">

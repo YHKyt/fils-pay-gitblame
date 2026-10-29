@@ -257,3 +257,34 @@ Smallest fix each, one commit each, with a regression test confirmed to fail bef
 
 ## S8. CSRF / CORS review — no change needed
 No CORS plugin is registered, so cross-origin scripts cannot read responses. Session cookies are `SameSite=Lax`, so cross-site POST, PUT and DELETE requests carry no cookie. No GET route mutates state (checked every `app.get` handler). JSON bodies are only parsed for `application/json`, which a cross-site form cannot send without a preflight. The residual risk is a hostile *same-site* origin (a sibling subdomain): if one is ever hosted, add an `Origin` check on cookie-authenticated writes.
+
+---
+
+## Round 2 (board items B1–B6)
+
+Each fix has a regression test that failed on the old code and passes after the fix.
+
+| # | Finding | Severity | Fix |
+|---|---|---|---|
+| B1a | **An expired authorization could still be captured.** `capture.ts` checked only the status, so an 8-day-old auth captured. | High | 409 `authorization_expired` when the hold is past `expires_at` or already marked expired; no acquirer call, no ledger write |
+| B1b | **The negotiated discount was wrong in three ways.** Payment-link captures never got it. Concurrent partial captures double-rebated (440 instead of 450). The maths was fee-first, so 602 fils @ 275 bps with 12.5% off gave 15 where ARCHITECTURE / `ComputeSettlementFee` give 14. | High | discount computed inside `captureTransaction` under the row lock, discount-first with half-even rounding; one fee pair per capture; `discountBps` recorded on the event |
+| B2a | Credit effective date accepted 2099 | Medium | rejects dates after today in Asia/Bahrain |
+| B2b | **Credit fee reversal used the current `mdr_bps`**, not the rate charged on that date | High | dated fee schedule minus volume tier, as of the effective date |
+| B2c | Admin settlement audit row said 'succeeded' before the call ran | High | written as 'requested', then updated to 'succeeded' / 'failed' (0088) |
+| B3a | **Webhook replays got a new delivery id**, so receivers could not dedupe (ARCHITECTURE §5) | High | single replay, batch replay and archive restore all keep the original id |
+| B3b | Support could replay succeeded/pending deliveries | High | 403 unless finance/super_admin; archive restore finance+; UI and ADMIN.md updated |
+| B3c | Deleting an endpoint that had deliveries returned 500 (FK) | Medium | soft delete (0080); delivery history kept |
+| B3d | Disabled endpoints were still retried | Medium | the retry step only picks up active endpoints |
+| B3e | A NUL byte in a receiver's response made the outcome update fail, so the delivery was resent forever | Medium | NUL stripped from the stored excerpt |
+| B3f | Backoff jitter could exceed the cap | Low | clamped after jitter |
+| B4 | **Bulk KYC approve wrote no review rows**, and the admin UI could approve merchants that were no longer visible, or not `under_review` | High | each merchant goes through `recordKycReviewInTx` in one transaction, and skipped ids are reported; the UI only sends visible, ticked `under_review` rows |
+| B5a | **Dashboard capture/refund retries minted new idempotency keys** (double capture or refund after a lost response); the refund key changed on every keystroke | High | one key per intent, rotated only after a definitive answer or an amount change |
+| B5b | The payment-link detail page only searched the newest 100 links | Medium | merchant-scoped `GET /v1/merchants/:id/payment-links/:linkId` |
+| B5c | Expired links showed as active and offered Cancel | Medium | display status follows the API rule |
+| B5d | **Checkout after a lost response invited the customer to pay again** | High | 30s timeout, poll the link before re-paying, show a receipt, "Paid at" in Bahrain time |
+| B6a | Malformed JSON, the wrong content type, and other Fastify client errors returned 500 | Medium | their 4xx with a stable code (413 mapping kept) |
+| B6b | `limit=abc`, garbage dates and non-UUID ids returned 500 | Medium | 400 (`invalid_id` / `invalid_filter` / `invalid_request`); genuine server bugs stay 500 |
+| B6c | **`amountFils: 0` was approved at the acquirer and then failed on insert** (orphan authorization); bad types returned 500 | High | 400 `invalid_amount` before the idempotency claim and before any acquirer call |
+| B6d | A business-profile PATCH with unknown keys built invalid SQL (500) | Medium | 400 naming the fields |
+
+**Verified:** the combined branch on a fresh DB applies 72 migrations; `npm run typecheck` is clean; `npm test` passes in full (490 API tests); `go test ./...` passes.

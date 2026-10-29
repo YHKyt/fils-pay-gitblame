@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { withTransaction } from "../db/withTransaction.js";
 import { ConflictError, NotFoundError } from "../lib/errors.js";
@@ -13,6 +12,8 @@ export interface OriginalDelivery {
   endpointId: string;
   outboxEventId: string;
   eventType: string;
+  /** The original's delivery_event_id (Webhook-Delivery-Id); a replay reuses it. */
+  deliveryEventId: string;
   payload: Record<string, unknown>;
 }
 
@@ -21,17 +22,12 @@ export interface OriginalDelivery {
  * both the merchant-facing single-delivery replay route and the admin
  * batch-replay function — so the two can never mean different things.
  *
- * Re-signs with a fresh timestamp and a fresh delivery_event_id rather than
- * resending the original bytes verbatim: this platform's signature scheme
- * binds a `t=` timestamp specifically so a receiver can enforce freshness,
- * and a stale replay would near-certainly fail that check. A replay is also,
- * from a receiver's dedupe perspective, legitimately a new delivery attempt
- * of the same underlying event — reusing the original delivery_event_id
- * would make a receiver that already processed the original silently swallow
- * the replay too. The stored envelope's own `id` field is updated to match
- * (data/type/createdAt carried over unchanged), so a receiver deduping from
- * either the Webhook-Delivery-Id header or the parsed body gets a consistent
- * answer.
+ * Re-signs with a fresh timestamp (the dispatcher signs at send time) but
+ * keeps the original delivery_event_id: the Webhook-Delivery-Id is stable
+ * across retries and replays, and receivers dedupe on it, so a receiver that
+ * already processed the original treats the replay as a duplicate. The
+ * stored envelope's own `id` is set to the same value, so a receiver deduping
+ * from either the header or the parsed body gets a consistent answer.
  *
  * The original row (payload + signature) is never mutated — forensic value
  * is preserved there, not by resending its exact bytes.
@@ -43,10 +39,8 @@ export async function insertReplayDeliveryRow(
   client: PoolClient,
   original: OriginalDelivery,
 ): Promise<ReplayResult> {
-  // MK: new id per replay on purpose, receivers dedupe on the original id in the body
-  // FH: ARCH §5 says Webhook-Delivery-Id is stable across retries and replays — this mints a new one?
-  const newDeliveryEventId = randomUUID();
-  const replayPayload = { ...original.payload, id: newDeliveryEventId };
+  const deliveryEventId = original.deliveryEventId;
+  const replayPayload = { ...original.payload, id: deliveryEventId };
 
   const insertResult = await client.query<{ id: string; status: string }>(
     `INSERT INTO webhook_deliveries
@@ -57,7 +51,7 @@ export async function insertReplayDeliveryRow(
       original.endpointId,
       original.outboxEventId,
       original.eventType,
-      newDeliveryEventId,
+      deliveryEventId,
       JSON.stringify(replayPayload),
       original.id,
     ],
@@ -74,6 +68,7 @@ interface OriginalDeliveryRow {
   endpoint_id: string;
   outbox_event_id: string;
   event_type: string;
+  delivery_event_id: string;
   payload: Record<string, unknown>;
   endpoint_status: string;
 }
@@ -93,7 +88,7 @@ export async function replayWebhookDelivery(
   // belong to the caller even if two of the three IDs are individually
   // valid.
   const lookupResult = await pool.query<OriginalDeliveryRow>(
-    `SELECT wd.id, wd.endpoint_id, wd.outbox_event_id, wd.event_type, wd.payload, we.status AS endpoint_status
+    `SELECT wd.id, wd.endpoint_id, wd.outbox_event_id, wd.event_type, wd.delivery_event_id, wd.payload, we.status AS endpoint_status
        FROM webhook_deliveries wd
        JOIN webhook_endpoints we ON we.id = wd.endpoint_id
       WHERE wd.id = $1 AND wd.endpoint_id = $2 AND we.merchant_id = $3`,
@@ -113,6 +108,7 @@ export async function replayWebhookDelivery(
       endpointId: original.endpoint_id,
       outboxEventId: original.outbox_event_id,
       eventType: original.event_type,
+      deliveryEventId: original.delivery_event_id,
       payload: original.payload,
     }),
   );

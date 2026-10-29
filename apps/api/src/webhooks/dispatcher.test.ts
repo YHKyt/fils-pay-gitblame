@@ -410,3 +410,58 @@ test("a disabled endpoint gets no delivery row for a new event", async () => {
   ]);
   assert.equal(rows.rows.length, 0);
 });
+
+test("backoffDelayMs never exceeds webhookBackoffCapMs, even with maximum upward jitter", () => {
+  const capConfig = { webhookBackoffBaseMs: 1_000, webhookBackoffCapMs: 60_000 };
+  // attempt 10: raw 512 000 ms, capped to 60 000, then +10 % jitter must not push it past the cap.
+  assert.equal(backoffDelayMs(10, capConfig, () => 1), 60_000);
+  assert.equal(backoffDelayMs(10, capConfig, () => 0), 54_000);
+  // below the cap, jitter still applies upward
+  assert.equal(backoffDelayMs(1, capConfig, () => 1), 1_100);
+});
+
+test("a NUL byte in the receiver's response body does not stop the outcome from being recorded", async () => {
+  const merchantId = await createMerchant("nul-body");
+  const url = `http://nul-body-${randomUUID()}.test/webhook`;
+  const endpoint = await createEndpoint(merchantId, url);
+  const outboxEvent = await enqueueCaptured(merchantId);
+
+  const transport: WebhookTransport = async (req) =>
+    req.url === url ? { statusCode: 200, body: "ok\u0000after-nul" } : { statusCode: 200, body: "" };
+  await runDispatchPass(pool, transport, config);
+
+  const delivery = await getDelivery(String(outboxEvent.id), endpoint.id);
+  assert.equal(delivery.status, "succeeded");
+  assert.equal(delivery.attempt_count, 1);
+  const excerpt = await pool.query<{ response_body_excerpt: string }>(
+    `SELECT response_body_excerpt FROM webhook_deliveries WHERE id = $1`,
+    [delivery.id],
+  );
+  assert.equal(excerpt.rows[0]!.response_body_excerpt, "okafter-nul");
+});
+
+test("a pending delivery whose endpoint was disabled after the row was created is not sent", async () => {
+  const merchantId = await createMerchant("disabled-after-pending");
+  const url = `http://disabled-after-${randomUUID()}.test/webhook`;
+  const endpoint = await createEndpoint(merchantId, url);
+  const outboxEvent = await enqueueCaptured(merchantId);
+
+  const sentToUrl: WebhookTransportRequest[] = [];
+  const failing: WebhookTransport = async (req) => {
+    if (req.url === url) sentToUrl.push(req);
+    return { statusCode: 500, body: "" };
+  };
+  await runDispatchPass(pool, failing, config);
+  assert.equal(sentToUrl.length, 1);
+  const delivery = await getDelivery(String(outboxEvent.id), endpoint.id);
+  assert.equal(delivery.status, "pending");
+
+  await pool.query(`UPDATE webhook_endpoints SET status = 'disabled' WHERE id = $1`, [endpoint.id]);
+  await forceDueNow(delivery.id);
+  await runDispatchPass(pool, failing, config);
+
+  assert.equal(sentToUrl.length, 1, "no request may go to a disabled endpoint");
+  const after = await getDelivery(String(outboxEvent.id), endpoint.id);
+  assert.equal(after.status, "pending");
+  assert.equal(after.attempt_count, 1);
+});

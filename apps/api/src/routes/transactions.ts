@@ -1,15 +1,19 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { toFils } from "@filspay/money";
 import { requireApiKey } from "../apiKeys/verify.js";
 import { requireMerchantAuth, requireMerchantRole, requireMerchantWriterActor } from "../auth/requireMerchantAuth.js";
 import { authorizeTransaction, type AuthorizeInput } from "../payments/authorize.js";
 import { captureTransaction } from "../payments/capture.js";
-import { applyCaptureDiscountAdjustment } from "../payments/discountAdjustment.js";
 import { voidTransaction } from "../payments/void.js";
 import { openTransactionsExportStream } from "../transactions/exportCsv.js";
 import { getTransactionById, listTransactions } from "../transactions/query.js";
 import { listTransactionEvents } from "../transactions/events.js";
 import { BadRequestError, NotFoundError } from "../lib/errors.js";
+import {
+  parseOptionalInstant,
+  parseOptionalNonNegativeInt,
+  parsePositiveAmountFils,
+  requireUuidParam,
+} from "../lib/requestParams.js";
 import type { SimulatedCardInput } from "../acquirer/types.js";
 
 interface AuthorizeBody {
@@ -76,7 +80,7 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
 
       const input: AuthorizeInput = {
         merchantId: request.apiKeyAuth!.merchantId,
-        amountFils: toFils(amountFils),
+        amountFils: parsePositiveAmountFils(amountFils),
         card,
         reference,
         idempotencyKey,
@@ -94,25 +98,17 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
     // these buttons from `support`, but the API let a support session through.
     { preHandler: [requireMerchantAuth, requireMerchantRole("owner", "finance")] },
     async (request, reply) => {
+      const transactionId = requireUuidParam(request.params.id);
       const idempotencyKey = getIdempotencyKey(request);
       const { amountFils } = request.body ?? {};
 
       const result = await captureTransaction(app.db, app.acquirer, {
-        transactionId: request.params.id,
+        transactionId,
         merchantId: request.merchantAuth!.merchantId,
-        amountFils: amountFils !== undefined ? toFils(amountFils) : undefined,
+        amountFils: amountFils !== undefined ? parsePositiveAmountFils(amountFils) : undefined,
         idempotencyKey,
         actor: requireMerchantWriterActor(request.merchantAuth!),
       });
-      // discount applied after capture commits, separate txn. on a replayed 200 this runs again
-      // but the count guard makes it a no-op — MK 2026-06
-      // am: and if this throws, the capture is committed but the discount never lands? retry = replay = ...
-      if (result.statusCode === 200) {
-        await applyCaptureDiscountAdjustment(app.db, {
-          merchantId: request.merchantAuth!.merchantId,
-          transactionId: request.params.id,
-        });
-      }
       reply.code(result.statusCode).send(result.body);
     },
   );
@@ -122,7 +118,7 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: [requireMerchantAuth, requireMerchantRole("owner", "finance")] },
     async (request, reply) => {
       const result = await voidTransaction(app.db, {
-        transactionId: request.params.id,
+        transactionId: requireUuidParam(request.params.id),
         merchantId: request.merchantAuth!.merchantId,
         actor: requireMerchantWriterActor(request.merchantAuth!),
       });
@@ -136,13 +132,13 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
     async (request) => {
       const q = request.query;
       const status = q.status === undefined ? undefined : Array.isArray(q.status) ? q.status : [q.status];
-      const limit = q.limit !== undefined ? Number.parseInt(q.limit, 10) : undefined;
+      const limit = parseOptionalNonNegativeInt(q.limit, "limit");
 
       return listTransactions(app.db, {
         merchantId: request.merchantAuth!.merchantId,
         status,
-        from: q.from ? new Date(q.from) : undefined,
-        to: q.to ? new Date(q.to) : undefined,
+        from: parseOptionalInstant(q.from, "from"),
+        to: parseOptionalInstant(q.to, "to"),
         search: q.search,
         limit,
         cursor: q.cursor ?? null,
@@ -160,8 +156,8 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
       // Streamed a page at a time: the body is never held in memory whole.
       const body = await openTransactionsExportStream(app.db, {
         merchantId: request.merchantAuth!.merchantId,
-        from: q.from ? new Date(q.from) : undefined,
-        to: q.to ? new Date(q.to) : undefined,
+        from: parseOptionalInstant(q.from, "from"),
+        to: parseOptionalInstant(q.to, "to"),
         status,
       });
 
@@ -178,7 +174,7 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
     async (request) => {
       const txn = await getTransactionById(app.db, {
         merchantId: request.merchantAuth!.merchantId,
-        transactionId: request.params.id,
+        transactionId: requireUuidParam(request.params.id),
       });
       if (!txn) {
         throw new NotFoundError("transaction_not_found");
@@ -195,7 +191,7 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
       // (404 if the parent transaction isn't found/owned).
       const txn = await getTransactionById(app.db, {
         merchantId: request.merchantAuth!.merchantId,
-        transactionId: request.params.id,
+        transactionId: requireUuidParam(request.params.id),
       });
       if (!txn) {
         throw new NotFoundError("transaction_not_found");

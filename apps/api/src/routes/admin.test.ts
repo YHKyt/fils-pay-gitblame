@@ -624,6 +624,67 @@ test("bulk approve KYC only touches merchants currently under_review", async () 
   assert.deepEqual(freshAfter.rows[0], freshBefore.rows[0], "a merchant not under_review is untouched");
 });
 
+test("bulk approve KYC writes one merchant_kyc_reviews row per approved merchant, by the acting admin, and reports skipped ids", async () => {
+  const finance = await signedInAdmin("finance", "bulkkyc-trail");
+  const pendingA = await createMerchant("bulkkyc-trail-a");
+  const pendingB = await createMerchant("bulkkyc-trail-b");
+  const rejected = await createMerchant("bulkkyc-trail-rejected");
+  const unknownId = randomUUID();
+  await pool.query(`UPDATE merchants SET onboarding_status = 'under_review' WHERE id = ANY($1)`, [
+    [pendingA.merchantId, pendingB.merchantId],
+  ]);
+  await pool.query(`UPDATE merchants SET onboarding_status = 'rejected', kyc_passed = false WHERE id = $1`, [
+    rejected.merchantId,
+  ]);
+
+  const res = await app.inject({
+    method: "POST",
+    url: "/v1/admin/merchants/bulk-approve",
+    headers: { cookie: finance.cookie },
+    payload: {
+      merchantIds: [pendingA.merchantId, rejected.merchantId, pendingB.merchantId, unknownId],
+      notes: "launch batch",
+    },
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const body = res.json() as {
+    approvedCount: number;
+    approvedMerchantIds: string[];
+    skippedMerchantIds: string[];
+  };
+  assert.equal(body.approvedCount, 2);
+  assert.deepEqual(new Set(body.approvedMerchantIds), new Set([pendingA.merchantId, pendingB.merchantId]));
+  assert.deepEqual(new Set(body.skippedMerchantIds), new Set([rejected.merchantId, unknownId]));
+
+  const reviews = await pool.query<{
+    merchant_id: string;
+    outcome: string;
+    reviewer_identifier: string;
+    reviewer_admin_user_id: string | null;
+    notes: string | null;
+  }>(
+    `SELECT merchant_id, outcome, reviewer_identifier, reviewer_admin_user_id, notes
+       FROM merchant_kyc_reviews WHERE merchant_id = ANY($1)`,
+    [[pendingA.merchantId, pendingB.merchantId, rejected.merchantId]],
+  );
+  assert.equal(reviews.rowCount, 2, "exactly one review row per approved merchant, none for skipped ones");
+  assert.deepEqual(
+    new Set(reviews.rows.map((r) => r.merchant_id)),
+    new Set([pendingA.merchantId, pendingB.merchantId]),
+  );
+  for (const row of reviews.rows) {
+    assert.equal(row.outcome, "approved");
+    assert.equal(row.reviewer_identifier, finance.email);
+    assert.equal(row.reviewer_admin_user_id, finance.id);
+    assert.equal(row.notes, "launch batch");
+  }
+
+  const audit = await auditRowsFor(finance.id, "kyc_bulk_approve");
+  assert.equal(audit.length, 1);
+  const metadata = audit[0]!.metadata as { skippedMerchantIds: string[] };
+  assert.deepEqual(new Set(metadata.skippedMerchantIds), new Set([rejected.merchantId, unknownId]));
+});
+
 test("bulk approve KYC is finance-gated and rejects malformed selections", async () => {
   const support = await signedInAdmin("support", "bulkkyc-role");
   const { merchantId } = await createMerchant("bulkkyc-role");
@@ -1198,6 +1259,78 @@ test("webhook batch replay accepts an explicit statuses filter, and rejects bad 
   assert.equal(disabled.statusCode, 409);
 });
 
+test("webhook batch replay: support may replay only failed/exhausted; pending/succeeded need finance or super_admin; unknown statuses are rejected", async () => {
+  const support = await signedInAdmin("support", "replay-roles-support");
+  const finance = await signedInAdmin("finance", "replay-roles-finance");
+  const superAdmin = await signedInAdmin("super_admin", "replay-roles-super");
+  const { merchantId } = await createMerchant("replay-roles");
+  const endpoint = await createWebhookEndpoint(pool, config, {
+    merchantId,
+    url: "http://127.0.0.1:9/hook",
+    createdByType: "merchant_session",
+    createdById: randomUUID(),
+  });
+  await createFailedDeliveries(merchantId, endpoint.id, [
+    { status: "succeeded", createdAt: "2026-05-03T00:00:00Z" },
+    { status: "failed", createdAt: "2026-05-03T01:00:00Z" },
+  ]);
+  const url = `/v1/admin/merchants/${merchantId}/webhook-endpoints/${endpoint.id}/replay-batch`;
+  const range = { from: "2026-05-01T00:00:00Z", to: "2026-05-05T00:00:00Z" };
+  const replay = (cookie: string, statuses: string[]) =>
+    app.inject({ method: "POST", url, headers: { cookie }, payload: { ...range, statuses } });
+
+  for (const statuses of [["succeeded"], ["pending"], ["failed", "succeeded"]]) {
+    const res = await replay(support.cookie, statuses);
+    assert.equal(res.statusCode, 403, `support replaying ${statuses.join(",")}: ${res.body}`);
+  }
+  const replayedBySupport = await pool.query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM webhook_deliveries WHERE endpoint_id = $1 AND replay_of_delivery_id IS NOT NULL`,
+    [endpoint.id],
+  );
+  assert.equal(replayedBySupport.rows[0]!.count, "0", "a rejected request queues nothing");
+
+  const supportFailed = await replay(support.cookie, ["failed", "exhausted"]);
+  assert.equal(supportFailed.statusCode, 200, supportFailed.body);
+  assert.equal((supportFailed.json() as { matchedCount: number }).matchedCount, 1);
+
+  const financeSucceeded = await replay(finance.cookie, ["succeeded"]);
+  assert.equal(financeSucceeded.statusCode, 200, financeSucceeded.body);
+  const superSucceeded = await replay(superAdmin.cookie, ["succeeded"]);
+  assert.equal(superSucceeded.statusCode, 200, superSucceeded.body);
+
+  const unknown = await replay(finance.cookie, ["everything"]);
+  assert.equal(unknown.statusCode, 400, unknown.body);
+});
+
+test("webhook archive restore (replays every archived status) needs finance or super_admin", async () => {
+  const support = await signedInAdmin("support", "archive-roles-support");
+  const finance = await signedInAdmin("finance", "archive-roles-finance");
+  const { merchantId } = await createMerchant("archive-roles");
+  const endpoint = await createWebhookEndpoint(pool, config, {
+    merchantId,
+    url: "http://127.0.0.1:9/hook",
+    createdByType: "merchant_session",
+    createdById: randomUUID(),
+  });
+  await createFailedDeliveries(merchantId, endpoint.id, [{ status: "succeeded", createdAt: "2026-05-03T00:00:00Z" }]);
+
+  const archiveRes = await app.inject({
+    method: "POST",
+    url: `/v1/admin/merchants/${merchantId}/webhook-endpoints/${endpoint.id}/archive`,
+    headers: { cookie: support.cookie },
+    payload: { from: "2026-05-01T00:00:00Z", to: "2026-05-05T00:00:00Z" },
+  });
+  assert.equal(archiveRes.statusCode, 201, archiveRes.body);
+  const { archiveId } = archiveRes.json() as { archiveId: string };
+  const restoreUrl = `/v1/admin/merchants/${merchantId}/webhook-endpoints/${endpoint.id}/archive/${archiveId}/replay`;
+
+  const bySupport = await app.inject({ method: "POST", url: restoreUrl, headers: { cookie: support.cookie }, payload: {} });
+  assert.equal(bySupport.statusCode, 403, bySupport.body);
+  const byFinance = await app.inject({ method: "POST", url: restoreUrl, headers: { cookie: finance.cookie }, payload: {} });
+  assert.equal(byFinance.statusCode, 200, byFinance.body);
+  assert.equal((byFinance.json() as { replayedCount: number }).replayedCount, 1);
+});
+
 // ------------------------------------------------------ impersonation
 
 // covers support only. finance/super_admin impersonation not tested — MK
@@ -1574,6 +1707,53 @@ test("a settlement action whose audit row cannot be written never makes the call
   }
 
   assert.equal(settlementSpy.rebuildCalls, 0, "an unloggable action must be BLOCKED, not merely unlogged");
+});
+
+test("cross-process admin actions: the pre-call audit row says 'requested', never 'succeeded', until the call returns", async () => {
+  const admin = await signedInAdmin("finance", "audit-requested");
+  const { merchantId } = await createMerchant("audit-requested");
+  const outcomeNow = async (action: string) => {
+    const rows = await pool.query<{ outcome: string }>(
+      `SELECT outcome FROM admin_audit_log WHERE admin_user_id = $1 AND action = $2`,
+      [admin.id, action],
+    );
+    return rows.rows.map((r) => r.outcome);
+  };
+
+  const seen: Record<string, string[]> = {};
+  settlementSpy.runBatchImpl = async () => {
+    seen.settlement_run_batch = await outcomeNow("settlement_run_batch");
+    return { businessDate: "2026-09-09", merchantResults: [] };
+  };
+  settlementSpy.rebuildImpl = async () => {
+    seen.balance_rebuild = await outcomeNow("balance_rebuild");
+    return { rebuiltCount: 0, changed: [] };
+  };
+  settlementSpy.recalcMdrImpl = async () => {
+    seen.mdr_recalculation = await outcomeNow("mdr_recalculation");
+    return { batchesConsidered: 0, adjusted: [] };
+  };
+  try {
+    for (const [url, payload] of [
+      ["/v1/admin/settlement/run-batch", { date: "2026-09-09" }],
+      ["/v1/admin/balances/rebuild", {}],
+      [`/v1/admin/merchants/${merchantId}/mdr-recalculation`, { from: "2026-09-01", to: "2026-09-02" }],
+    ] as const) {
+      const res = await app.inject({ method: "POST", url, headers: { cookie: admin.cookie }, payload });
+      assert.equal(res.statusCode, 200, res.body);
+    }
+  } finally {
+    settlementSpy.runBatchImpl = async () => ({ businessDate: "2026-09-09", merchantResults: [] });
+    settlementSpy.rebuildImpl = async () => ({ rebuiltCount: 0, changed: [] });
+    settlementSpy.recalcMdrImpl = async () => ({ batchesConsidered: 0, adjusted: [] });
+  }
+
+  // While the call is in flight (and forever, if the process dies or the
+  // outcome update fails) nothing has confirmed success.
+  for (const action of ["settlement_run_batch", "balance_rebuild", "mdr_recalculation"]) {
+    assert.deepEqual(seen[action], ["requested"], `${action} during the call`);
+    assert.deepEqual(await outcomeNow(action), ["succeeded"], `${action} after the call returned`);
+  }
 });
 
 test("cookieValue helper sanity: the impersonation and admin cookies are genuinely different tokens", async () => {

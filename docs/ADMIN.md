@@ -6,7 +6,7 @@ three roles:
 
 | Role | Can do |
 |---|---|
-| **support** | look things up, replay webhooks, view as a merchant, issue small credits |
+| **support** | look things up, replay failed/exhausted webhooks, view as a merchant, issue small credits |
 | **finance** | everything support can do, plus anything that touches money or settlement |
 | **super_admin** | everything, including making changes while viewing as a merchant |
 
@@ -89,15 +89,17 @@ waiting for the worker. Quick, safe, and repeatable.
 > **— unsigned:** replay-batch reuses the original delivery ids, so receivers dedupe fine.
 
 **Replay a batch** — pick an endpoint, a date range, and which delivery
-statuses to resend (default: `exhausted`; any status can be chosen). Each
-delivery is re-signed and queued; the merchant's receiver sees them as new
-deliveries.
+statuses to resend (default: `exhausted`). Support can resend `failed` and
+`exhausted`; resending `pending` or `succeeded` needs finance or super_admin. Each
+delivery is re-signed and queued with its original `Webhook-Delivery-Id`,
+so a receiver that already processed it can dedupe it.
 
 **Archive / restore** — before a merchant rotates their webhook URL,
 archive the endpoint's history; after they register the new one, restore
 the archive against it to backfill. No screen for this yet — it's
 `POST /v1/admin/merchants/:id/webhook-endpoints/:endpointId/archive` and
-`.../archive/:archiveId/replay`. Archives are written in pages of 1000
+`.../archive/:archiveId/replay`. Restoring resends every archived delivery,
+succeeded ones included, so it needs finance or super_admin. Archives are written in pages of 1000
 deliveries, so any range is fine.
 
 ## Incident review: duplicate `settlement.paid` (2026-08-21)

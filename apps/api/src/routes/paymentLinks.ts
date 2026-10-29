@@ -8,7 +8,7 @@ import { createPaymentLink } from "../paymentLinks/create.js";
 import { getPublicPaymentLink } from "../paymentLinks/read.js";
 import { payPaymentLink } from "../paymentLinks/pay.js";
 import { cancelPaymentLink } from "../paymentLinks/cancel.js";
-import { listPaymentLinks } from "../paymentLinks/query.js";
+import { getPaymentLinkForMerchant, listPaymentLinks } from "../paymentLinks/query.js";
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../lib/errors.js";
 import type { SimulatedCardInput } from "../acquirer/types.js";
 
@@ -132,6 +132,24 @@ export async function paymentLinkMerchantRoutes(app: FastifyInstance): Promise<v
         limit,
         cursor: q.cursor ?? null,
       });
+    },
+  );
+
+  // Single link by id. The merchant_id predicate is the authz boundary (same
+  // as cancel): another merchant's link id is a 404, never a 403.
+  app.get<{ Params: MerchantLinkIdParams }>(
+    "/:merchantId/payment-links/:id",
+    { preHandler: requireMerchantAuth },
+    async (request) => {
+      assertOwnMerchant(request);
+      const link = await getPaymentLinkForMerchant(app.db, app.config, {
+        merchantId: request.merchantAuth!.merchantId,
+        id: request.params.id,
+      });
+      if (!link) {
+        throw new NotFoundError("payment_link_not_found");
+      }
+      return link;
     },
   );
 }

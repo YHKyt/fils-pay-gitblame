@@ -41,7 +41,7 @@ export async function listWebhookEndpoints(pool: Pool, merchantId: string): Prom
   const result = await pool.query<WebhookEndpointRow>(
     `SELECT id, url, secret_prefix, status, created_at, updated_at
        FROM webhook_endpoints
-      WHERE merchant_id = $1
+      WHERE merchant_id = $1 AND deleted_at IS NULL
       ORDER BY created_at DESC`,
     [merchantId],
   );
@@ -60,7 +60,7 @@ export async function getWebhookEndpoint(
   const result = await pool.query<WebhookEndpointRow>(
     `SELECT id, url, secret_prefix, status, created_at, updated_at
        FROM webhook_endpoints
-      WHERE id = $1 AND merchant_id = $2`,
+      WHERE id = $1 AND merchant_id = $2 AND deleted_at IS NULL`,
     [input.id, input.merchantId],
   );
   const row = result.rows[0];
