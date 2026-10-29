@@ -64,9 +64,13 @@ reconciliation match what finance agreed with them.
 
 **Import adjustments** — paste a CSV of corrections with a
 `merchantId,amount,reason` header. Amounts are in BD as finance's sheets
-already have them (`4.75`, `120.00`). Rows are applied as soon as you
-submit; each import's rows are kept with the original text for reference.
-Don't submit the same file twice; there's no duplicate detection yet.
+already have them (`4.75`, `120.00`). If the batch's total, ignoring sign,
+is within the approval limit (50.000 BD) the rows are applied as soon as you
+submit; above it the import waits on the same page for a second finance
+admin to approve or reject it, exactly like a large credit. Each import's
+rows are kept with the original text for reference. A batch that is already
+posted or waiting is refused, so submitting the same file twice is safe; to
+post the same corrections again on purpose, give the rows a different reason.
 
 ## Settlement ops
 

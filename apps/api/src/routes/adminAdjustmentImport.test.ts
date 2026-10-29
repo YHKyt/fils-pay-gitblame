@@ -282,3 +282,208 @@ test("reading the import history requires a session", async () => {
   const res = await app.inject({ method: "GET", url: PATH });
   assert.equal(res.statusCode, 401, res.body);
 });
+
+async function ledgerAndCache(merchantId: string): Promise<{ legs: number; netPayable: number; cached: number | null }> {
+  const ledger = await pool.query<{ legs: number; net: string }>(
+    `SELECT COUNT(*)::int AS legs,
+            COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END)
+                     FILTER (WHERE account_id = 'merchant_payable'), 0)::text AS net
+       FROM ledger_entries WHERE merchant_id = $1`,
+    [merchantId],
+  );
+  const cache = await pool.query<{ cached_payable_fils: string }>(
+    `SELECT cached_payable_fils::text AS cached_payable_fils FROM merchant_balances WHERE merchant_id = $1`,
+    [merchantId],
+  );
+  return {
+    legs: ledger.rows[0]!.legs,
+    netPayable: Number(ledger.rows[0]!.net),
+    cached: cache.rows[0] ? Number(cache.rows[0].cached_payable_fils) : null,
+  };
+}
+
+test("uploading the same CSV twice is a 409 and the ledger and cache are unchanged", async () => {
+  const finance = await signedInAdmin("finance");
+  const otherFinance = await signedInAdmin("finance");
+  const merchantId = await createMerchant();
+  const csvContent = `merchantId,amount,reason\n${merchantId},4.750,statement correction\n${merchantId},1.25,rounding\n`;
+
+  const first = await app.inject({
+    method: "POST",
+    url: PATH,
+    headers: { cookie: finance.cookie },
+    payload: { csvContent, originalFilename: "march.csv" },
+  });
+  assert.equal(first.statusCode, 201, first.body);
+  const afterFirst = await ledgerAndCache(merchantId);
+  assert.deepEqual(afterFirst, { legs: 4, netPayable: 6000, cached: 6000 });
+
+  // The same file again, the same rows re-exported (other order, other
+  // spelling of the amount, other filename), and the same file from another
+  // finance admin: all are the one batch that is already posted.
+  const replays = [
+    { cookie: finance.cookie, csvContent, originalFilename: "march.csv" },
+    {
+      cookie: finance.cookie,
+      csvContent: `merchantId,amount,reason\r\n${merchantId},1.250,rounding\r\n${merchantId},4.75,statement correction\r\n`,
+      originalFilename: "march (1).csv",
+    },
+    { cookie: otherFinance.cookie, csvContent, originalFilename: "march.csv" },
+  ];
+  for (const replay of replays) {
+    const res = await app.inject({
+      method: "POST",
+      url: PATH,
+      headers: { cookie: replay.cookie },
+      payload: { csvContent: replay.csvContent, originalFilename: replay.originalFilename },
+    });
+    assert.equal(res.statusCode, 409, res.body);
+    assert.equal((res.json() as { error: string }).error, "duplicate_adjustment_import");
+  }
+
+  assert.deepEqual(await ledgerAndCache(merchantId), afterFirst, "a refused replay must post nothing");
+  const imports = await pool.query<{ n: number }>(
+    `SELECT COUNT(DISTINCT adjustment_import_id)::int AS n FROM adjustment_import_rows WHERE merchant_id = $1`,
+    [merchantId],
+  );
+  assert.equal(imports.rows[0]!.n, 1, "a refused replay must leave no import behind");
+});
+
+test("an over-threshold import waits for a different admin's approval before anything posts", async () => {
+  const uploader = await signedInAdmin("finance");
+  const approver = await signedInAdmin("finance");
+  const merchantId = await createMerchant();
+
+  const created = await app.inject({
+    method: "POST",
+    url: PATH,
+    headers: { cookie: uploader.cookie },
+    payload: { csvContent: `merchantId,amount,reason\n${merchantId},1000000.000,big correction\n` },
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  const result = created.json() as { importId: string; status: string; requiresApproval: boolean };
+  assert.equal(result.status, "pending_approval");
+  assert.equal(result.requiresApproval, true);
+  assert.deepEqual(await ledgerAndCache(merchantId), { legs: 0, netPayable: 0, cached: null });
+
+  // The uploader cannot be their own second approver.
+  const self = await app.inject({
+    method: "POST",
+    url: `${PATH}/${result.importId}/approve`,
+    headers: { cookie: uploader.cookie },
+  });
+  assert.equal(self.statusCode, 409, self.body);
+  assert.equal((self.json() as { error: string }).error, "self_approval_forbidden");
+  assert.deepEqual(await ledgerAndCache(merchantId), { legs: 0, netPayable: 0, cached: null });
+
+  // While it is pending, the same file cannot be queued a second time.
+  const queuedAgain = await app.inject({
+    method: "POST",
+    url: PATH,
+    headers: { cookie: approver.cookie },
+    payload: { csvContent: `merchantId,amount,reason\n${merchantId},1000000,big correction\n` },
+  });
+  assert.equal(queuedAgain.statusCode, 409, queuedAgain.body);
+
+  const approved = await app.inject({
+    method: "POST",
+    url: `${PATH}/${result.importId}/approve`,
+    headers: { cookie: approver.cookie },
+  });
+  assert.equal(approved.statusCode, 200, approved.body);
+  assert.equal((approved.json() as { status: string }).status, "posted");
+  assert.deepEqual(await ledgerAndCache(merchantId), { legs: 2, netPayable: 1_000_000_000, cached: 1_000_000_000 });
+
+  const again = await app.inject({
+    method: "POST",
+    url: `${PATH}/${result.importId}/approve`,
+    headers: { cookie: approver.cookie },
+  });
+  assert.equal(again.statusCode, 409, again.body);
+  assert.deepEqual(await ledgerAndCache(merchantId), { legs: 2, netPayable: 1_000_000_000, cached: 1_000_000_000 });
+
+  const record = await pool.query<{ approved_by_admin_user_id: string; status: string }>(
+    `SELECT approved_by_admin_user_id, status FROM adjustment_imports WHERE id = $1`,
+    [result.importId],
+  );
+  assert.deepEqual(record.rows[0], { approved_by_admin_user_id: approver.id, status: "posted" });
+});
+
+test("many small rows that add up past the threshold are held too", async () => {
+  const finance = await signedInAdmin("finance");
+  const merchantId = await createMerchant();
+  const rows = Array.from({ length: 3 }, (_, i) => `${merchantId},20.000,part ${i}`).join("\n");
+
+  const created = await app.inject({
+    method: "POST",
+    url: PATH,
+    headers: { cookie: finance.cookie },
+    payload: { csvContent: `merchantId,amount,reason\n${rows}\n` },
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  assert.equal((created.json() as { status: string }).status, "pending_approval");
+  assert.deepEqual(await ledgerAndCache(merchantId), { legs: 0, netPayable: 0, cached: null });
+});
+
+test("a rejected import posts nothing, cannot be approved, and the file can be uploaded again", async () => {
+  const uploader = await signedInAdmin("finance");
+  const reviewer = await signedInAdmin("super_admin");
+  const merchantId = await createMerchant();
+  const csvContent = `merchantId,amount,reason\n${merchantId},-75.000,reversal\n`;
+
+  const created = await app.inject({
+    method: "POST",
+    url: PATH,
+    headers: { cookie: uploader.cookie },
+    payload: { csvContent },
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  const importId = (created.json() as { importId: string }).importId;
+
+  const support = await signedInAdmin("support");
+  const supportApprove = await app.inject({
+    method: "POST",
+    url: `${PATH}/${importId}/approve`,
+    headers: { cookie: support.cookie },
+  });
+  assert.equal(supportApprove.statusCode, 403, supportApprove.body);
+
+  const rejected = await app.inject({
+    method: "POST",
+    url: `${PATH}/${importId}/reject`,
+    headers: { cookie: reviewer.cookie },
+  });
+  assert.equal(rejected.statusCode, 200, rejected.body);
+  assert.equal((rejected.json() as { status: string }).status, "rejected");
+
+  const approveAfter = await app.inject({
+    method: "POST",
+    url: `${PATH}/${importId}/approve`,
+    headers: { cookie: reviewer.cookie },
+  });
+  assert.equal(approveAfter.statusCode, 409, approveAfter.body);
+  assert.deepEqual(await ledgerAndCache(merchantId), { legs: 0, netPayable: 0, cached: null });
+
+  const reuploaded = await app.inject({
+    method: "POST",
+    url: PATH,
+    headers: { cookie: uploader.cookie },
+    payload: { csvContent },
+  });
+  assert.equal(reuploaded.statusCode, 201, reuploaded.body);
+  assert.equal((reuploaded.json() as { status: string }).status, "pending_approval");
+});
+
+test("approving or rejecting an unknown import is a 404", async () => {
+  const finance = await signedInAdmin("finance");
+  for (const id of ["not-a-uuid", randomUUID()]) {
+    for (const action of ["approve", "reject"]) {
+      const res = await app.inject({
+        method: "POST",
+        url: `${PATH}/${id}/${action}`,
+        headers: { cookie: finance.cookie },
+      });
+      assert.equal(res.statusCode, 404, `${action} ${id} -> ${res.body}`);
+    }
+  }
+});

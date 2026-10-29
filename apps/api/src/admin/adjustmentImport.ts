@@ -1,9 +1,10 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { addFils, toFils, ZERO_FILS, type Fils } from "@filspay/money";
 import { insertAdminAuditLog } from "../adminAudit/log.js";
 import { withTransaction } from "../db/withTransaction.js";
-import { BadRequestError } from "../lib/errors.js";
+import { BadRequestError, ConflictError, NotFoundError } from "../lib/errors.js";
 import { parseAdjustmentAmountFils } from "./adjustmentCsvParsing.js";
+import { creditRequiresSecondApprover } from "./creditThreshold.js";
 import { postLedgerAdjustment } from "./ledgerAdjustments.js";
 
 export interface AdjustmentImportRow {
@@ -13,15 +14,22 @@ export interface AdjustmentImportRow {
   reason?: string;
 }
 
-/** @property totalPostedFils Sum of the absolute row amounts, so always >= 0. */
+export type AdjustmentImportStatus = "pending_approval" | "posted" | "rejected";
+
+/**
+ * @property totalPostedFils Signed sum of the rows. It is on the ledger only
+ *   when `status` is 'posted'; a pending import posts it on approval.
+ */
 export interface AdjustmentImportResult {
   importId: string;
   rowCount: number;
   totalPostedFils: Fils;
+  status: AdjustmentImportStatus;
+  requiresApproval: boolean;
 }
 
 async function postAdjustmentToLedgerAndCache(
-  client: import("pg").PoolClient,
+  client: PoolClient,
   merchantId: string,
   amountFils: Fils,
 ): Promise<string | null> {
@@ -37,10 +45,54 @@ async function postAdjustmentToLedgerAndCache(
 }
 
 /**
- * Applies one uploaded CSV in a single transaction: every row's amount is
- * parsed, posted to the ledger, and recorded in adjustment_import_rows with
- * its original text preserved alongside the integer that was posted. The
- * audit row is the last statement in the same transaction, so an import
+ * Posts every row of an import (ledger group + balance cache, each row
+ * linked to its group) and flips the import to 'posted', inside the caller's
+ * transaction. Private on purpose: rows post only as part of the upload or
+ * approval decision that authorised them. Returns the signed total.
+ */
+async function postImportRows(client: PoolClient, importId: string): Promise<Fils> {
+  const rows = await client.query<{ id: string; merchant_id: string; parsed_amount_fils: string }>(
+    `SELECT id, merchant_id, parsed_amount_fils::text AS parsed_amount_fils
+       FROM adjustment_import_rows
+      WHERE adjustment_import_id = $1
+      ORDER BY row_number`,
+    [importId],
+  );
+
+  let total = ZERO_FILS;
+  for (const row of rows.rows) {
+    const amountFils = toFils(Number(row.parsed_amount_fils), { allowNegative: true });
+    const entryGroupId = await postAdjustmentToLedgerAndCache(client, row.merchant_id, amountFils);
+    await client.query(`UPDATE adjustment_import_rows SET ledger_entry_group_id = $2 WHERE id = $1`, [
+      row.id,
+      entryGroupId,
+    ]);
+    total = addFils(total, amountFils);
+  }
+
+  await client.query(`UPDATE adjustment_imports SET status = 'posted', applied_at = now() WHERE id = $1`, [
+    importId,
+  ]);
+  return total;
+}
+
+/**
+ * Takes one uploaded CSV in a single transaction: every row's amount is
+ * parsed and recorded in adjustment_import_rows with its original text
+ * preserved alongside the integer, then
+ *
+ * - the batch is refused (409) if an identical one is already posted or
+ *   pending. Identity is adjustment_import_content_sha256 (migration 0095):
+ *   merchant, fils and reason of every row, order-insensitive, filename
+ *   ignored. The partial unique index makes the check race-free.
+ * - the batch is held as 'pending_approval' when its gross amount (sum of
+ *   |row|) is above the credit approval threshold. A batch is one person's
+ *   single action, so it is measured as a whole: judging rows one by one
+ *   would let a 1,000,000 BD correction through as many 50 BD rows. Nothing
+ *   is posted until a different admin approves (approveAdjustmentImport).
+ * - otherwise every row is posted now, as before.
+ *
+ * The audit row is the last statement in the same transaction, so an import
  * that lands without a record of who ran it is not reachable.
  */
 export async function applyAdjustmentImport(
@@ -51,44 +103,185 @@ export async function applyAdjustmentImport(
     throw new BadRequestError("empty_import", "the CSV must contain at least one row");
   }
 
+  const parsedRows = input.rows.map((row) => ({ ...row, amountFils: parseAdjustmentAmountFils(row.amount) }));
+  let total = ZERO_FILS;
+  let gross = ZERO_FILS;
+  for (const row of parsedRows) {
+    total = addFils(total, row.amountFils);
+    gross = addFils(gross, toFils(Math.abs(row.amountFils)));
+  }
+  const requiresApproval = creditRequiresSecondApprover({ baseAmountFils: gross, feeReversalFils: ZERO_FILS });
+
   return withTransaction(pool, async (client) => {
     const importRow = await client.query<{ id: string }>(
-      `INSERT INTO adjustment_imports (uploaded_by_admin_user_id, original_filename, row_count)
-       VALUES ($1, $2, $3) RETURNING id`,
-      [input.adminUserId, input.originalFilename, input.rows.length],
+      `INSERT INTO adjustment_imports
+         (uploaded_by_admin_user_id, original_filename, row_count, requires_approval, status, applied_at)
+       VALUES ($1, $2, $3, $4, 'pending_approval', NULL) RETURNING id`,
+      [input.adminUserId, input.originalFilename, input.rows.length, requiresApproval],
     );
     const importId = importRow.rows[0]!.id;
 
-    let total = ZERO_FILS;
-    // FH: claude says nothing here stops the same CSV being applied twice. intended? (asked in #fp-backend 14/8, no answer)
-    // re-upload is blocked by the unique original_filename i think — am
-    for (let i = 0; i < input.rows.length; i++) {
-      const row = input.rows[i]!;
-      const amountFils = parseAdjustmentAmountFils(row.amount);
-      const entryGroupId = await postAdjustmentToLedgerAndCache(client, row.merchantId, amountFils);
-
+    for (let i = 0; i < parsedRows.length; i++) {
+      const row = parsedRows[i]!;
       await client.query(
         `INSERT INTO adjustment_import_rows
-           (adjustment_import_id, row_number, merchant_id, raw_amount_text, parsed_amount_fils, reason, ledger_entry_group_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [importId, i + 1, row.merchantId, row.amount, amountFils, row.reason ?? null, entryGroupId],
+           (adjustment_import_id, row_number, merchant_id, raw_amount_text, parsed_amount_fils, reason)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [importId, i + 1, row.merchantId, row.amount, row.amountFils, row.reason ?? null],
       );
-      total = addFils(total, amountFils);
+    }
+
+    try {
+      await client.query(
+        `UPDATE adjustment_imports SET content_sha256 = adjustment_import_content_sha256(id) WHERE id = $1`,
+        [importId],
+      );
+    } catch (err) {
+      if ((err as { code?: string; constraint?: string }).constraint === "adjustment_imports_content_once") {
+        throw new ConflictError(
+          "duplicate_adjustment_import",
+          "an import with exactly these rows is already posted or awaiting approval",
+        );
+      }
+      throw err;
+    }
+
+    if (!requiresApproval) {
+      await postImportRows(client, importId);
     }
 
     await insertAdminAuditLog(client, {
       adminUserId: input.adminUserId,
-      action: "adjustment_import_applied",
+      action: requiresApproval ? "adjustment_import_submitted" : "adjustment_import_applied",
       targetType: "adjustment_import",
       targetId: importId,
       metadata: {
         rowCount: input.rows.length,
         totalPostedFils: total,
+        grossFils: gross,
         originalFilename: input.originalFilename,
+        requiresApproval,
+        posted: !requiresApproval,
       },
     });
 
-    return { importId, rowCount: input.rows.length, totalPostedFils: total };
+    return {
+      importId,
+      rowCount: input.rows.length,
+      totalPostedFils: total,
+      status: requiresApproval ? "pending_approval" : "posted",
+      requiresApproval,
+    };
+  });
+}
+
+interface LockedImport {
+  id: string;
+  uploaded_by_admin_user_id: string;
+  row_count: number;
+  requires_approval: boolean;
+  status: AdjustmentImportStatus;
+}
+
+/** Locks a pending import for a decision: 404 if unknown, 409 if already decided. */
+async function lockPendingImport(client: PoolClient, importId: string): Promise<LockedImport> {
+  const locked = await client.query<LockedImport>(
+    `SELECT id, uploaded_by_admin_user_id, row_count, requires_approval, status
+       FROM adjustment_imports
+      WHERE id = $1
+      FOR UPDATE`,
+    [importId],
+  );
+  const row = locked.rows[0];
+  if (!row) {
+    throw new NotFoundError("adjustment_import_not_found");
+  }
+  if (row.status !== "pending_approval") {
+    throw new ConflictError("adjustment_import_not_pending");
+  }
+  return row;
+}
+
+/**
+ * The second approver posts a held import. Same rule as credits
+ * (assertDistinctApprover in creditApproval.ts): the approver must be a
+ * different admin from the uploader, compared by admin user id. The row lock
+ * makes two concurrent approvals resolve to one post and one 409.
+ */
+export async function approveAdjustmentImport(
+  pool: Pool,
+  input: { importId: string; adminUserId: string },
+): Promise<AdjustmentImportResult> {
+  return withTransaction(pool, async (client) => {
+    const row = await lockPendingImport(client, input.importId);
+    if (row.uploaded_by_admin_user_id === input.adminUserId) {
+      throw new ConflictError("self_approval_forbidden");
+    }
+
+    await client.query(
+      `UPDATE adjustment_imports SET approved_by_admin_user_id = $2, approved_at = now() WHERE id = $1`,
+      [row.id, input.adminUserId],
+    );
+    const total = await postImportRows(client, row.id);
+
+    await insertAdminAuditLog(client, {
+      adminUserId: input.adminUserId,
+      action: "adjustment_import_approved",
+      targetType: "adjustment_import",
+      targetId: row.id,
+      metadata: {
+        uploadedByAdminUserId: row.uploaded_by_admin_user_id,
+        rowCount: row.row_count,
+        totalPostedFils: total,
+      },
+    });
+
+    return {
+      importId: row.id,
+      rowCount: row.row_count,
+      totalPostedFils: total,
+      status: "posted",
+      requiresApproval: row.requires_approval,
+    };
+  });
+}
+
+/** Closes a held import without posting anything. 409 when it is not pending. */
+export async function rejectAdjustmentImport(
+  pool: Pool,
+  input: { importId: string; adminUserId: string },
+): Promise<AdjustmentImportResult> {
+  return withTransaction(pool, async (client) => {
+    const row = await lockPendingImport(client, input.importId);
+
+    await client.query(
+      `UPDATE adjustment_imports
+          SET status = 'rejected', rejected_by_admin_user_id = $2, rejected_at = now()
+        WHERE id = $1`,
+      [row.id, input.adminUserId],
+    );
+    const sum = await client.query<{ total: string }>(
+      `SELECT COALESCE(SUM(parsed_amount_fils), 0)::text AS total
+         FROM adjustment_import_rows WHERE adjustment_import_id = $1`,
+      [row.id],
+    );
+    const total = toFils(Number(sum.rows[0]!.total), { allowNegative: true });
+
+    await insertAdminAuditLog(client, {
+      adminUserId: input.adminUserId,
+      action: "adjustment_import_rejected",
+      targetType: "adjustment_import",
+      targetId: row.id,
+      metadata: { uploadedByAdminUserId: row.uploaded_by_admin_user_id, rowCount: row.row_count },
+    });
+
+    return {
+      importId: row.id,
+      rowCount: row.row_count,
+      totalPostedFils: total,
+      status: "rejected",
+      requiresApproval: row.requires_approval,
+    };
   });
 }
 
@@ -97,13 +290,17 @@ export interface AdjustmentImportSummary {
   uploadedByAdminUserId: string;
   originalFilename: string;
   rowCount: number;
-  appliedAt: string;
+  status: AdjustmentImportStatus;
+  requiresApproval: boolean;
+  approvedByAdminUserId: string | null;
+  /** When the rows were posted; null while pending or after a rejection. */
+  appliedAt: string | null;
   createdAt: string;
 }
 
 /**
- * @property parsedAmountFils The signed integer that was posted.
- * @property ledgerEntryGroupId null for a zero-amount row (nothing is journaled).
+ * @property parsedAmountFils The signed integer that was (or, while the import is pending, will be) posted.
+ * @property ledgerEntryGroupId null for a zero-amount row (nothing is journaled) and for a row not yet posted.
  */
 export interface AdjustmentImportRowDetail {
   rowNumber: number;
@@ -134,10 +331,14 @@ export async function listAdjustmentImports(
     uploaded_by_admin_user_id: string;
     original_filename: string;
     row_count: number;
-    applied_at: string;
+    status: AdjustmentImportStatus;
+    requires_approval: boolean;
+    approved_by_admin_user_id: string | null;
+    applied_at: string | null;
     created_at: string;
   }>(
     `SELECT id, uploaded_by_admin_user_id, original_filename, row_count,
+            status, requires_approval, approved_by_admin_user_id,
             applied_at::text AS applied_at, created_at::text AS created_at
        FROM adjustment_imports
       WHERE ($1::text IS NULL OR created_at::text < $1)
@@ -155,6 +356,9 @@ export async function listAdjustmentImports(
       uploadedByAdminUserId: row.uploaded_by_admin_user_id,
       originalFilename: row.original_filename,
       rowCount: row.row_count,
+      status: row.status,
+      requiresApproval: row.requires_approval,
+      approvedByAdminUserId: row.approved_by_admin_user_id,
       appliedAt: row.applied_at,
       createdAt: row.created_at,
     })),
