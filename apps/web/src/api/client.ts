@@ -35,16 +35,33 @@ export class ApiError extends Error {
 // FH: credentials include needs allow-credentials CORS on the api. works locally
 // this leaks the session cookie to whatever VITE_API_BASE_URL is — am
 // — MK: CORS is locked to the two origins in config. fine
-export async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const hasBody = init?.body !== undefined && init.body !== null;
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    credentials: "include",
-    headers: hasBody
-      ? { "Content-Type": "application/json", ...init?.headers }
-      : { ...init?.headers },
-  });
-  const body = await res.json().catch(() => null);
+/** `timeoutMs`: abort the request (fetch rejects with an AbortError, not an
+ *  ApiError) if the full response hasn't arrived in time. The server may
+ *  still have processed it — callers treat a timeout as "outcome unknown". */
+export async function request<T>(path: string, init?: RequestInit & { timeoutMs?: number }): Promise<T> {
+  const { timeoutMs, ...fetchInit } = init ?? {};
+  const hasBody = fetchInit.body !== undefined && fetchInit.body !== null;
+  const controller = timeoutMs !== undefined ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : undefined;
+  let res: Response;
+  let body: unknown;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`, {
+      ...fetchInit,
+      ...(controller ? { signal: controller.signal } : {}),
+      credentials: "include",
+      headers: hasBody
+        ? { "Content-Type": "application/json", ...fetchInit.headers }
+        : { ...fetchInit.headers },
+    });
+    // A timeout while reading the body is a lost response, not an empty one.
+    body = await res.json().catch((err: unknown) => {
+      if (controller?.signal.aborted) throw err;
+      return null;
+    });
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
   if (!res.ok) {
     throw new ApiError(res.status, (body as ApiErrorBody) ?? { error: "unknown_error" });
   }

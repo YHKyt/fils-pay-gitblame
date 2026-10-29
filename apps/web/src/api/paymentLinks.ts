@@ -15,15 +15,19 @@ export function getPaymentLink(token: string): Promise<PaymentLinkPublicDto> {
   return request(`/v1/payment-links/${encodeURIComponent(token)}`);
 }
 
+/** Rejects with an AbortError after `timeoutMs`: the payment may still have
+ *  gone through, so the caller must check the link before paying again. */
 export function payPaymentLink(
   token: string,
   input: { card: SimulatedCardInput; submittedAt?: string },
   idempotencyKey: string,
+  timeoutMs = 30_000,
 ): Promise<PayPaymentLinkResponse> {
   return request(`/v1/payment-links/${encodeURIComponent(token)}/pay`, {
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify(input),
+    timeoutMs,
   });
 }
 
