@@ -9,6 +9,7 @@ import {
 } from "../api/impersonation.js";
 import type { ActiveImpersonation } from "../api/impersonation.js";
 import type { AdminMe } from "../types.js";
+import { forgetGrantAfterEndFailure } from "./impersonationExit.js";
 
 export type AdminAuthStatus = "loading" | "authenticated" | "anonymous";
 
@@ -23,7 +24,9 @@ export interface AdminAuthValue {
   /** The locally-recorded active impersonation grant, if any. */
   impersonation: ActiveImpersonation | null;
   rememberImpersonation: (record: ActiveImpersonation) => void;
-  /** `POST /v1/admin/impersonation/:grantId/end`, then drops the record. */
+  /** `POST /v1/admin/impersonation/:grantId/end`, then drops the record.
+   *  On failure the record is kept (and the error rethrown) unless the
+   *  server answered 404, i.e. the grant is already gone. */
   exitImpersonation: () => Promise<void>;
 }
 
@@ -86,15 +89,32 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     }
     try {
       await endImpersonation(current.grantId);
-    } finally {
-      // Whether or not the call succeeded, stop showing the grant as usable
-      // here; if the server call failed, the grant still expires on its own.
-      clearActiveImpersonation();
-      setImpersonation(null);
+    } catch (err) {
+      // Keep the banner (and its error + Exit button) unless the server
+      // says the grant is already gone: otherwise a failed Exit would hide
+      // a grant whose cookie is still live.
+      if (forgetGrantAfterEndFailure(err)) {
+        clearActiveImpersonation();
+        setImpersonation(null);
+      }
+      throw err;
     }
+    clearActiveImpersonation();
+    setImpersonation(null);
   }, []);
 
   const signOut = useCallback(async () => {
+    // End a live grant first, while the admin session that owns it still
+    // exists: dropping only the local record would leave the grant and its
+    // cookie usable until they expire. Best effort — never blocks logout.
+    const active = readActiveImpersonation();
+    if (active) {
+      try {
+        await endImpersonation(active.grantId);
+      } catch {
+        // falls back to the grant's own short server-side expiry
+      }
+    }
     try {
       await logoutRequest();
     } finally {
