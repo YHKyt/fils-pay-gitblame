@@ -1,8 +1,6 @@
-import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useDashboardAuth } from "../auth/DashboardAuthContext.js";
 import { RequireRole } from "../auth/RequireRole.js";
-import { describeError } from "../api/client.js";
 import "../dashboard.css";
 
 /** Nav shell for every merchant dashboard screen. No impersonation banner
@@ -12,17 +10,12 @@ import "../dashboard.css";
 export function DashboardLayout() {
   const { me, signOut } = useDashboardAuth();
   const navigate = useNavigate();
-  const [error, setError] = useState<string | null>(null);
-
-  // sign out clears the cookie server side, local merchantId stays — am
+  // signOut never throws: local state is cleared even when the API call
+  // fails, so the redirect always happens. (The remembered merchant id is
+  // kept on purpose — it is a login convenience, not a credential.)
   async function handleSignOut(): Promise<void> {
-    setError(null);
-    try {
-      await signOut();
-      navigate("/dashboard/login", { replace: true });
-    } catch (err) {
-      setError(describeError(err));
-    }
+    await signOut();
+    navigate("/dashboard/login", { replace: true });
   }
 
   return (
@@ -56,8 +49,6 @@ export function DashboardLayout() {
           </button>
         </div>
       </header>
-
-      {error ? <p className="dash-error">{error}</p> : null}
 
       <main className="dash-main">
         <Outlet />

@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from "react";
 import { logout as logoutRequest, me as fetchMe } from "../api/dashboardAuth.js";
 import type { DashboardMe } from "../types.js";
+import { signOutLocallyRegardless } from "../utils/signOut.js";
 
 export type DashboardAuthStatus = "loading" | "authenticated" | "anonymous";
 
@@ -12,7 +13,7 @@ export interface DashboardAuthValue {
   me: DashboardMe | null;
   /** Re-runs `GET /v1/auth/me` — called after a successful OTP step. */
   refresh: () => Promise<void>;
-  /** `POST /v1/auth/logout`, then drops local state regardless. */
+  /** `POST /v1/auth/logout`, then drops local state regardless. Never throws. */
   signOut: () => Promise<void>;
 }
 
@@ -77,12 +78,11 @@ export function DashboardAuthProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const signOut = useCallback(async () => {
-    try {
-      await logoutRequest();
-    } finally {
+    const failure = await signOutLocallyRegardless(logoutRequest, () => {
       setMe(null);
       setStatus("anonymous");
-    }
+    });
+    if (failure) console.warn("logout request failed; local session cleared anyway", failure);
   }, []);
 
   const value = useMemo<DashboardAuthValue>(
