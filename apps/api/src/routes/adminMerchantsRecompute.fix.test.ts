@@ -35,7 +35,7 @@ test("recompute-statuses leaves a sandbox merchant in sandbox", { skip: !databas
     const login = await app.inject({ method: "POST", url: "/v1/admin/auth/login", payload: { email, password } });
     assert.equal(login.statusCode, 200, login.body);
     const setCookie = ([] as string[]).concat(login.headers["set-cookie"] ?? []);
-    const cookie = setCookie.find((c) => c.startsWith(`${config.adminCookieName}=`))!.split(";")[0]!;
+    let cookie = setCookie.find((c) => c.startsWith(`${config.adminCookieName}=`))!.split(";")[0]!;
     const verify = await app.inject({
       method: "POST",
       url: "/v1/admin/auth/otp/verify",
@@ -43,6 +43,11 @@ test("recompute-statuses leaves a sandbox merchant in sandbox", { skip: !databas
       payload: { code: (login.json() as { devOtpCode?: string }).devOtpCode },
     });
     assert.equal(verify.statusCode, 200, verify.body);
+    // OTP verify rotates the admin session token (no session fixation).
+    cookie = ([] as string[])
+      .concat(verify.headers["set-cookie"] ?? [])
+      .find((c) => c.startsWith(`${config.adminCookieName}=`))!
+      .split(";")[0]!;
 
     // sandbox merchant with a settled (not open) transaction: the old code
     // flipped test_mode off exactly in this state

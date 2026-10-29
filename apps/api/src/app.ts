@@ -44,7 +44,9 @@ export function buildApp(config: Config, pool: Pool, options: BuildAppOptions = 
   app.decorate("db", pool);
   app.decorate("config", config);
   app.decorate("acquirer", createAcquirerSimulator(config));
-  app.decorate("webhookTransport", options.webhookTransport ?? createFetchTransport());
+  app.decorate("webhookTransport", 
+    options.webhookTransport ?? createFetchTransport({ blockPrivateAddresses: config.nodeEnv === "production" }),
+  );
 
   app.register(cookiesPlugin);
   app.register(multipartPlugin, { config });

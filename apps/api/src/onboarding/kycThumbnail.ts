@@ -1,10 +1,14 @@
 import sharp from "sharp";
+import { UnprocessableEntityError } from "../lib/errors.js";
 import type { DetectedFileType } from "./fileSignature.js";
 
 /**
  * Longest side, in pixels.
  */
 const THUMBNAIL_MAX_DIMENSION_PX = 320;
+
+/** Largest accepted source image (~40 MP: any phone photo or document scan). */
+const MAX_INPUT_PIXELS = 40_000_000;
 
 export interface GeneratedThumbnail {
   buffer: Buffer;
@@ -27,11 +31,27 @@ export async function generateKycThumbnail(
   if (detectedType !== "jpeg" && detectedType !== "png") {
     return null;
   }
-  // YA: the 8 MiB upload cap protects us here
-  // FH: sharp's default pixel limit is ~268MP, a tiny png can decode huge. copilot suggests limitInputPixels
-  const resized = await sharp(buffer)
-    .resize(THUMBNAIL_MAX_DIMENSION_PX, THUMBNAIL_MAX_DIMENSION_PX, { fit: "inside", withoutEnlargement: true })
-    .jpeg({ quality: 70 })
-    .toBuffer();
+  // The upload byte cap does not bound the decoded size: a few hundred KB of
+  // PNG can declare a 225 MP canvas (sharp's default limit is ~268 MP), which
+  // the 512 MB API cannot afford. The pixel count is checked from the header
+  // before any decode, and enforced again by sharp itself.
+  let resized: Buffer;
+  try {
+    const meta = await sharp(buffer).metadata();
+    if (!meta.width || !meta.height) {
+      throw new UnprocessableEntityError("invalid_image");
+    }
+    if (meta.width * meta.height > MAX_INPUT_PIXELS) {
+      throw new UnprocessableEntityError("image_too_large", `images are limited to ${MAX_INPUT_PIXELS} pixels`);
+    }
+    resized = await sharp(buffer, { limitInputPixels: MAX_INPUT_PIXELS })
+      .resize(THUMBNAIL_MAX_DIMENSION_PX, THUMBNAIL_MAX_DIMENSION_PX, { fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 70 })
+      .toBuffer();
+  } catch (err) {
+    if (err instanceof UnprocessableEntityError) throw err;
+    // Valid magic bytes, but not a decodable image.
+    throw new UnprocessableEntityError("invalid_image");
+  }
   return { buffer: resized, mimeType: "image/jpeg" };
 }

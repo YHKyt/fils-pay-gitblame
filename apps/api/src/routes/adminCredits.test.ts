@@ -80,7 +80,8 @@ async function signedInAdmin(role: AdminRole, label: string) {
   });
   assert.equal(verifyRes.statusCode, 200, verifyRes.body);
 
-  return { id: inserted.rows[0]!.id, email, cookie };
+  // OTP verify rotates the session token; the authenticated cookie is the one it sets.
+  return { id: inserted.rows[0]!.id, email, cookie: parseCookie(verifyRes.headers["set-cookie"], config.adminCookieName) };
 }
 
 async function createMerchant(label: string, mdrBps = 250): Promise<string> {
@@ -283,6 +284,37 @@ test("a second finance admin approves a pending credit; approving it again is a 
     [merchantId],
   );
   assert.equal(groups.rows[0]!.count, "1", "a second approval must not journal a second time");
+});
+
+test("the requester cannot approve their own credit, even after changing their display name", async () => {
+  const maker = await signedInAdmin("finance", "self-approve");
+  const merchantId = await createMerchant("self-approve");
+
+  const pending = await issueCredit(maker.cookie, merchantId, { baseAmountFils: 120_000 });
+
+  const direct = await app.inject({
+    method: "POST",
+    url: `/v1/admin/credits/${pending.id}/approve`,
+    headers: { cookie: maker.cookie },
+    payload: {},
+  });
+  assert.equal(direct.statusCode, 409, direct.body);
+  assert.equal(direct.json().error, "self_approval_forbidden");
+
+  // The request row snapshots the requester's display name; renaming the
+  // account must not turn the requester into a "different" approver.
+  await pool.query(`UPDATE admin_users SET display_name = $2 WHERE id = $1`, [maker.id, `renamed ${randomUUID()}`]);
+  const renamed = await app.inject({
+    method: "POST",
+    url: `/v1/admin/credits/${pending.id}/approve`,
+    headers: { cookie: maker.cookie },
+    payload: {},
+  });
+  assert.equal(renamed.statusCode, 409, renamed.body);
+  assert.equal(renamed.json().error, "self_approval_forbidden");
+
+  const legs = await pool.query(`SELECT 1 FROM ledger_entries WHERE merchant_id = $1`, [merchantId]);
+  assert.equal(legs.rowCount, 0, "a self-approved credit must never journal");
 });
 
 test("a rejected credit journals nothing and can no longer be approved", async () => {

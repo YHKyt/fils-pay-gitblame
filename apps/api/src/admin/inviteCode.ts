@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import type { Pool } from "pg";
 import { BadRequestError } from "../lib/errors.js";
 
@@ -7,7 +8,7 @@ const INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 export function generateInviteCode(length: number = 8): string {
   let code = "";
   for (let i = 0; i < length; i++) {
-    code += INVITE_ALPHABET[Math.floor(Math.random() * INVITE_ALPHABET.length)];
+    code += INVITE_ALPHABET[randomInt(INVITE_ALPHABET.length)];
   }
   return code;
 }

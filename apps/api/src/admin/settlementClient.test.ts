@@ -16,6 +16,7 @@ import http from "node:http";
 import { test } from "node:test";
 import { AppError } from "../lib/errors.js";
 import {
+  notifySettlementRefundAdjustment,
   triggerBalanceRebuild,
   triggerSettlementRunBatch,
   type SettlementInternalConfig,
@@ -268,6 +269,26 @@ test("triggerBalanceRebuild falls back to the map key when the value carries no 
     assert.deepEqual(summary.changed, [
       { merchantId: "55555555-5555-5555-5555-555555555555", before: 1, after: 2 },
     ]);
+  } finally {
+    await fake.close();
+  }
+});
+
+test("notifySettlementRefundAdjustment sends integer fils unchanged (ADR 0001), never a /10 figure", async () => {
+  const fake = await startFakeSettlement((_req, res) => sendJson(res, 200, {}));
+  try {
+    await notifySettlementRefundAdjustment(configFor(fake.url), {
+      merchantId: "11111111-1111-4111-8111-111111111111",
+      batchId: "22222222-2222-4222-8222-222222222222",
+      refundId: "33333333-3333-4333-8333-333333333333",
+      amountFils: 4755,
+      feeReversedFils: 119,
+    });
+    assert.equal(fake.requests.length, 1);
+    assert.equal(fake.requests[0]!.path, "/internal/refund-adjustment");
+    const body = JSON.parse(fake.requests[0]!.body) as { amountFils: number; feeReversedFils: number };
+    assert.equal(body.amountFils, 4755);
+    assert.equal(body.feeReversedFils, 119);
   } finally {
     await fake.close();
   }

@@ -141,7 +141,8 @@ async function loginAdmin(email: string): Promise<string> {
     payload: { code: loginBody.devOtpCode },
   });
   assert.equal(verifyRes.statusCode, 200, verifyRes.body);
-  return cookie;
+  // OTP verify rotates the session token; the authenticated cookie is the one it sets.
+  return parseCookie(verifyRes.headers["set-cookie"], config.adminCookieName);
 }
 
 async function signedInAdmin(role: AdminRole, label: string) {
@@ -282,6 +283,73 @@ test("admin otp verify rejects a wrong code without burning the challenge", asyn
     payload: { code: realCode },
   });
   assert.equal(rightRes.statusCode, 200, rightRes.body);
+});
+
+test("admin otp verify rotates the session token: the pre-OTP cookie is dead after verify (no fixation)", async () => {
+  const { email } = await createAdminUser("super_admin", "fixation");
+  const loginRes = await app.inject({
+    method: "POST",
+    url: "/v1/admin/auth/login",
+    payload: { email, password: ADMIN_PASSWORD },
+  });
+  assert.equal(loginRes.statusCode, 200, loginRes.body);
+  const pendingCookie = parseCookie(loginRes.headers["set-cookie"], config.adminCookieName);
+  const code = (loginRes.json() as { devOtpCode: string }).devOtpCode;
+
+  const verifyRes = await app.inject({
+    method: "POST",
+    url: "/v1/admin/auth/otp/verify",
+    headers: { cookie: pendingCookie },
+    payload: { code },
+  });
+  assert.equal(verifyRes.statusCode, 200, verifyRes.body);
+  const authenticatedCookie = parseCookie(verifyRes.headers["set-cookie"], config.adminCookieName);
+  assert.notEqual(cookieValue(authenticatedCookie), cookieValue(pendingCookie), "verify must issue a fresh token");
+
+  // Whoever planted or copied the pre-OTP cookie gets nothing.
+  const fixated = await app.inject({ method: "GET", url: "/v1/admin/auth/me", headers: { cookie: pendingCookie } });
+  assert.equal(fixated.statusCode, 401, "the pre-OTP token must not become an authenticated session");
+
+  const legit = await app.inject({ method: "GET", url: "/v1/admin/auth/me", headers: { cookie: authenticatedCookie } });
+  assert.equal(legit.statusCode, 200, legit.body);
+});
+
+test("admin otp verify: parallel wrong guesses cannot exceed max_attempts", async () => {
+  const { email } = await createAdminUser("super_admin", "otprace");
+  const loginRes = await app.inject({
+    method: "POST",
+    url: "/v1/admin/auth/login",
+    payload: { email, password: ADMIN_PASSWORD },
+  });
+  const cookie = parseCookie(loginRes.headers["set-cookie"], config.adminCookieName);
+  const realCode = (loginRes.json() as { devOtpCode: string }).devOtpCode;
+
+  // Distinct wrong codes, fired at once: with check-then-increment every one
+  // of them reads attempt_count=0 and gets a real guess.
+  const guesses = Array.from({ length: 30 }, (_, i) => {
+    let guess = String(100000 + i).padStart(realCode.length, "0").slice(-realCode.length);
+    if (guess === realCode) guess = String(200000 + i).slice(-realCode.length);
+    return guess;
+  });
+  const results = await Promise.all(
+    guesses.map((code) =>
+      app.inject({ method: "POST", url: "/v1/admin/auth/otp/verify", headers: { cookie }, payload: { code } }),
+    ),
+  );
+  const evaluated = results.filter((r) => r.statusCode === 401 && r.json().error === "invalid_code").length;
+  assert.ok(
+    evaluated <= config.adminOtpMaxAttempts,
+    `only ${config.adminOtpMaxAttempts} guesses may be evaluated, got ${evaluated}`,
+  );
+
+  const row = await pool.query<{ attempt_count: number; max_attempts: number }>(
+    `SELECT c.attempt_count, c.max_attempts
+       FROM admin_otp_challenges c
+       JOIN admin_users u ON u.id = c.admin_user_id
+      WHERE u.email = $1`,
+    [email],
+  );
+  assert.ok(row.rows[0]!.attempt_count <= row.rows[0]!.max_attempts);
 });
 
 test("a merchant session cookie grants nothing on the admin plane", async () => {
@@ -515,6 +583,45 @@ test("bulk approve KYC flips every selected pending merchant and writes one audi
   assert.equal(metadata.requestedMerchantIds.length, 2);
   assert.equal(metadata.approvedMerchantIds.length, 2);
   assert.equal(metadata.notes, "queue ticket #4821");
+});
+
+test("bulk approve KYC only touches merchants currently under_review", async () => {
+  const finance = await signedInAdmin("finance", "bulkkyc-state");
+  const pending = await createMerchant("bulkkyc-pending");
+  const rejected = await createMerchant("bulkkyc-rejected");
+  const fresh = await createMerchant("bulkkyc-fresh");
+  await pool.query(`UPDATE merchants SET onboarding_status = 'under_review' WHERE id = $1`, [pending.merchantId]);
+  await pool.query(`UPDATE merchants SET onboarding_status = 'rejected', kyc_passed = false WHERE id = $1`, [
+    rejected.merchantId,
+  ]);
+  const freshBefore = await pool.query<{ onboarding_status: string; kyc_passed: boolean }>(
+    `SELECT onboarding_status, kyc_passed FROM merchants WHERE id = $1`,
+    [fresh.merchantId],
+  );
+
+  const res = await app.inject({
+    method: "POST",
+    url: "/v1/admin/merchants/bulk-approve",
+    headers: { cookie: finance.cookie },
+    payload: { merchantIds: [pending.merchantId, rejected.merchantId, fresh.merchantId] },
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const body = res.json() as { approvedCount: number; approvedMerchantIds: string[] };
+  assert.deepEqual(body.approvedMerchantIds, [pending.merchantId]);
+  assert.equal(body.approvedCount, 1);
+
+  const rejectedAfter = await pool.query<{ onboarding_status: string; kyc_passed: boolean }>(
+    `SELECT onboarding_status, kyc_passed FROM merchants WHERE id = $1`,
+    [rejected.merchantId],
+  );
+  assert.equal(rejectedAfter.rows[0]!.onboarding_status, "rejected", "a rejected merchant must not be approved in bulk");
+  assert.equal(rejectedAfter.rows[0]!.kyc_passed, false);
+
+  const freshAfter = await pool.query<{ onboarding_status: string; kyc_passed: boolean }>(
+    `SELECT onboarding_status, kyc_passed FROM merchants WHERE id = $1`,
+    [fresh.merchantId],
+  );
+  assert.deepEqual(freshAfter.rows[0], freshBefore.rows[0], "a merchant not under_review is untouched");
 });
 
 test("bulk approve KYC is finance-gated and rejects malformed selections", async () => {
@@ -797,7 +904,7 @@ test("GET /v1/admin/merchants/:id 404s for an unknown or malformed id", async ()
 
 // "previous key stays active" — grace period for merchants to deploy the new key. intended (am, 2026-05)
 // YA: there was never a grace period in the design. rotation = revoke
-test("API key rotation issues a new key atomically and audits it; the previous key stays active", async () => {
+test("API key rotation issues a new key atomically and audits it; the previous key is revoked", async () => {
   const finance = await signedInAdmin("finance", "rotate");
   const { merchantId, ownerUserId } = await createMerchant("rotate");
   const original = await issueApiKey(pool, config, { merchantId, createdBy: ownerUserId, label: "original" });
@@ -823,14 +930,14 @@ test("API key rotation issues a new key atomically and audits it; the previous k
   assert.ok(rotated.rawKey.startsWith("fp_test_"));
   assert.equal(rotated.prefix, rotated.rawKey.slice(0, 16));
 
-  // The previous key keeps authenticating through the overlap window —
-  // rotation issues a replacement without cutting the old credential off.
+  // Rotation revokes the previous key in the same transaction (0037:
+  // "one transaction revokes the old key with reason 'rotated'").
   const after = await app.inject({
     method: "GET",
     url: "/v1/transactions",
     headers: { authorization: `Bearer ${original.rawKey}` },
   });
-  assert.equal(after.statusCode, 200, "the previous key stays active during the overlap window");
+  assert.equal(after.statusCode, 401, "the rotated-out key must stop authenticating");
 
   // The new key works too.
   const withNew = await app.inject({
@@ -855,8 +962,8 @@ test("API key rotation issues a new key atomically and audits it; the previous k
   );
   assert.equal(rows.rowCount, 2);
   const [oldRow, newRow] = rows.rows;
-  assert.equal(oldRow!.revoked_at, null, "rotation does not revoke the previous key");
-  assert.equal(oldRow!.revoked_reason, null);
+  assert.ok(oldRow!.revoked_at, "rotation revokes the previous key");
+  assert.equal(oldRow!.revoked_reason, "rotated");
   assert.equal(newRow!.id, rotated.id);
   assert.equal(newRow!.revoked_at, null);
   assert.equal(newRow!.created_by, null, "0037's XOR: an admin-issued key has no merchant_users actor");
@@ -868,6 +975,28 @@ test("API key rotation issues a new key atomically and audits it; the previous k
   assert.equal(audit.length, 1);
   assert.equal(audit[0]!.target_id, original.id);
   assert.equal((audit[0]!.metadata as { newKeyId?: string }).newKeyId, rotated.id);
+});
+
+test("an API key whose revoke_after has passed no longer authenticates", async () => {
+  const { merchantId, ownerUserId } = await createMerchant("revoke-after");
+  const expired = await issueApiKey(pool, config, { merchantId, createdBy: ownerUserId, label: "staged" });
+  const future = await issueApiKey(pool, config, { merchantId, createdBy: ownerUserId, label: "future" });
+  await pool.query(`UPDATE api_keys SET revoke_after = now() - interval '1 minute' WHERE id = $1`, [expired.id]);
+  await pool.query(`UPDATE api_keys SET revoke_after = now() + interval '1 day' WHERE id = $1`, [future.id]);
+
+  const res = await app.inject({
+    method: "GET",
+    url: "/v1/transactions",
+    headers: { authorization: `Bearer ${expired.rawKey}` },
+  });
+  assert.equal(res.statusCode, 401, "a key past its scheduled revocation must not authenticate");
+
+  const stillValid = await app.inject({
+    method: "GET",
+    url: "/v1/transactions",
+    headers: { authorization: `Bearer ${future.rawKey}` },
+  });
+  assert.equal(stillValid.statusCode, 200, stillValid.body);
 });
 
 test("rotating an already-revoked key is a 409; rotating another merchant's key is a 404", async () => {

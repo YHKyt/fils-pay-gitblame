@@ -10,8 +10,14 @@ export interface TransactionsExportFilters {
   status?: string[];
 }
 
-function csvEscape(value: string): string {
-  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
+/**
+ * Escapes one free-text cell. A cell a spreadsheet would read as a formula
+ * (leading = + - @, or a tab/CR that some importers strip first) is prefixed
+ * with a single quote so Excel/Sheets show it as text (CSV/formula injection).
+ */
+function csvEscape(raw: string): string {
+  const value = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+  if (value.includes(",") || value.includes('"') || value.includes("\n") || value.includes("\r")) {
     return `"${value.replace(/"/g, '""')}"`;
   }
   return value;

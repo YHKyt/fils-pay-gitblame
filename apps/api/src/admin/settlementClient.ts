@@ -275,9 +275,9 @@ export async function triggerMdrRecalculation(
 
 /**
  * Notifies the settlement service that a refund has been processed so it
- * can adjust the merchant’s next payout batch. The settlement service
- * expects amounts in the same scale the scheme export uses (2-decimal BHD,
- * i.e. fils / 10 to drop the sub-fils digit) so we convert before sending.
+ * can adjust the merchant’s next payout batch. Amounts are integer fils on
+ * the wire like every other internal payload (ADR 0001); the two-decimal
+ * figure exists only in the scheme file at export (ADR 0002).
  */
 export async function notifySettlementRefundAdjustment(
   config: SettlementInternalConfig,
@@ -293,7 +293,7 @@ export async function notifySettlementRefundAdjustment(
     merchantId: input.merchantId,
     batchId: input.batchId,
     refundId: input.refundId,
-    amountFils: Math.round(input.amountFils / 10),
+    amountFils: input.amountFils,
     feeReversedFils: input.feeReversedFils,
   });
 }

@@ -29,7 +29,8 @@ interface EndpointSecretRow {
  * fail right now, in the response, not poll a delivery log for it.
  */
 // FH: test-send signs exactly the bytes it sends, so merchants can verify against it
-// echoes 2kb of whatever the url returns — internal urls too? — am
+// Echoes 2KB of the response: internal URLs are refused by urlPolicy.ts (create/update)
+// and by the production transport at send time.
 export async function sendTestWebhookEvent(
   pool: Pool,
   config: Pick<Config, "webhookSecretEncryptionKey" | "webhookRequestTimeoutMs">,

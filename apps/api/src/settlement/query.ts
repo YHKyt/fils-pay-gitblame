@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import { estimateFeeFils } from "../fees/estimate.js";
+import { applyRateFils, toFils } from "@filspay/money";
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 100;
@@ -300,8 +300,8 @@ export async function getReconciliationReport(
           AND status IN ('closed', 'paid')`,
       [input.merchantId, input.from, input.to],
     ),
-    pool.query<{ amount_fils: string | number }>(
-      `SELECT te.amount_fils
+    pool.query<{ amount_fils: string | number; fee_fils: string | null }>(
+      `SELECT te.amount_fils, te.metadata->>'feeFils' AS fee_fils
          FROM transaction_events te
          JOIN transactions t ON t.id = te.transaction_id
         WHERE t.merchant_id = $1 AND te.event_type IN ('captured', 'partially_captured')
@@ -315,8 +315,11 @@ export async function getReconciliationReport(
     ),
   ]);
 
-  // MK: merchants.mdr_bps is kept in sync with the current fee_schedules row by the 0046 trigger,
-  // so reading it here is the same as resolving the schedule
+  // The fee is the one capture.ts actually charged and journaled (recorded on
+  // the event as metadata.feeFils: effective-dated schedule, volume tier,
+  // half-even integer rounding). merchants.mdr_bps is only the fallback for
+  // events written without it — nothing keeps it in sync with fee_schedules
+  // (0046 is settlement_batch_splits, not a sync trigger).
   const merchant = merchantResult.rows[0];
   const mdrBps = merchant?.mdr_bps ?? 0;
   const discountBps = merchant?.negotiated_discount_bps ?? 0;
@@ -324,8 +327,13 @@ export async function getReconciliationReport(
   let pendingUnbatchedFils = 0;
   for (const row of pendingResult.rows) {
     const amountFils = Number(row.amount_fils);
-    const feeFils = estimateFeeFils(amountFils, mdrBps, discountBps);
-    pendingUnbatchedFils += amountFils - feeFils;
+    const feeFils =
+      row.fee_fils !== null && row.fee_fils !== undefined
+        ? Number(row.fee_fils)
+        : Number(applyRateFils(toFils(amountFils), mdrBps));
+    // Mirrors applyCaptureDiscountAdjustment's merchant_payable credit.
+    const discountFils = discountBps > 0 && feeFils > 0 ? Number(applyRateFils(toFils(feeFils), discountBps)) : 0;
+    pendingUnbatchedFils += amountFils - feeFils + discountFils;
   }
 
   const ledgerMerchantPayableNetFils = Number(ledgerResult.rows[0]?.net ?? 0);
@@ -355,7 +363,12 @@ interface SettlementSummaryRow {
   total_captured_fils: string | number | null;
 }
 
-/** Gross captured in window, joined through transaction_events for batch parity. */
+/**
+ * Gross captured in window, joined through transaction_events for batch
+ * parity: the sum of the capture events' own amounts in the window (one row
+ * per event), never transactions.captured_fils — that is a running total,
+ * fanned out once per event and including captures outside the window.
+ */
 export async function getSettlementSummary(
   pool: Pool,
   input: { merchantId: string; from: string; to: string },
@@ -365,7 +378,7 @@ export async function getSettlementSummary(
 
   const result = await pool.query<SettlementSummaryRow>(
     `WITH captured AS (
-       SELECT t.id, t.captured_fils
+       SELECT t.id, te.amount_fils AS captured_fils
          FROM transactions t
          JOIN transaction_events te ON te.transaction_id = t.id
         WHERE t.merchant_id = $1
