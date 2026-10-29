@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import { NotFoundError } from "../lib/errors.js";
+import { AppError, NotFoundError } from "../lib/errors.js";
 
 /** @property outcome Validated against the two allowed values by the route schema. */
 export interface AcquirerCallbackInput {
@@ -23,6 +23,9 @@ interface TransactionMerchantRow {
  * informational, not a state transition, so this never touches
  * transactions.status or the ledger; a confirmed-fraud outcome still needs
  * a human decision to void/refund, exactly as today.
+ *
+ * Idempotent on callbackId (unique index, 0076): the acquirer redelivers on
+ * timeouts, and a redelivery must not record the verdict twice.
  */
 export async function applyAcquirerCallback(pool: Pool, callback: AcquirerCallbackInput): Promise<void> {
   const txnResult = await pool.query<TransactionMerchantRow>(
@@ -37,7 +40,8 @@ export async function applyAcquirerCallback(pool: Pool, callback: AcquirerCallba
   await pool.query(
     `INSERT INTO acquirer_callback_notes
         (transaction_id, merchant_id, callback_id, callback_type, outcome, note, received_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (callback_id) DO NOTHING`,
     [
       callback.transactionId,
       txnRow.merchant_id,
@@ -69,6 +73,9 @@ export async function withCallbackRetry<T>(fn: () => Promise<T>, options: Callba
       return await fn();
     } catch (err) {
       lastErr = err;
+      // A 4xx (e.g. unknown transaction) is a final answer; retrying it only
+      // delays the response.
+      if (err instanceof AppError && err.statusCode < 500) throw err;
       if (attempt < maxAttempts) {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }

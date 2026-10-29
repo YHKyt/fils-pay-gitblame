@@ -59,7 +59,7 @@ function callbackBody(transactionId: string, callbackId: string) {
   };
 }
 
-function signatureHeader(body: unknown, secret = ACQUIRER_SECRET, timestamp = 1_757_930_000): string {
+function signatureHeader(body: unknown, secret = ACQUIRER_SECRET, timestamp = Math.floor(Date.now() / 1000)): string {
   const signature = createHmac("sha256", secret).update(`${timestamp}.${JSON.stringify(body)}`).digest("hex");
   return `t=${timestamp},v1=${signature}`;
 }
@@ -90,10 +90,12 @@ test("POST /v1/acquirer/callbacks accepts a correctly-signed callback and record
 });
 
 test("POST /v1/acquirer/callbacks rejects a body missing required fields", async () => {
+  const body = { callbackId: `acqcb_${randomUUID()}`, type: "fraud_review.completed" };
   const res = await app.inject({
     method: "POST",
     url: "/v1/acquirer/callbacks",
-    payload: { callbackId: `acqcb_${randomUUID()}`, type: "fraud_review.completed" },
+    headers: { "acquirer-callback-signature": signatureHeader(body) },
+    payload: body,
   });
 
   assert.equal(res.statusCode, 400);
@@ -119,12 +121,9 @@ test("POST /v1/acquirer/callbacks rejects a tampered signature", async () => {
   assert.equal(await noteCount(callbackId), "0");
 });
 
-// dev-mode behaviour (empty secret). prod rejects — MK
-// am: the test app config sets a secret though? line ~40
-test("POST /v1/acquirer/callbacks accepts a callback sent without a signature header", async () => {
-  // Documents current behavior for the acquirer sandbox's pre-signing
-  // tooling: with no header there is nothing to verify, so the callback is
-  // processed rather than rejected.
+// Regression: an unsigned callback used to be accepted, so anyone could post
+// a forged fraud verdict against any transaction.
+test("POST /v1/acquirer/callbacks rejects a callback sent without a signature header", async () => {
   const transactionId = await createTransaction();
   const callbackId = `acqcb_${randomUUID()}`;
 
@@ -134,8 +133,42 @@ test("POST /v1/acquirer/callbacks accepts a callback sent without a signature he
     payload: callbackBody(transactionId, callbackId),
   });
 
-  assert.equal(res.statusCode, 200);
-  assert.deepEqual(res.json(), { received: true });
+  assert.equal(res.statusCode, 401, res.body);
+  assert.equal(res.json().error, "invalid_signature");
+  assert.equal(await noteCount(callbackId), "0");
+});
+
+test("POST /v1/acquirer/callbacks rejects a replay of a genuine callback with a stale timestamp", async () => {
+  const transactionId = await createTransaction();
+  const callbackId = `acqcb_${randomUUID()}`;
+  const body = callbackBody(transactionId, callbackId);
+  const res = await app.inject({
+    method: "POST",
+    url: "/v1/acquirer/callbacks",
+    headers: { "acquirer-callback-signature": signatureHeader(body, ACQUIRER_SECRET, Math.floor(Date.now() / 1000) - 3600) },
+    payload: body,
+  });
+  assert.equal(res.statusCode, 401, res.body);
+  assert.equal(await noteCount(callbackId), "0");
+});
+
+// Regression (FP-201 "fixed"): the postmortem says callbacks are deduped on
+// callbackId via processed_events, but no such table or check existed — a
+// redelivered callback wrote a second note every time.
+test("POST /v1/acquirer/callbacks is idempotent on callbackId: redelivery and concurrent duplicates record one note", async () => {
+  const transactionId = await createTransaction();
+  const callbackId = `acqcb_${randomUUID()}`;
+  const body = callbackBody(transactionId, callbackId);
+  const send = () =>
+    app.inject({
+      method: "POST",
+      url: "/v1/acquirer/callbacks",
+      headers: { "acquirer-callback-signature": signatureHeader(body) },
+      payload: body,
+    });
+  const results = await Promise.all([send(), send(), send()]);
+  const again = await send();
+  for (const r of [...results, again]) assert.equal(r.statusCode, 200, r.body);
   assert.equal(await noteCount(callbackId), "1");
 });
 

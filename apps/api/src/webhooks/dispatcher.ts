@@ -22,13 +22,13 @@ import type { WebhookTransport } from "./transport.js";
 
 const STEP_A_BATCH_LIMIT = 500;
 const STEP_B_BATCH_LIMIT = 100;
-// add refund.succeeded here when refunds ship, thats all it needs — am
-// YA: adding a type here without a buildEnvelope case throws in Step A and stalls the whole queue. envelope.ts first.
+// Every type here needs a buildEnvelope case (envelope.ts) or Step A throws.
 // MK: settlement.batch_closed taken out of this list in Feb (too noisy). docs still mention it
 const WEBHOOK_ELIGIBLE_EVENT_TYPES: readonly string[] = [
   "transaction.captured",
   "transaction.voided",
   "settlement.paid",
+  "refund.succeeded",
 ];
 const NOTIFY_CHANNEL = "outbox_events_channel";
 
@@ -155,7 +155,9 @@ async function attemptOneDelivery(
 ): Promise<void> {
   const key = decodeEncryptionKey(config.webhookSecretEncryptionKey);
   const secret = decryptSecret(row.secret_ciphertext, key);
-  const { signature } = signPayload(row.payload, secret);
+  // Serialize ONCE: the signature must cover the exact bytes sent.
+  const body = JSON.stringify(row.payload);
+  const { signature } = signPayload(body, secret);
 
   if (row.attempt_count === 0) {
     const effect = PRE_DELIVERY_EFFECTS[row.event_type];
@@ -169,7 +171,7 @@ async function attemptOneDelivery(
       [WEBHOOK_DELIVERY_ID_HEADER]: row.delivery_event_id,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(row.payload),
+    body,
     timeoutMs: config.webhookRequestTimeoutMs,
   });
 
@@ -214,17 +216,29 @@ async function attemptOneDelivery(
 }
 
 /** Step B: attempt every currently-due 'pending' delivery, sequentially. */
-// MK: no SKIP LOCKED — only ever run ONE api replica until this changes
-// FH: staging ran 2 replicas since June, never saw a dup delivery, so it's fine
+// Claims due rows atomically: SKIP LOCKED + pushing next_attempt_at out by a
+// lease means a second replica (or an overlapping NOTIFY + poll pass) can't
+// select the same row and send the delivery twice. The outcome UPDATE in
+// attemptOneDelivery then sets the real next_attempt_at; a crash mid-send
+// just retries after the lease.
 async function attemptDueDeliveries(pool: Pool, transport: WebhookTransport, config: DispatcherConfig): Promise<number> {
+  const leaseMs = Math.max(config.webhookRequestTimeoutMs * 2, 30_000);
   const dueResult = await pool.query<DueDeliveryRow>(
-    `SELECT wd.id, wd.endpoint_id, wd.event_type, wd.delivery_event_id, wd.payload, wd.attempt_count, we.url, we.secret_ciphertext
-       FROM webhook_deliveries wd
-       JOIN webhook_endpoints we ON we.id = wd.endpoint_id
-      WHERE wd.status = 'pending' AND wd.next_attempt_at <= now()
-      ORDER BY wd.next_attempt_at ASC
-      LIMIT $1`,
-    [STEP_B_BATCH_LIMIT],
+    `WITH claimed AS (
+       UPDATE webhook_deliveries wd
+          SET next_attempt_at = now() + ($2::text || ' milliseconds')::interval
+        WHERE wd.id IN (
+          SELECT id FROM webhook_deliveries
+           WHERE status = 'pending' AND next_attempt_at <= now()
+           ORDER BY next_attempt_at ASC
+           LIMIT $1
+           FOR UPDATE SKIP LOCKED)
+       RETURNING wd.id, wd.endpoint_id, wd.event_type, wd.delivery_event_id, wd.payload, wd.attempt_count
+     )
+     SELECT c.*, we.url, we.secret_ciphertext
+       FROM claimed c
+       JOIN webhook_endpoints we ON we.id = c.endpoint_id`,
+    [STEP_B_BATCH_LIMIT, leaseMs],
   );
 
   for (const row of dueResult.rows) {
