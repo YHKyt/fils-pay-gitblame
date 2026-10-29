@@ -39,6 +39,10 @@ export async function createPaymentLink(
   } catch (err) {
     throw new BadRequestError("invalid_amount", err instanceof Error ? err.message : String(err));
   }
+  // payment_links.amount_fils has CHECK (amount_fils > 0); toFils accepts 0.
+  if (amountFils <= 0) {
+    throw new BadRequestError("invalid_amount", "amountFils must be a positive integer number of fils");
+  }
 
   const expiresAtDate = new Date(input.expiresAt);
   if (Number.isNaN(expiresAtDate.getTime()) || expiresAtDate.getTime() <= Date.now()) {
