@@ -314,6 +314,44 @@ test("admin otp verify rotates the session token: the pre-OTP cookie is dead aft
   assert.equal(legit.statusCode, 200, legit.body);
 });
 
+test("admin otp verify: parallel wrong guesses cannot exceed max_attempts", async () => {
+  const { email } = await createAdminUser("super_admin", "otprace");
+  const loginRes = await app.inject({
+    method: "POST",
+    url: "/v1/admin/auth/login",
+    payload: { email, password: ADMIN_PASSWORD },
+  });
+  const cookie = parseCookie(loginRes.headers["set-cookie"], config.adminCookieName);
+  const realCode = (loginRes.json() as { devOtpCode: string }).devOtpCode;
+
+  // Distinct wrong codes, fired at once: with check-then-increment every one
+  // of them reads attempt_count=0 and gets a real guess.
+  const guesses = Array.from({ length: 30 }, (_, i) => {
+    let guess = String(100000 + i).padStart(realCode.length, "0").slice(-realCode.length);
+    if (guess === realCode) guess = String(200000 + i).slice(-realCode.length);
+    return guess;
+  });
+  const results = await Promise.all(
+    guesses.map((code) =>
+      app.inject({ method: "POST", url: "/v1/admin/auth/otp/verify", headers: { cookie }, payload: { code } }),
+    ),
+  );
+  const evaluated = results.filter((r) => r.statusCode === 401 && r.json().error === "invalid_code").length;
+  assert.ok(
+    evaluated <= config.adminOtpMaxAttempts,
+    `only ${config.adminOtpMaxAttempts} guesses may be evaluated, got ${evaluated}`,
+  );
+
+  const row = await pool.query<{ attempt_count: number; max_attempts: number }>(
+    `SELECT c.attempt_count, c.max_attempts
+       FROM admin_otp_challenges c
+       JOIN admin_users u ON u.id = c.admin_user_id
+      WHERE u.email = $1`,
+    [email],
+  );
+  assert.ok(row.rows[0]!.attempt_count <= row.rows[0]!.max_attempts);
+});
+
 test("a merchant session cookie grants nothing on the admin plane", async () => {
   // fp_sid and fp_admin_sid are separate names backed by separate tables;
   // presenting one where the other is expected must resolve to nothing.
