@@ -938,6 +938,28 @@ test("API key rotation issues a new key atomically and audits it; the previous k
   assert.equal((audit[0]!.metadata as { newKeyId?: string }).newKeyId, rotated.id);
 });
 
+test("an API key whose revoke_after has passed no longer authenticates", async () => {
+  const { merchantId, ownerUserId } = await createMerchant("revoke-after");
+  const expired = await issueApiKey(pool, config, { merchantId, createdBy: ownerUserId, label: "staged" });
+  const future = await issueApiKey(pool, config, { merchantId, createdBy: ownerUserId, label: "future" });
+  await pool.query(`UPDATE api_keys SET revoke_after = now() - interval '1 minute' WHERE id = $1`, [expired.id]);
+  await pool.query(`UPDATE api_keys SET revoke_after = now() + interval '1 day' WHERE id = $1`, [future.id]);
+
+  const res = await app.inject({
+    method: "GET",
+    url: "/v1/transactions",
+    headers: { authorization: `Bearer ${expired.rawKey}` },
+  });
+  assert.equal(res.statusCode, 401, "a key past its scheduled revocation must not authenticate");
+
+  const stillValid = await app.inject({
+    method: "GET",
+    url: "/v1/transactions",
+    headers: { authorization: `Bearer ${future.rawKey}` },
+  });
+  assert.equal(stillValid.statusCode, 200, stillValid.body);
+});
+
 test("rotating an already-revoked key is a 409; rotating another merchant's key is a 404", async () => {
   const finance = await signedInAdmin("finance", "rotate-edge");
   const { merchantId, ownerUserId } = await createMerchant("rotate-edge");
