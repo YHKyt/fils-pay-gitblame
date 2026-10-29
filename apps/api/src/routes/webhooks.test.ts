@@ -228,6 +228,63 @@ test("create -> list -> patch -> delete: full CRUD lifecycle, secret shown once,
   assert.equal(deleteAgain.json().error, "webhook_endpoint_not_found");
 });
 
+test("deleting an endpoint that has deliveries succeeds and keeps the delivery history", async () => {
+  const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("delete-with-deliveries");
+  const receiver = await startTestReceiver(200);
+  try {
+    const created = await createEndpointViaRoute(rawKey, merchantId, receiver.url);
+    await authorizeAndCapture(merchantId, 1_200, "delete-with-deliveries");
+    await runDispatchPass(pool, createFetchTransport(), config);
+    const before = await pool.query<{ id: string; delivery_event_id: string }>(
+      `SELECT id, delivery_event_id FROM webhook_deliveries WHERE endpoint_id = $1`,
+      [created.id],
+    );
+    assert.equal(before.rows.length, 1);
+
+    const deleteRes = await app.inject({
+      method: "DELETE",
+      url: `/v1/merchants/${merchantId}/webhook-endpoints/${created.id}`,
+      headers: authHeader(rawKey),
+    });
+    assert.equal(deleteRes.statusCode, 204, deleteRes.body);
+
+    // Gone from the merchant's view, and cannot be patched back to life.
+    const list = await app.inject({
+      method: "GET",
+      url: `/v1/merchants/${merchantId}/webhook-endpoints`,
+      headers: authHeader(rawKey),
+    });
+    assert.equal((list.json() as unknown[]).length, 0);
+    const patch = await app.inject({
+      method: "PATCH",
+      url: `/v1/merchants/${merchantId}/webhook-endpoints/${created.id}`,
+      headers: authHeader(rawKey),
+      payload: { status: "active" },
+    });
+    assert.equal(patch.statusCode, 404, patch.body);
+    const deleteAgain = await app.inject({
+      method: "DELETE",
+      url: `/v1/merchants/${merchantId}/webhook-endpoints/${created.id}`,
+      headers: authHeader(rawKey),
+    });
+    assert.equal(deleteAgain.statusCode, 404, deleteAgain.body);
+
+    // The delivery log survives, still linked to the endpoint it went to.
+    const after = await pool.query<{ id: string; delivery_event_id: string }>(
+      `SELECT id, delivery_event_id FROM webhook_deliveries WHERE endpoint_id = $1`,
+      [created.id],
+    );
+    assert.deepEqual(after.rows, before.rows);
+
+    // And nothing more is sent to it.
+    await authorizeAndCapture(merchantId, 1_300, "delete-with-deliveries-2");
+    await runDispatchPass(pool, createFetchTransport(), config);
+    assert.equal(receiver.received.length, 1);
+  } finally {
+    await receiver.close();
+  }
+});
+
 test("invalid_url is rejected", async () => {
   const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("invalid-url");
   const res = await app.inject({
