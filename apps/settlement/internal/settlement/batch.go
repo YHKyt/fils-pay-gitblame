@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/filspay/settlement/internal/balances"
+	"github.com/filspay/settlement/internal/disbursement"
 	"github.com/filspay/settlement/internal/money"
 	"github.com/filspay/settlement/internal/splits"
 )
@@ -386,6 +387,10 @@ func PayoutBatch(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) (Payo
 
 	if err := balances.ApplyPayout(ctx, tx, merchantID, batchID, money.Fils(netPayout)); err != nil {
 		return PayoutResult{}, fmt.Errorf("settlement: PayoutBatch: apply balance cache delta: %w", err)
+	}
+
+	if err := disbursement.Record(ctx, tx, batchID, money.Fils(netPayout)); err != nil {
+		return PayoutResult{}, fmt.Errorf("settlement: PayoutBatch: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
