@@ -2,10 +2,12 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { verifyPassword } from "../auth/passwords.js";
 import { issueChallenge, verifyOtpCode } from "../auth/otp.js";
 import { requireSession } from "../auth/middleware.js";
+import { lookupImpersonationGrant } from "../admin/impersonation.js";
 import { sendOtpCode } from "../auth/notifier.js";
 import {
   createPendingSession,
   lookupPendingSession,
+  lookupSession,
   promoteSession,
   revokeSession,
 } from "../auth/sessions.js";
@@ -275,13 +277,39 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     reply.code(200).send(responseBody);
   });
 
+  /**
+   * Who the dashboard is acting as. A real merchant session wins (same
+   * precedence as requireMerchantAuth); otherwise an admin's "view as
+   * merchant" grant cookie answers with the grant's merchant, its view-only
+   * role, and an `impersonation` block so the dashboard can show the banner
+   * and hide writes the API would refuse. Without either, 401.
+   */
   app.get(
     "/me",
-    { preHandler: requireSession },
     async (request: FastifyRequest) => {
-      const auth = request.auth;
+      const token = request.cookies[app.config.cookieName];
+      const auth = token ? await lookupSession(app.db, token) : null;
       if (!auth) {
-        throw new UnauthorizedError("unauthenticated");
+        const impersonationToken = request.cookies[app.config.impersonationCookieName];
+        const grant = impersonationToken ? await lookupImpersonationGrant(app.db, impersonationToken) : null;
+        if (!grant) {
+          throw new UnauthorizedError("unauthenticated");
+        }
+        const merchant = await app.db.query<{ id: string; display_name: string; onboarding_status: string }>(
+          `SELECT id, display_name, onboarding_status FROM merchants WHERE id = $1`,
+          [grant.merchantId],
+        );
+        const m = merchant.rows[0];
+        if (!m) {
+          throw new UnauthorizedError("unauthenticated");
+        }
+        return {
+          merchantUserId: null,
+          email: null,
+          role: grant.merchantRole,
+          merchant: { id: m.id, displayName: m.display_name, onboardingStatus: m.onboarding_status },
+          impersonation: { grantId: grant.grantId, expiresAt: grant.expiresAt.toISOString(), readOnly: true },
+        };
       }
       const result = await app.db.query<{
         email: string;

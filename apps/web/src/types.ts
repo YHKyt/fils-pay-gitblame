@@ -65,11 +65,15 @@ export interface DashboardOtpVerifyResponse {
   role: MerchantRole;
 }
 
+/** `merchantUserId`/`email` are null, and `impersonation` is present, when
+ *  the caller is an admin's "view as merchant" grant rather than a merchant
+ *  user (routes/auth.ts GET /me). */
 export interface DashboardMe {
-  merchantUserId: string;
-  email: string;
+  merchantUserId: string | null;
+  email: string | null;
   role: MerchantRole;
   merchant: { id: string; displayName: string; onboardingStatus: string };
+  impersonation?: { grantId: string; expiresAt: string; readOnly: boolean };
 }
 
 // --- transactions ---

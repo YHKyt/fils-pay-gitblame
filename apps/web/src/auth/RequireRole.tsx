@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useDashboardAuth } from "./DashboardAuthContext.js";
 import type { MerchantRole } from "../types.js";
+import { isRoleAllowed } from "../utils/roleGate.js";
 
 /**
  * A UI-only convenience gate. It is **explicitly not** the security boundary
@@ -32,7 +33,7 @@ export function RequireRole({
   fallback?: ReactNode;
 }) {
   const { me } = useDashboardAuth();
-  if (me && !allow.includes(me.role)) {
+  if (!isRoleAllowed(me, allow)) {
     return <>{fallback}</>;
   }
   return <>{children}</>;
