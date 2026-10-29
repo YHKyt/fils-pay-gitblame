@@ -169,4 +169,16 @@ Severity: **Critical** = money moved or recorded wrongly at scale ·
   - Against the DB: a quiet night deletes nothing, and exactly one abandoned hold becomes `expired`.
   - The old tests asserted the delete design, so they were replaced.
 
+## M17. Admin status recompute resurrects refunded transactions — Critical
+**Where:** `apps/api/src/admin/transactionStatusRecompute.ts`
+**Evidence:** every seeded `refunded` transaction has `refunded_fils = 0`, because the column arrived later (0043) with DEFAULT 0. Teammate B's R7 fix excluded only `chargeback`.
+
+- **What:** running **Recompute transaction statuses** turned refunded transactions back into `captured`.
+- **Why:** the tool rebuilds each status from the amounts. A legacy refunded row says nothing was refunded, so it is recomputed as `captured`.
+- **Breaks:** the transaction becomes capturable and refundable again. A second capture credits `merchant_payable` again, and a second refund through the new FP-300 route pays the customer twice.
+- **Fix:** `refunded` is excluded from recomputation, like `chargeback`: it can't be reliably derived from the amounts. Forward moves (`captured` → `partially_refunded` / `refunded`) still work.
+- **Test:** `transactionStatusRecompute.refunded.test.ts`.
+  - On the old code, the legacy refunded row comes back as `captured`.
+  - On the fix, both refunded shapes stay `refunded`, and a captured row with refunds moves forward to `partially_refunded`.
+
 > **Test isolation note.** The shared-database failures noted earlier came from an API test fixture that inserted real event types with `{}` payloads. Teammate B fixed that fixture at the source (see T1 in the API write-up), so `npm test` now passes on one database.

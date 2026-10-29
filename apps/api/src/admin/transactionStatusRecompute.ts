@@ -27,8 +27,11 @@ export async function recomputeTransactionStatusesForMerchant(
     `SELECT id, status, amount_fils, captured_fils, refunded_fils
        FROM transactions
       -- chargeback is not derivable from the amounts; recomputing it would
-      -- silently erase a dispute back to captured/refunded.
-      WHERE merchant_id = $1 AND status NOT IN ('authorized', 'voided', 'chargeback')
+      -- silently erase a dispute back to captured/refunded. Neither is
+      -- refunded: rows refunded before 0043 added refunded_fils carry 0
+      -- there, so recomputing turned them back into captured, after which
+      -- they could be captured or refunded a second time.
+      WHERE merchant_id = $1 AND status NOT IN ('authorized', 'voided', 'chargeback', 'refunded')
       FOR UPDATE`,
     [merchantId],
   );
