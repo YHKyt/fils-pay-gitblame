@@ -6,6 +6,7 @@ import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { bhd, dash, dateTime } from "../../format.js";
 import type { PaymentLinkDto } from "../../types.js";
+import { canCancelPaymentLink, paymentLinkDisplayStatus } from "../../utils/paymentLinkStatus.js";
 
 type LoadState =
   | { kind: "loading" }
@@ -96,6 +97,9 @@ export function PaymentLinkDetailPage() {
   }
 
   const { link } = state;
+  // Stored 'active' past expires_at is expired (same rule as the API's
+  // public read); expired links can't be paid, so Cancel is not offered.
+  const displayStatus = paymentLinkDisplayStatus(link);
 
   return (
     <section>
@@ -111,7 +115,7 @@ export function PaymentLinkDetailPage() {
         <dd>{link.currency}</dd>
         <dt>Status</dt>
         <dd>
-          <span className={`dash-status dash-status-${link.status}`}>{link.status}</span>
+          <span className={`dash-status dash-status-${displayStatus}`}>{displayStatus}</span>
         </dd>
         <dt>Reference</dt>
         <dd>{dash(link.reference)}</dd>
@@ -150,7 +154,7 @@ export function PaymentLinkDetailPage() {
 
       {actionError ? <p className="dash-error">{actionError}</p> : null}
 
-      {link.status === "active" ? (
+      {canCancelPaymentLink(link) ? (
         <RequireRole allow={["owner", "finance"]}>
           <button
             type="button"
