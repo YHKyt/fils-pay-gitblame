@@ -29,8 +29,14 @@ func LoadFeeSchedules(ctx context.Context, tx pgx.Tx, merchantID uuid.UUID) ([]F
 	rows, err := tx.Query(ctx, `
 		SELECT effective_from, mdr_bps FROM fee_schedules
 		 WHERE merchant_id = $1
-		 ORDER BY effective_from ASC
+		 ORDER BY effective_from ASC, created_at ASC
 	`, merchantID)
+	// created_at breaks ties between rows sharing an effective_from (nothing
+	// makes them unique — a correction can reuse the date). EffectiveMdrBpsAt
+	// takes the last applicable row, so ascending created_at makes the newest
+	// entry win, matching the API's getEffectiveMdrBps (created_at DESC).
+	// Without it the tie resolved arbitrarily and settlement could recompute
+	// a different fee than capture charged.
 	if err != nil {
 		return nil, err
 	}
