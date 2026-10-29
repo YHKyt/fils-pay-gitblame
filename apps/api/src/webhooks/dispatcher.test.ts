@@ -410,3 +410,12 @@ test("a disabled endpoint gets no delivery row for a new event", async () => {
   ]);
   assert.equal(rows.rows.length, 0);
 });
+
+test("backoffDelayMs never exceeds webhookBackoffCapMs, even with maximum upward jitter", () => {
+  const capConfig = { webhookBackoffBaseMs: 1_000, webhookBackoffCapMs: 60_000 };
+  // attempt 10: raw 512 000 ms, capped to 60 000, then +10 % jitter must not push it past the cap.
+  assert.equal(backoffDelayMs(10, capConfig, () => 1), 60_000);
+  assert.equal(backoffDelayMs(10, capConfig, () => 0), 54_000);
+  // below the cap, jitter still applies upward
+  assert.equal(backoffDelayMs(1, capConfig, () => 1), 1_100);
+});

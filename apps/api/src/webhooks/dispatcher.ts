@@ -50,8 +50,9 @@ export type DispatcherConfig = Pick<
   | "webhookSecretEncryptionKey"
 >;
 
-/** Exponential backoff with a cap and ±10 % jitter. attemptNumber is the
- *  attempt that just failed (1-indexed). */
+/** Exponential backoff with ±10 % jitter, never above webhookBackoffCapMs
+ *  (the cap is re-applied after jitter). attemptNumber is the attempt that
+ *  just failed (1-indexed). */
 export function backoffDelayMs(
   attemptNumber: number,
   config: Pick<Config, "webhookBackoffBaseMs" | "webhookBackoffCapMs">,
@@ -59,7 +60,7 @@ export function backoffDelayMs(
 ): number {
   const raw = config.webhookBackoffBaseMs * 2 ** (attemptNumber - 1);
   const capped = Math.min(raw, config.webhookBackoffCapMs);
-  return Math.round(capped * (0.9 + jitter() * 0.2));
+  return Math.min(Math.round(capped * (0.9 + jitter() * 0.2)), config.webhookBackoffCapMs);
 }
 
 interface DueEventRow {
