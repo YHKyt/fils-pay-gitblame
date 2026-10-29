@@ -143,12 +143,27 @@ export async function payPaymentLink(
   // transaction was just authorized for exactly link.amountFils and
   // nothing else could have touched it yet.
   const captureKey = `paylink:${link.id}:${input.idempotencyKey}:capture`;
-  const captureResult = await captureTransaction(pool, acquirer, {
-    transactionId: txnId,
-    merchantId: link.merchantId,
-    idempotencyKey: captureKey,
-    actor: { type: "system", id: link.id },
-  });
+  let captureResult: Awaited<ReturnType<typeof captureTransaction>>;
+  try {
+    captureResult = await captureTransaction(pool, acquirer, {
+      transactionId: txnId,
+      merchantId: link.merchantId,
+      idempotencyKey: captureKey,
+      actor: { type: "system", id: link.id },
+    });
+  } catch (err) {
+    // Capture threw, so its own DB transaction rolled back and nothing was
+    // recorded. Don't leave the link showing 'paid' for an uncaptured
+    // authorization: put it back to 'reserved' (as before this change, it
+    // self-heals after the reservation timeout, and a retry with the same
+    // Idempotency-Key replays this authorization).
+    await pool.query(
+      `UPDATE payment_links SET status = 'reserved', reserved_at = now(), paid_at = NULL, transaction_id = NULL
+        WHERE id = $1 AND status = 'paid' AND transaction_id = $2`,
+      [link.id, txnId],
+    );
+    throw err;
+  }
 
   if (captureResult.statusCode !== 200) {
     // Nothing was captured: hand the link back so the customer can retry.
@@ -157,6 +172,12 @@ export async function payPaymentLink(
         WHERE id = $1 AND status = 'paid' AND transaction_id = $2`,
       [link.id, txnId],
     );
+    // A declined capture leaves an authorization nobody will ever capture:
+    // release its hold. An acquirer error (502) stays retryable with the
+    // same Idempotency-Key, so its authorization is kept for that retry.
+    if (captureResult.statusCode !== 502) {
+      await voidTransaction(pool, { transactionId: txnId, merchantId: link.merchantId, actor: { type: "system", id: link.id } });
+    }
     return {
       statusCode: captureResult.statusCode,
       body: { stage: "capture", ...(captureResult.body as Record<string, unknown>) },

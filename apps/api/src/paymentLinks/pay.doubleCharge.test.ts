@@ -127,3 +127,52 @@ test("an authorize that outlives the reservation timeout voids itself instead of
     await pool.end();
   }
 });
+
+function acquirerWithCapture(capture: AcquirerSimulator["capture"]): AcquirerSimulator {
+  return {
+    async authorize() {
+      return { outcome: "approved", acquirerReference: `acq_${randomUUID()}`, latencyMs: 0 };
+    },
+    capture,
+    async refund(req) {
+      return { outcome: "approved", acquirerReference: req.acquirerReference, latencyMs: 0 };
+    },
+  };
+}
+
+test("a declined capture frees the link and voids its authorization", { skip: !databaseUrl }, async () => {
+  const pool = new Pool({ connectionString: databaseUrl, max: 5 });
+  try {
+    const { merchantId, token, linkId } = await linkFixture(pool);
+    const acquirer = acquirerWithCapture(async (req) => ({ outcome: "declined", acquirerReference: req.acquirerReference, latencyMs: 0 }));
+    const res = await payPaymentLink(pool, acquirer, config, { token, card: CARD_A, idempotencyKey: randomUUID() });
+
+    assert.equal(res.statusCode, 402, JSON.stringify(res.body));
+    assert.deepEqual(await transactionStatuses(pool, merchantId), ["voided"], "no orphan authorization holding the card");
+    const link = await pool.query<{ status: string }>(`SELECT status FROM payment_links WHERE id = $1`, [linkId]);
+    assert.equal(link.rows[0]!.status, "active");
+  } finally {
+    await pool.end();
+  }
+});
+
+test("a capture that throws does not leave the link showing paid", { skip: !databaseUrl }, async () => {
+  const pool = new Pool({ connectionString: databaseUrl, max: 5 });
+  try {
+    const { merchantId, token, linkId } = await linkFixture(pool);
+    const acquirer = acquirerWithCapture(async () => {
+      throw new Error("acquirer connection reset");
+    });
+    await assert.rejects(payPaymentLink(pool, acquirer, config, { token, card: CARD_A, idempotencyKey: randomUUID() }));
+
+    const link = await pool.query<{ status: string; transaction_id: string | null }>(
+      `SELECT status, transaction_id FROM payment_links WHERE id = $1`,
+      [linkId],
+    );
+    assert.equal(link.rows[0]!.status, "reserved");
+    assert.equal(link.rows[0]!.transaction_id, null);
+    assert.deepEqual(await transactionStatuses(pool, merchantId), ["authorized"]);
+  } finally {
+    await pool.end();
+  }
+});

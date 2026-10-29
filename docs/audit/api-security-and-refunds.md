@@ -183,9 +183,10 @@ Every fix carries a regression test that fails before the change and passes afte
   - The claim returns a lease token (`reserved_at`, exact text).
   - Finalize (`reserved → paid`, matched on the holder's own lease) now runs right after authorize and **before** capture. Only the request that wins it captures, so a lease that expires mid-flight cannot cause a second charge.
   - A holder that lost the finalize voids its own authorization (no money moved yet) and answers 409. The exception is a link that was finalized with this very transaction, i.e. a same-key retry; that request owns the capture.
-  - If capture fails, the link is handed back (`paid → active`, matched on its transaction).
+  - If capture is declined, the link is handed back (`paid → active`, matched on its transaction) and the authorization is voided, so no orphan hold is left on the card. An acquirer error (502) keeps the authorization, so a retry with the same Idempotency-Key can finish the capture.
+  - If capture throws, the link returns to `reserved` instead of showing `paid` for money that never moved. It then self-heals after the reservation timeout, as before.
   - Release only matches the holder's own lease.
-  - Residual risk: a crash between finalize and capture leaves a paid link with an `authorized` transaction. That is under-collection, which is visible and capturable, instead of a second charge.
+  - Residual risk: a process crash between finalize and capture leaves a paid link with an `authorized` transaction. That is under-collection, which is visible and capturable, instead of a second charge.
 - **Test:**
   - A second claim lands during authorize → the first attempt's transaction is voided with 0 captured.
   - `pay.doubleCharge.test.ts` uses a gated acquirer to hold the first request inside **capture**, or inside authorize, while its lease expires. On the original code, and with the renew-before-capture version, the merchant ends with `['captured', 'captured']`. With the fix there is one capture, and the loser gets 409.
