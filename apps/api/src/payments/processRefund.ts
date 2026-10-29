@@ -186,7 +186,11 @@ export async function processRefund(
         prepared.requestedAmount,
         feeReversedFils,
         acquirerResult.acquirerReference,
-        input.reason ?? null,
+        // 0070 made reason NOT NULL (CHECK) with DEFAULT 'unspecified', but a
+        // DEFAULT only applies when the column is omitted — passing an
+        // explicit NULL here failed chk_refunds_reason_not_null for every
+        // refund created without a reason.
+        input.reason ?? "unspecified",
         input.actor.type,
         input.actor.id,
       ],

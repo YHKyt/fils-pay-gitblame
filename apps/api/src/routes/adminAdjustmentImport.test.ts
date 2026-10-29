@@ -1,3 +1,6 @@
+// BHD has 3 decimals (ADR-0001): 1 BD = 1000 fils. These expectations used
+// to encode the 2-decimal ("cents") parse — 4.75 -> 475 — i.e. the 10x
+// CSV-import bug finance reported (Evidence 02). Corrected to real fils.
 /**
  * Route-level tests for the admin "Import adjustments" tool, via
  * `app.inject(...)` against a real, migrated Postgres (run `npm run migrate`
@@ -105,7 +108,7 @@ test("a valid CSV upload returns 201 and applies every row", async () => {
 
   const body = res.json() as { importId: string; rowCount: number; totalPostedFils: number };
   assert.equal(body.rowCount, 2);
-  assert.equal(body.totalPostedFils, 600);
+  assert.equal(body.totalPostedFils, 6000);
 
   const rows = await pool.query<{ n: string }>(
     `SELECT COUNT(*)::text AS n FROM adjustment_import_rows WHERE adjustment_import_id = $1`,
