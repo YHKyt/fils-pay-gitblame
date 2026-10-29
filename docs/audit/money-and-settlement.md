@@ -131,3 +131,13 @@ Severity: **Critical** = money moved or recorded wrongly at scale ·
   - **Wrong accounts.** It debited `merchant_payable` and credited `scheme_rounding_residue`, i.e. it charged *merchants* for the platform's scheme rounding. ADR-0002's legs are `card_scheme_clearing` credit / `scheme_rounding_residue` debit.
 - **Fix:** an exported `runSweep` that takes a transaction-scoped advisory lock and skips any merchant whose sweep group already exists (matched by the original description, so earlier production runs are detected), uses Bahrain month bounds, posts the ADR-0002 legs, and has a `--check` mode that writes nothing and reports how many times each merchant was already swept — which answers "did it run twice in production?" from the ledger itself. Groups already posted by old runs are not reversed automatically; `--check` lists them for finance.
 - **Test:** `reconcile_march.fix.test.ts` — Bahrain bounds; three consecutive runs post exactly one balanced group and never touch `merchant_payable`.
+
+## M14. An admin repair tool takes sandbox merchants live, so test merchants get settled — High
+**Where:** `apps/api/src/routes/adminMerchantsRecompute.ts` (removed `admin/merchantFlags.ts`)
+**Evidence:** group chat — "test merchants keep showing up in the real settlement run"; notes — "what happens to test merchants when certain admin tools run?"
+
+- **What:** after a finance admin ran **Recompute transaction statuses** on a sandbox merchant, that merchant was settled and paid in the real daily run.
+- **Why:** the daily run correctly selects `test_mode = false` merchants, but the recompute route also called `reconcileSandboxFlag`, which set `test_mode = false` whenever the merchant had no open authorizations. A routine status repair therefore silently took the merchant live; the audit log only recorded it as `flagsUpdated: ["test_mode"]`.
+- **Breaks:** test transactions enter real settlement batches, scheme files and payouts.
+- **Fix:** the recompute no longer touches `test_mode` (going live is a deliberate decision, not a repair side effect); `flagsUpdated` stays in the response, always empty, so clients are unaffected. The helper, whose only behaviour was this, is removed.
+- **Test:** `adminMerchantsRecompute.fix.test.ts` drives the real admin login + OTP and the route; it fails on the old code and passes on the fix.
