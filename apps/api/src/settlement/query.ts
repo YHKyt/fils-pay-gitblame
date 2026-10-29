@@ -355,7 +355,12 @@ interface SettlementSummaryRow {
   total_captured_fils: string | number | null;
 }
 
-/** Gross captured in window, joined through transaction_events for batch parity. */
+/**
+ * Gross captured in window, joined through transaction_events for batch
+ * parity: the sum of the capture events' own amounts in the window (one row
+ * per event), never transactions.captured_fils — that is a running total,
+ * fanned out once per event and including captures outside the window.
+ */
 export async function getSettlementSummary(
   pool: Pool,
   input: { merchantId: string; from: string; to: string },
@@ -365,7 +370,7 @@ export async function getSettlementSummary(
 
   const result = await pool.query<SettlementSummaryRow>(
     `WITH captured AS (
-       SELECT t.id, t.captured_fils
+       SELECT t.id, te.amount_fils AS captured_fils
          FROM transactions t
          JOIN transaction_events te ON te.transaction_id = t.id
         WHERE t.merchant_id = $1
