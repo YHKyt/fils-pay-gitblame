@@ -31,6 +31,21 @@ function assertOwnMerchant(request: FastifyRequest<{ Params: MerchantIdParams }>
   }
 }
 
+/**
+ * The stored file name is whatever the uploader's client sent, so it is
+ * never interpolated raw: the quoted `filename` is a printable-ASCII
+ * fallback with `"` and `\` replaced, and the real name goes in the
+ * RFC 5987/6266 `filename*` parameter, percent-encoded as UTF-8.
+ */
+function inlineContentDisposition(fileName: string): string {
+  const fallback = fileName.replace(/[^\x20-\x7e]|["\\]/g, "_");
+  const encoded = encodeURIComponent(fileName).replace(
+    /['()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+  return `inline; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}
+
 /** Registered with prefix '/v1/merchants'. */
 export async function kycRoutes(app: FastifyInstance): Promise<void> {
   // PDF-only rule is enforced on the magic bytes, not the filename — MK
@@ -102,7 +117,7 @@ export async function kycRoutes(app: FastifyInstance): Promise<void> {
         request.params.documentId,
       );
       reply.header("Content-Type", file.mimeType);
-      reply.header("Content-Disposition", `inline; filename="${file.fileName}"`);
+      reply.header("Content-Disposition", inlineContentDisposition(file.fileName));
       return reply.send(file.buffer);
     },
   );
@@ -119,7 +134,7 @@ export async function kycRoutes(app: FastifyInstance): Promise<void> {
         request.params.documentId,
       );
       reply.header("Content-Type", file.mimeType);
-      reply.header("Content-Disposition", `inline; filename="${file.fileName}"`);
+      reply.header("Content-Disposition", inlineContentDisposition(file.fileName));
       return reply.send(file.buffer);
     },
   );

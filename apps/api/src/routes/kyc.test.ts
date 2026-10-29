@@ -14,6 +14,7 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../app.js";
 import { loadConfig, type Config } from "../config.js";
 import { randomToken, sha256Hex } from "../lib/crypto.js";
+import { recordKycDocument } from "../onboarding/kyc.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -121,3 +122,36 @@ test("a single-file upload is still accepted", async () => {
   });
   assert.equal(res.statusCode, 201, res.body);
 });
+
+for (const fileName of ['report"; filename="evil.html', "CR – 2026 €.pdf", "line\r\nX-Injected: 1.pdf"]) {
+  test(`download Content-Disposition is well-formed for file name ${JSON.stringify(fileName)}`, async () => {
+    const { merchantId, userId, cookie } = await ownerSession();
+    const doc = await recordKycDocument(pool, config, {
+      merchantId,
+      documentType: "commercial_registration",
+      fileName,
+      buffer: PDF_BYTES,
+      uploadedBy: userId,
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/merchants/${merchantId}/kyc/documents/${doc.id}/file`,
+      headers: { cookie },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    assert.equal(res.headers["x-injected"], undefined);
+
+    const header = String(res.headers["content-disposition"]);
+    // Exactly one quoted ASCII filename= parameter, containing no quote or
+    // backslash of its own, so the client-supplied name cannot add or
+    // override parameters.
+    const plain = header.match(/;\s*filename="([^"\\]*)"/g) ?? [];
+    assert.equal(plain.length, 1, header);
+    assert.doesNotMatch(header, /[^\x20-\x7e]/, "header must be plain printable ASCII");
+    // The real name survives in the RFC 5987 extended parameter.
+    const ext = /filename\*=UTF-8''([^;]+)/.exec(header);
+    assert.ok(ext, header);
+    assert.equal(decodeURIComponent(ext[1]!), fileName);
+  });
+}
