@@ -81,13 +81,6 @@ export type ImpersonationMerchantRole = "owner" | "finance" | "support";
 /** `admin_users.role` (migration 0031). */
 type AdminUserRole = "support" | "finance" | "super_admin";
 
-/** Maps the admin's role to the merchant-plane role used during impersonation. */
-const MERCHANT_ROLE_FOR_ADMIN_ROLE: Record<AdminUserRole, ImpersonationMerchantRole> = {
-  support: "support",
-  finance: "finance",
-  super_admin: "owner",
-};
-
 /** @property merchantRole Always "support" (ARCH §8): a grant is view-only. */
 export interface ImpersonationGrantLookup {
   grantId: string;
@@ -120,15 +113,19 @@ export async function lookupImpersonationGrant(
       WHERE g.token_hash = $1
         AND g.revoked_at IS NULL
         AND g.ended_at IS NULL
-        AND g.expires_at > now()`,
+        AND g.expires_at > now()
+        AND au.status = 'active'`,
     [tokenHash],
   );
   const row = result.rows[0];
   if (!row) return null;
+  // A grant is view-only (ARCH §8): always "support", never the admin's
+  // mapped role — super_admin previously became merchant "owner" and could
+  // create/cancel links, rotate keys, etc. as the merchant.
   return {
     grantId: row.id,
     adminUserId: row.admin_user_id,
     merchantId: row.merchant_id,
-    merchantRole: MERCHANT_ROLE_FOR_ADMIN_ROLE[row.admin_role],
+    merchantRole: "support",
   };
 }

@@ -358,3 +358,20 @@ test(
     assert.equal(finalLink.rows[0]!.transaction_id, txnId);
   },
 );
+
+// Regression (IDOR): merchant A, on its own path, must not cancel merchant B's link by id.
+test("cancel: another merchant's link id is a 404 and the link stays active", async () => {
+  const victim = await createApprovedMerchantWithApiKey("cancel-idor-victim");
+  const attacker = await createApprovedMerchantWithApiKey("cancel-idor-attacker");
+  const link = await createLink(victim.rawKey, victim.merchantId, {});
+
+  const res = await app.inject({
+    method: "DELETE",
+    url: `/v1/merchants/${attacker.merchantId}/payment-links/${link.id}`,
+    headers: authHeader(attacker.rawKey),
+  });
+  assert.equal(res.statusCode, 404, res.body);
+
+  const readRes = await getPublicLink(link.token);
+  assert.equal(readRes.json().status, "active");
+});
