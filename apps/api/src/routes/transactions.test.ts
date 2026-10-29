@@ -12,6 +12,7 @@ import { buildApp } from "../app.js";
 import { loadConfig } from "../config.js";
 import { issueApiKey } from "../apiKeys/issue.js";
 import { recordKycReview } from "../onboarding/review.js";
+import { randomToken, sha256Hex } from "../lib/crypto.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -360,4 +361,45 @@ test("POST /v1/merchants/:id/refunds is scoped: another merchant's path or trans
     payload: { transactionId: txnId },
   });
   assert.equal(ownPath.statusCode, 404, ownPath.body);
+});
+
+// Regression: capture/void only required "any authenticated merchant actor",
+// so a `support` session (which the dashboard hides these buttons from)
+// could move money through the API.
+test("a 'support' session cannot capture or void; the transaction is untouched", async () => {
+  const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("support-no-capture");
+  const auth = await app.inject({
+    method: "POST",
+    url: "/v1/transactions",
+    headers: { ...authHeader(rawKey), "idempotency-key": randomUUID() },
+    payload: { amountFils: 5_000, card: VALID_CARD },
+  });
+  assert.equal(auth.statusCode, 201, auth.body);
+  const txnId = auth.json().id as string;
+
+  const user = await pool.query<{ id: string }>(
+    `INSERT INTO merchant_users (merchant_id, email, role, password_hash)
+     VALUES ($1, $2, 'support', 'unused-in-these-tests') RETURNING id`,
+    [merchantId, `support-${randomUUID()}@example.test`],
+  );
+  const token = randomToken(32);
+  await pool.query(
+    `INSERT INTO sessions (merchant_user_id, token_hash, authenticated, expires_at)
+     VALUES ($1, $2, true, now() + interval '1 hour')`,
+    [user.rows[0]!.id, sha256Hex(token)],
+  );
+  const cookie = { cookie: `${config.cookieName}=${token}` };
+
+  const capture = await app.inject({
+    method: "POST",
+    url: `/v1/transactions/${txnId}/capture`,
+    headers: { ...cookie, "idempotency-key": randomUUID() },
+    payload: {},
+  });
+  assert.equal(capture.statusCode, 403, capture.body);
+  const voided = await app.inject({ method: "POST", url: `/v1/transactions/${txnId}/void`, headers: cookie });
+  assert.equal(voided.statusCode, 403, voided.body);
+
+  const row = await pool.query<{ status: string }>(`SELECT status FROM transactions WHERE id = $1`, [txnId]);
+  assert.equal(row.rows[0]!.status, "authorized");
 });

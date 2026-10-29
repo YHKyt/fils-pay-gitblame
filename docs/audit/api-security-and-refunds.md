@@ -53,6 +53,12 @@ Every fix carries a regression test that fails before the change and passes afte
 - **Fix:** a grant always resolves to `support`. Any non-GET request with an impersonation actor is 403 at the auth layer. A disabled admin's grant stops resolving.
 - **Test:** `routes/admin.test.ts` impersonation test passes. It reads, but owner/finance writes are 403.
 
+## S6. A support session could capture and void — High
+**Where:** `apps/api/src/routes/transactions.ts`
+- **What:** capture and void only required "any authenticated merchant actor". The dashboard hides those buttons from `support`, and its own comment says the hide is not backed server-side.
+- **Fix:** `requireMerchantRole("owner", "finance")` on both. API keys are unaffected (owner-issued).
+- **Test:** `routes/transactions.test.ts` — a support session gets 403 on capture and void; the transaction stays `authorized`.
+
 ## R1. Refunds (FP-300) — the missing feature, now built — High
 **Where:** `apps/api/src/routes/refunds.ts`, `app.ts`, `apps/web/.../RefundDrawer.tsx`, `TransactionDetailPage.tsx`, `transactions/serialize.ts`, `webhooks/envelope.ts`
 
