@@ -30,9 +30,10 @@ func insertClosedBatchWithLine(t *testing.T, pool *pgxpool.Pool, merchantID uuid
 		t.Fatalf("insertClosedBatchWithLine: insert export line: %v", err)
 	}
 
-	// A real close also credits the merchant's payable in the ledger, which is
-	// what the cache mirrors. (The helper used to write only the scheme line,
-	// matching the old, wrong rebuild source — see RefreshBalanceCache.)
+	// A close posts nothing to merchant_payable; the captures it settled
+	// credited it when they happened. Post that credit, which is what the
+	// cache mirrors. (The helper used to write only the scheme line, matching
+	// the old, wrong rebuild source — see RefreshBalanceCache.)
 	postLedgerLeg(t, pool, merchantID, "credit", amountFils)
 
 	return batchID

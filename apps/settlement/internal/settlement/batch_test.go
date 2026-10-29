@@ -365,10 +365,11 @@ func TestCloseBatch_SchemeExportLineTruncation(t *testing.T) {
 }
 
 // TestCloseAndPayout_MerchantBalancesIncremental verifies
-// merchant_balances is maintained incrementally through close+payout: it
-// gains net_payout_fils at close, then loses the same amount at payout,
-// netting to zero once both steps have run in the same pass — exactly
-// the arithmetic internal/balances describes.
+// merchant_balances follows merchant_payable through close+payout: the
+// capture credited it (capture.ts moves the cache with its legs), the close
+// posts nothing so it leaves it alone, and the payout takes it to zero —
+// exactly the arithmetic internal/balances describes. (It used to expect the
+// close to add net_payout_fils, which double-counted after a rebuild.)
 func TestCloseAndPayout_MerchantBalancesIncremental(t *testing.T) {
 	pool := mustPool(t)
 	const mdrBps = 250
@@ -376,7 +377,13 @@ func TestCloseAndPayout_MerchantBalancesIncremental(t *testing.T) {
 	businessDate := time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
 	start, _ := BusinessDayWindow(businessDate)
 
-	insertCaptureEvent(t, pool, merchantID, mdrBps, 10000, start.Add(time.Hour))
+	_, captureFee := insertCaptureEvent(t, pool, merchantID, mdrBps, 10000, start.Add(time.Hour))
+	capturedNet := 10000 - captureFee
+	if _, err := pool.Exec(context.Background(), `
+		INSERT INTO merchant_balances (merchant_id, cached_payable_fils) VALUES ($1, $2)
+	`, merchantID, int64(capturedNet)); err != nil {
+		t.Fatalf("seed the capture's cache move: %v", err)
+	}
 
 	closeResult, err := CloseBatch(context.Background(), pool, merchantID, businessDate)
 	if err != nil {
@@ -391,8 +398,8 @@ func TestCloseAndPayout_MerchantBalancesIncremental(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query merchant_balances after close: %v", err)
 	}
-	if money.Fils(afterClose) != closeResult.NetPayoutFils {
-		t.Errorf("cached_payable_fils after close = %d, want %d (the batch's net_payout_fils)", afterClose, closeResult.NetPayoutFils)
+	if money.Fils(afterClose) != capturedNet {
+		t.Errorf("cached_payable_fils after close = %d, want %d (unchanged: a close posts nothing to merchant_payable)", afterClose, capturedNet)
 	}
 
 	payoutResult, err := PayoutBatch(context.Background(), pool, closeResult.BatchID)
