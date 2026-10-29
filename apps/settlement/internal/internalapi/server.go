@@ -134,19 +134,23 @@ func Handler(pool *pgxpool.Pool, cfg config.Config) http.Handler {
 func Serve(ctx context.Context, pool *pgxpool.Pool, cfg config.Config) error {
 	// am: binds all interfaces. only on the docker network so fine??
 	addr := net.JoinHostPort("", strconv.Itoa(cfg.InternalPort))
+	// Request contexts must outlive the shutdown signal. They used to derive
+	// from ctx itself, so SIGTERM cancelled an in-flight batch at once (it
+	// could stop between a merchant's close and its payout) and the graceful
+	// wait below had nothing left to wait for. They are cancelled only once
+	// that wait is over.
+	baseCtx, cancelInFlight := context.WithCancel(context.WithoutCancel(ctx))
 	server := &http.Server{
-		Addr:    addr,
-		Handler: Handler(pool, cfg),
-		// Every handler's request context derives from the daemon's own
-		// ctx, so a shutdown signal also cancels the pgx work an in-flight
-		// batch is doing rather than leaving it orphaned.
-		BaseContext:       func(net.Listener) context.Context { return ctx },
+		Addr:              addr,
+		Handler:           Handler(pool, cfg),
+		BaseContext:       func(net.Listener) context.Context { return baseCtx },
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	shutdownDone := make(chan struct{})
 	go func() {
 		defer close(shutdownDone)
+		defer cancelInFlight()
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
