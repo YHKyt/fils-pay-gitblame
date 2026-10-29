@@ -50,11 +50,12 @@ export function expiryReferenceTime(_submittedAt?: string): Date {
  *
  * Concurrency: reserve the link with a single
  * atomic conditional UPDATE, release the row lock immediately, run
- * authorize+capture with no lock held on payment_links at all, then
- * finalize with a second atomic conditional UPDATE keyed on still being in
- * the 'reserved' state. A short, configurable reservation timeout
- * self-heals a link stuck 'reserved' by a crash between claim and
- * finalize, with no sweep job.
+ * authorize with no lock held on payment_links at all, then finalize with
+ * a second atomic conditional UPDATE keyed on this attempt's own lease, and
+ * only then capture. Only the request that wins the finalize moves money,
+ * so a lease that times out mid-flight can never produce a second charge.
+ * A short, configurable reservation timeout self-heals a link stuck
+ * 'reserved' by a crash between claim and finalize, with no sweep job.
  */
 export async function payPaymentLink(
   pool: Pool,
@@ -91,7 +92,7 @@ export async function payPaymentLink(
     amountFils: toFils(Number(claimedRow.amount_fils)),
     reference: claimedRow.reference,
   };
-  let leaseToken = claimedRow.reserved_at;
+  const leaseToken = claimedRow.reserved_at;
 
   // Step 2 — authorize.
   // am: keys include link.id so two links can never collide on idempotency. good
@@ -117,26 +118,27 @@ export async function payPaymentLink(
 
   const txnId = (authResult.body as { id: string }).id;
 
-  // Re-assert and renew the lease before moving money. If authorize ran past
-  // the reservation timeout, another payer may have re-claimed the link and
-  // be paying it right now: capturing here as well would charge two cards
-  // for one link. The losing attempt voids its own authorization (no money
-  // has moved yet) and backs off.
-  const renewed = await pool.query<{ reserved_at: string }>(
-    `UPDATE payment_links SET reserved_at = clock_timestamp()
-      WHERE id = $1 AND status = 'reserved' AND reserved_at = $2::timestamptz
-      RETURNING reserved_at::text AS reserved_at`,
-    [link.id, leaseToken],
+  // Step 3 — finalize, on this attempt's own lease and BEFORE any money moves.
+  // The link goes reserved -> paid exactly once, so only the request that
+  // wins this UPDATE ever captures. It used to run after capture: when
+  // capture outlived the reservation timeout, a second payer re-claimed the
+  // link, charged its card and finalized first, and this request still
+  // captured and answered 200 — two customers charged for one link
+  // (incident 2026-05-14). Checking the lease before capture is not enough:
+  // capture itself can outlive it.
+  const finalizeResult = await pool.query<{ paid_at: Date }>(
+    `UPDATE payment_links
+        SET status = 'paid', paid_at = now(), transaction_id = $2, reserved_at = NULL
+      WHERE id = $1 AND status = 'reserved' AND reserved_at = $3::timestamptz
+      RETURNING paid_at`,
+    [link.id, txnId, leaseToken],
   );
-  if (!renewed.rows[0]) {
-    await voidTransaction(pool, { transactionId: txnId, merchantId: link.merchantId, actor: { type: "system", id: link.id } });
-    return { statusCode: 409, body: { error: "payment_link_processing" } };
+  const finalized = finalizeResult.rows[0];
+  if (!finalized) {
+    return loseFinalizeRace(pool, link, txnId);
   }
-  leaseToken = renewed.rows[0].reserved_at;
 
-  // NOTE: discountAdjustment is applied by the transactions route only, not here — FH
-  // MK: it's applied for both now (moved into capture.ts in July)
-  // Step 3 — capture (full amount, immediately). amountFils omitted =>
+  // Step 4 — capture (full amount, immediately). amountFils omitted =>
   // capture the full remaining amount — always correct here, since this
   // transaction was just authorized for exactly link.amountFils and
   // nothing else could have touched it yet.
@@ -149,46 +151,15 @@ export async function payPaymentLink(
   });
 
   if (captureResult.statusCode !== 200) {
-    await releaseReservation(pool, link.id, leaseToken);
+    // Nothing was captured: hand the link back so the customer can retry.
+    await pool.query(
+      `UPDATE payment_links SET status = 'active', paid_at = NULL, transaction_id = NULL
+        WHERE id = $1 AND status = 'paid' AND transaction_id = $2`,
+      [link.id, txnId],
+    );
     return {
       statusCode: captureResult.statusCode,
       body: { stage: "capture", ...(captureResult.body as Record<string, unknown>) },
-    };
-  }
-
-  // see incident 2026-05-14 — two customers charged on one link. root cause: the claim
-  // MK: re-evaluation is exactly what makes it safe. the bug was in the web retry, closed
-  // am: was it? FP-198 is still open
-  // Step 4 — finalize.
-  const finalizeResult = await pool.query<{
-    id: string;
-    paid_at: Date;
-  }>(
-    `UPDATE payment_links
-        SET status = 'paid', paid_at = now(), transaction_id = $2, reserved_at = NULL
-      WHERE id = $1 AND status = 'reserved' AND reserved_at = $3::timestamptz
-      RETURNING id, paid_at`,
-    [link.id, txnId, leaseToken],
-  );
-
-  const finalized = finalizeResult.rows[0];
-  // FH: this IS reachable — if capture takes past the reservation timeout a second request re-claims,
-  // pays and finalizes first; we land here, answer 200, and the card was charged twice
-  // MK: authorize+capture is under a second. 60s can't happen. unreachable
-  if (!finalized) {
-    // Should be unreachable in normal operation (this request is the only
-    // holder of the reservation). The acquirer-side capture genuinely
-    // succeeded and money moved; failing to *record* that fact against the
-    // link is a data-consistency bug to surface loudly, not a reason to
-    // tell a customer whose card was actually charged that their payment
-    // failed.
-    console.error(
-      `payPaymentLink: finalize UPDATE matched 0 rows for link ${link.id} after a successful capture ` +
-        `(transaction ${txnId}) — invariant violation, investigate`,
-    );
-    return {
-      statusCode: 200,
-      body: { status: "paid", transactionId: txnId, amountFils: link.amountFils, paidAt: new Date().toISOString() },
     };
   }
 
@@ -204,9 +175,40 @@ export async function payPaymentLink(
 }
 
 /**
- * Used by both decline branches above. Guarded by `status =
- * 'reserved'` for the same reason as the finalize UPDATE: this request
- * only ever releases the reservation it itself holds.
+ * The finalize UPDATE matched 0 rows: while this request was authorizing, its
+ * lease timed out and another payer took the link over (or the merchant
+ * canceled it). Nothing has been captured yet, so void this request's own
+ * authorization and report the link's state — unless the link was finalized
+ * with this very transaction (a retry carrying the same Idempotency-Key
+ * replayed this authorization), in which case that request owns the capture.
+ */
+async function loseFinalizeRace(
+  pool: Pool,
+  link: { id: string; merchantId: string },
+  txnId: string,
+): Promise<PayPaymentLinkResult> {
+  const current = await pool.query<{ status: string; transaction_id: string | null }>(
+    `SELECT status, transaction_id FROM payment_links WHERE id = $1`,
+    [link.id],
+  );
+  const row = current.rows[0];
+  if (row?.transaction_id === txnId) {
+    return { statusCode: 409, body: { error: "payment_link_processing" } };
+  }
+  await voidTransaction(pool, { transactionId: txnId, merchantId: link.merchantId, actor: { type: "system", id: link.id } });
+  if (row?.status === "paid") {
+    return { statusCode: 409, body: { error: "payment_link_already_paid" } };
+  }
+  if (row?.status === "canceled") {
+    return { statusCode: 409, body: { error: "payment_link_canceled" } };
+  }
+  return { statusCode: 409, body: { error: "payment_link_processing" } };
+}
+
+/**
+ * Used by the authorize decline branch above. Guarded by the lease token
+ * for the same reason as the finalize UPDATE: this request only ever
+ * releases the reservation it itself holds.
  */
 async function releaseReservation(pool: Pool, linkId: string, leaseToken: string): Promise<void> {
   await pool.query(

@@ -167,11 +167,17 @@ Every fix carries a regression test that fails before the change and passes afte
 ## P2. One payment link charged twice — Critical
 **Where:** `apps/api/src/paymentLinks/pay.ts` (incident 2026-05-14, FP-198)
 - **What:** reservations were not owned. If authorize outlived the reservation timeout, a second payer re-claimed the link, and both captured. Finalize and release matched any `reserved` row. The code called this "unreachable".
+- **Also reachable through capture:** this is FH's scenario in the code comment. Renewing the lease before capture is not enough, because capture itself can outlive the lease. In that case a second payer re-claims, captures and finalizes. The first request's capture has already gone through, its finalize misses, and the old branch still answered 200.
 - **Fix:**
   - The claim returns a lease token (`reserved_at`, exact text).
-  - Before capture the holder re-asserts and renews it. A holder that lost it voids its own authorization (no money moved yet) and answers 409.
-  - Finalize and release only match the holder's own lease.
-- **Test:** a second claim lands during authorize → the first attempt's transaction is voided with 0 captured.
+  - Finalize (`reserved → paid`, matched on the holder's own lease) now runs right after authorize and **before** capture. Only the request that wins it captures, so a lease that expires mid-flight cannot cause a second charge.
+  - A holder that lost the finalize voids its own authorization (no money moved yet) and answers 409. The exception is a link that was finalized with this very transaction, i.e. a same-key retry; that request owns the capture.
+  - If capture fails, the link is handed back (`paid → active`, matched on its transaction).
+  - Release only matches the holder's own lease.
+  - Residual risk: a crash between finalize and capture leaves a paid link with an `authorized` transaction. That is under-collection, which is visible and capturable, instead of a second charge.
+- **Test:**
+  - A second claim lands during authorize → the first attempt's transaction is voided with 0 captured.
+  - `pay.doubleCharge.test.ts` uses a gated acquirer to hold the first request inside **capture**, or inside authorize, while its lease expires. On the original code, and with the renew-before-capture version, the merchant ends with `['captured', 'captured']`. With the fix there is one capture, and the loser gets 409.
 
 ## T1. Test-suite isolation — Low
 - `archiveReplay.test.ts` inserted real event types (`transaction.captured`) with `{}` payloads into the shared `outbox_events`. The reporting consumer read them and crashed (`merchant_id` NULL), so 4 `apps/reporting` tests failed whenever `npm test` ran on one database. The test now uses an inert event type (the convention `admin.test.ts` already follows).
