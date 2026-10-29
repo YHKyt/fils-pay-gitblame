@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import { toFils } from "@filspay/money";
 import { authorizeTransaction } from "../payments/authorize.js";
 import { captureTransaction } from "../payments/capture.js";
+import { voidTransaction } from "../payments/void.js";
 import type { AcquirerSimulator, SimulatedCardInput } from "../acquirer/types.js";
 
 export interface PayPaymentLinkInput {
@@ -22,6 +23,8 @@ interface ClaimedLinkRow {
   merchant_id: string;
   amount_fils: string | number;
   reference: string | null;
+  /** Exact text form (microseconds) — a JS Date would truncate it. This attempt's lease token: finalize/release only match the holder's own reservation. */
+  reserved_at: string;
 }
 
 interface LinkStatusRow {
@@ -29,12 +32,14 @@ interface LinkStatusRow {
   expires_at: Date;
 }
 
-/** A pay request is judged against when the buyer pressed pay, so a
- * retry that lands after midnight is not penalised. */
-export function expiryReferenceTime(submittedAt?: string): Date {
-  if (!submittedAt) return new Date();
-  const parsed = new Date(submittedAt);
-  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+/**
+ * Expiry is judged on the server's clock only. `submittedAt` comes from the
+ * (unauthenticated, public) client, so honouring it let anyone pay an
+ * expired link by sending an old timestamp. Accepted for compatibility,
+ * ignored.
+ */
+export function expiryReferenceTime(_submittedAt?: string): Date {
+  return new Date();
 }
 
 /**
@@ -71,7 +76,7 @@ export async function payPaymentLink(
              OR (status = 'reserved' AND reserved_at < now() - ($2 || ' seconds')::interval)
             )
         AND expires_at > $3
-      RETURNING id, merchant_id, amount_fils, reference`,
+      RETURNING id, merchant_id, amount_fils, reference, reserved_at::text AS reserved_at`,
     [input.token, config.paymentLinkReservationTimeoutSeconds, expiryCheckTime],
   );
 
@@ -86,6 +91,7 @@ export async function payPaymentLink(
     amountFils: toFils(Number(claimedRow.amount_fils)),
     reference: claimedRow.reference,
   };
+  let leaseToken = claimedRow.reserved_at;
 
   // Step 2 — authorize.
   // am: keys include link.id so two links can never collide on idempotency. good
@@ -102,7 +108,7 @@ export async function payPaymentLink(
   });
 
   if (authResult.statusCode !== 201) {
-    await releaseReservation(pool, link.id);
+    await releaseReservation(pool, link.id, leaseToken);
     return {
       statusCode: authResult.statusCode,
       body: { stage: "authorize", ...(authResult.body as Record<string, unknown>) },
@@ -110,6 +116,23 @@ export async function payPaymentLink(
   }
 
   const txnId = (authResult.body as { id: string }).id;
+
+  // Re-assert and renew the lease before moving money. If authorize ran past
+  // the reservation timeout, another payer may have re-claimed the link and
+  // be paying it right now: capturing here as well would charge two cards
+  // for one link. The losing attempt voids its own authorization (no money
+  // has moved yet) and backs off.
+  const renewed = await pool.query<{ reserved_at: string }>(
+    `UPDATE payment_links SET reserved_at = clock_timestamp()
+      WHERE id = $1 AND status = 'reserved' AND reserved_at = $2::timestamptz
+      RETURNING reserved_at::text AS reserved_at`,
+    [link.id, leaseToken],
+  );
+  if (!renewed.rows[0]) {
+    await voidTransaction(pool, { transactionId: txnId, merchantId: link.merchantId, actor: { type: "system", id: link.id } });
+    return { statusCode: 409, body: { error: "payment_link_processing" } };
+  }
+  leaseToken = renewed.rows[0].reserved_at;
 
   // NOTE: discountAdjustment is applied by the transactions route only, not here — FH
   // MK: it's applied for both now (moved into capture.ts in July)
@@ -126,7 +149,7 @@ export async function payPaymentLink(
   });
 
   if (captureResult.statusCode !== 200) {
-    await releaseReservation(pool, link.id);
+    await releaseReservation(pool, link.id, leaseToken);
     return {
       statusCode: captureResult.statusCode,
       body: { stage: "capture", ...(captureResult.body as Record<string, unknown>) },
@@ -143,9 +166,9 @@ export async function payPaymentLink(
   }>(
     `UPDATE payment_links
         SET status = 'paid', paid_at = now(), transaction_id = $2, reserved_at = NULL
-      WHERE id = $1 AND status = 'reserved'
+      WHERE id = $1 AND status = 'reserved' AND reserved_at = $3::timestamptz
       RETURNING id, paid_at`,
-    [link.id, txnId],
+    [link.id, txnId, leaseToken],
   );
 
   const finalized = finalizeResult.rows[0];
@@ -185,10 +208,12 @@ export async function payPaymentLink(
  * 'reserved'` for the same reason as the finalize UPDATE: this request
  * only ever releases the reservation it itself holds.
  */
-async function releaseReservation(pool: Pool, linkId: string): Promise<void> {
-  await pool.query(`UPDATE payment_links SET status = 'active', reserved_at = NULL WHERE id = $1 AND status = 'reserved'`, [
-    linkId,
-  ]);
+async function releaseReservation(pool: Pool, linkId: string, leaseToken: string): Promise<void> {
+  await pool.query(
+    `UPDATE payment_links SET status = 'active', reserved_at = NULL
+      WHERE id = $1 AND status = 'reserved' AND reserved_at = $2`,
+    [linkId, leaseToken],
+  );
 }
 
 /**

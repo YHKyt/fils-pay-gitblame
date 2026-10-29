@@ -26,7 +26,9 @@ export async function recomputeTransactionStatusesForMerchant(
   const candidates = await client.query<CandidateRow>(
     `SELECT id, status, amount_fils, captured_fils, refunded_fils
        FROM transactions
-      WHERE merchant_id = $1 AND status NOT IN ('authorized', 'voided')
+      -- chargeback is not derivable from the amounts; recomputing it would
+      -- silently erase a dispute back to captured/refunded.
+      WHERE merchant_id = $1 AND status NOT IN ('authorized', 'voided', 'chargeback')
       FOR UPDATE`,
     [merchantId],
   );

@@ -56,3 +56,19 @@ test("recordPayoutDisbursementEffect inserts one row with the given batch id and
   );
   assert.notEqual(result.rows[0]!.disbursement_reference, batchId);
 });
+
+// Regression: the dispatcher runs this once per delivery row (one per webhook
+// endpoint), again after a transport throw, and from every replica. Each call
+// used to add another payout instruction for the same batch.
+test("recordPayoutDisbursementEffect records at most one instruction per batch, even concurrently", async () => {
+  const batchId = await createPaidBatch(120_000);
+
+  await Promise.all([1, 2, 3, 4].map(() => recordPayoutDisbursementEffect(pool, batchId, 120_000)));
+  await recordPayoutDisbursementEffect(pool, batchId, 120_000);
+
+  const result = await pool.query<{ count: string }>(
+    `SELECT count(*)::text AS count FROM settlement_payout_disbursements WHERE settlement_batch_id = $1`,
+    [batchId],
+  );
+  assert.equal(result.rows[0]!.count, "1");
+});

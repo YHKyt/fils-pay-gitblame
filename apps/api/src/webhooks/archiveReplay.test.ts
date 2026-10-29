@@ -59,9 +59,12 @@ async function insertDelivery(
   opts: { eventType: string; createdAt: string },
 ): Promise<string> {
   const outbox = await pool.query<{ id: string }>(
-    `INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload)
-     VALUES ($1, 'transaction', $2, '{}'::jsonb) RETURNING id`,
-    [opts.eventType, randomUUID()],
+    // Inert outbox event_type (same convention as routes/admin.test.ts): the
+    // delivery row carries the real type. A real type with a '{}' payload
+    // was read by apps/reporting's consumer on a shared DB and crashed it.
+    `INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload, processed_at)
+     VALUES ('test.archive_fixture', 'transaction', $1, '{}'::jsonb, now()) RETURNING id`,
+    [randomUUID()],
   );
   const outboxEventId = outbox.rows[0]!.id;
 

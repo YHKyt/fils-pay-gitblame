@@ -14,6 +14,8 @@ import { issueApiKey } from "../apiKeys/issue.js";
 import { recordKycReview } from "../onboarding/review.js";
 import { authorizeTransaction } from "../payments/authorize.js";
 import { captureTransaction } from "../payments/capture.js";
+import { payPaymentLink } from "../paymentLinks/pay.js";
+import type { AcquirerSimulator } from "../acquirer/types.js";
 import { toFils } from "@filspay/money";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -201,7 +203,6 @@ test("pay charges exactly the link's own amount — the request body carries no 
   assert.equal(Number(txnRow.rows[0]!.captured_fils), 9_999);
 });
 
-// only without submittedAt. with a past submittedAt it pays — that's the terminal case (FH)
 test("expired link is rejected: read reports 'expired', pay is rejected 410", async () => {
   const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("expired");
   const link = await createLink(rawKey, merchantId, {
@@ -217,6 +218,52 @@ test("expired link is rejected: read reports 'expired', pay is rejected 410", as
   const payRes = await pay(link.token, APPROVED_CARD);
   assert.equal(payRes.statusCode, 410, payRes.body);
   assert.equal(payRes.json().error, "payment_link_expired");
+});
+
+// Regression: the server trusted the client's submittedAt for the expiry check.
+test("expired link cannot be paid by sending a past submittedAt", async () => {
+  const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("expired-backdated");
+  const link = await createLink(rawKey, merchantId, {});
+  await pool.query(`UPDATE payment_links SET expires_at = now() - interval '1 minute' WHERE token = $1`, [link.token]);
+
+  const payRes = await app.inject({
+    method: "POST",
+    url: `/v1/payment-links/${link.token}/pay`,
+    headers: { "idempotency-key": randomUUID() },
+    payload: { card: APPROVED_CARD, submittedAt: new Date(Date.now() - 86_400_000).toISOString() },
+  });
+  assert.equal(payRes.statusCode, 410, payRes.body);
+  assert.equal(payRes.json().error, "payment_link_expired");
+});
+
+// Regression: a reservation was not owned. If authorize outlived the
+// reservation timeout, a second payer re-claimed the link and BOTH captured.
+test("a payer whose reservation was taken over does not capture: its authorization is voided", async () => {
+  const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("lease-lost");
+  const link = await createLink(rawKey, merchantId, { amountFils: 2_000 });
+  // Simulate a slow first attempt by having a competing claim land while it
+  // authorizes: an acquirer whose authorize steals the lease first.
+  const stealing: AcquirerSimulator = {
+    async authorize(req) {
+      await pool.query(`UPDATE payment_links SET reserved_at = now() + interval '1 second' WHERE token = $1`, [link.token]);
+      return app.acquirer.authorize(req);
+    },
+    capture: (req) => app.acquirer.capture(req),
+    refund: (req) => app.acquirer.refund(req),
+  };
+  const result = await payPaymentLink(pool, stealing, { paymentLinkReservationTimeoutSeconds: 60 }, {
+    token: link.token,
+    card: APPROVED_CARD,
+    idempotencyKey: randomUUID(),
+  });
+  assert.equal(result.statusCode, 409, JSON.stringify(result.body));
+  const txns = await pool.query<{ status: string; captured_fils: string }>(
+    `SELECT status, captured_fils FROM transactions WHERE merchant_id = $1`,
+    [merchantId],
+  );
+  assert.equal(txns.rows.length, 1);
+  assert.equal(txns.rows[0]!.status, "voided");
+  assert.equal(Number(txns.rows[0]!.captured_fils), 0);
 });
 
 test("canceled link is rejected via both read and pay", async () => {
@@ -358,3 +405,20 @@ test(
     assert.equal(finalLink.rows[0]!.transaction_id, txnId);
   },
 );
+
+// Regression (IDOR): merchant A, on its own path, must not cancel merchant B's link by id.
+test("cancel: another merchant's link id is a 404 and the link stays active", async () => {
+  const victim = await createApprovedMerchantWithApiKey("cancel-idor-victim");
+  const attacker = await createApprovedMerchantWithApiKey("cancel-idor-attacker");
+  const link = await createLink(victim.rawKey, victim.merchantId, {});
+
+  const res = await app.inject({
+    method: "DELETE",
+    url: `/v1/merchants/${attacker.merchantId}/payment-links/${link.id}`,
+    headers: authHeader(attacker.rawKey),
+  });
+  assert.equal(res.statusCode, 404, res.body);
+
+  const readRes = await getPublicLink(link.token);
+  assert.equal(readRes.json().status, "active");
+});

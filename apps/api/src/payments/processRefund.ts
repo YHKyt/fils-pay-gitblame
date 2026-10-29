@@ -70,11 +70,16 @@ export async function processRefund(
       };
     }
 
+    // Scoped to the caller's merchant (another merchant's id is just "not
+    // found"), and row-locked so two concurrent refunds with different
+    // idempotency keys validate one after the other, never against the same
+    // refunded_fils.
     const txnResult = await client.query<RefundTransactionRow>(
       `SELECT id, merchant_id, status, amount_fils, captured_fils, refunded_fils, acquirer_reference
          FROM transactions
-        WHERE id = $1`,
-      [input.transactionId],
+        WHERE id = $1 AND merchant_id = $2
+          FOR UPDATE`,
+      [input.transactionId, input.merchantId],
     );
     const txn = txnResult.rows[0];
     if (!txn) {
@@ -87,7 +92,9 @@ export async function processRefund(
     const capturedFils = toFils(Number(txn.captured_fils));
     const refundedFils = toFils(Number(txn.refunded_fils));
 
-    const refundableFils = subtractFils(amountAuthorized, refundedFils);
+    // Only money that was actually captured can go back — never the
+    // uncaptured authorization headroom.
+    const refundableFils = subtractFils(capturedFils, refundedFils);
 
     const validation = validateRefundRequest(
       {
@@ -106,22 +113,15 @@ export async function processRefund(
       return { kind: "settled" as const, result: { statusCode, body: validation } };
     }
 
-    // The fee this transaction was actually charged at capture, read from
-    // the ledger rather than recomputed from the merchant's current
-    // mdr_bps, so a rate change after capture can never retroactively alter
-    // what a refund reverses.
-    const feeResult = await client.query<{ fee_fils: string }>(
-      `SELECT COALESCE(SUM(amount_fils), 0)::text AS fee_fils
-         FROM ledger_entries
-        WHERE transaction_id = $1
-          AND account_id = 'platform_fee_revenue'
-          AND direction = 'credit'`,
-      [txn.id],
-    );
-    const feeRow = feeResult.rows[0];
-    if (!feeRow) {
-      throw new Error("processRefund: fee aggregate returned no row");
-    }
+    // Reserve the amount before the lock is released and the acquirer is
+    // called: a concurrent refund now sees it as already refunded. Released
+    // again in step 3 if the acquirer declines or errors. A crash in between
+    // leaves the key in_progress (never retried), so the reservation errs on
+    // the side of refunding less, never twice.
+    await client.query(`UPDATE transactions SET refunded_fils = refunded_fils + $2 WHERE id = $1`, [
+      txn.id,
+      validation.amountFils,
+    ]);
 
     return {
       kind: "proceed" as const,
@@ -132,8 +132,6 @@ export async function processRefund(
       acquirerReference: txn.acquirer_reference,
       amountAuthorized,
       capturedFils,
-      refundedFils,
-      feeChargedFils: toFils(Number(feeRow.fee_fils)),
       requestedAmount: validation.amountFils,
     };
   });
@@ -151,6 +149,13 @@ export async function processRefund(
 
   // 3 journal
   return withTransaction(pool, async (client) => {
+    if (acquirerResult.outcome !== "approved") {
+      // Release the step-1 reservation.
+      await client.query(`UPDATE transactions SET refunded_fils = refunded_fils - $2 WHERE id = $1`, [
+        prepared.transactionId,
+        prepared.requestedAmount,
+      ]);
+    }
     if (acquirerResult.outcome === "declined") {
       const body = { error: "refund_declined" };
       await completeIdempotencyKey(client, prepared.claimId, { statusCode: 402, body });
@@ -162,17 +167,48 @@ export async function processRefund(
       return { statusCode: 502, body };
     }
 
-    const newRefundedTotal = addFils(prepared.refundedFils, prepared.requestedAmount);
+    // Re-read under the row lock: refunded_fils already includes this
+    // refund's reservation (and any other one still in flight).
+    const locked = await client.query<{ refunded_fils: string }>(
+      `SELECT refunded_fils FROM transactions WHERE id = $1 FOR UPDATE`,
+      [prepared.transactionId],
+    );
+    const newRefundedTotal = toFils(Number(locked.rows[0]!.refunded_fils));
     const newStatus = nextStatusAfterRefund({
       amountFils: prepared.amountAuthorized,
       capturedFils: prepared.capturedFils,
       refundedTotalFils: newRefundedTotal,
     });
-    const feeReversedFils = calculateRefundFee(
-      prepared.capturedFils,
-      prepared.feeChargedFils,
-      prepared.requestedAmount,
+
+    // The fee this transaction was actually charged, read from the ledger
+    // rather than recomputed from the current mdr_bps: MDR credits net of
+    // capture-time debits (the negotiated discount adjustment), excluding
+    // earlier refund reversals. The reversal is the pro-rata share of the
+    // cumulative refunded amount minus what earlier refunds already
+    // reversed, so partial refunds sum to exactly the fee, with no rounding
+    // drift across them.
+    const feeResult = await client.query<{ fee_fils: string; reversed_fils: string; prior_refunded_fils: string }>(
+      `SELECT
+         (SELECT COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END), 0)
+            FROM ledger_entries
+           WHERE transaction_id = $1
+             AND account_id = 'platform_fee_revenue'
+             AND description NOT LIKE 'refund:%')::text AS fee_fils,
+         (SELECT COALESCE(SUM(fee_reversed_fils), 0) FROM refunds
+           WHERE transaction_id = $1 AND status = 'succeeded')::text AS reversed_fils,
+         (SELECT COALESCE(SUM(amount_fils), 0) FROM refunds
+           WHERE transaction_id = $1 AND status = 'succeeded')::text AS prior_refunded_fils`,
+      [prepared.transactionId],
     );
+    const feeRow = feeResult.rows[0]!;
+    const netFeeFils = toFils(Math.max(0, Number(feeRow.fee_fils)));
+    const cumulativeShare = calculateRefundFee(
+      prepared.capturedFils,
+      netFeeFils,
+      addFils(toFils(Number(feeRow.prior_refunded_fils)), prepared.requestedAmount),
+    );
+    const owed = subtractFils(cumulativeShare, toFils(Number(feeRow.reversed_fils)));
+    const feeReversedFils = compareFils(owed, ZERO_FILS) > 0 ? owed : ZERO_FILS;
 
     const refundResult = await client.query<{ id: string; occurred_at: Date }>(
       `INSERT INTO refunds
@@ -200,11 +236,10 @@ export async function processRefund(
       throw new Error("processRefund: insert into refunds returned no row");
     }
 
-    await client.query(`UPDATE transactions SET refunded_fils = $2, status = $3 WHERE id = $1`, [
-      prepared.transactionId,
-      newRefundedTotal,
-      newStatus,
-    ]);
+    // refunded_fils was already moved by the reservation; only the derived
+    // status changes here. Writing an absolute total computed from a stale
+    // read is what used to let two concurrent refunds overwrite each other.
+    await client.query(`UPDATE transactions SET status = $2 WHERE id = $1`, [prepared.transactionId, newStatus]);
 
     // Double-entry reversal, mirroring capture's legs with the directions
     // swapped. ledger_entries has CHECK (amount_fils > 0), so a reversal

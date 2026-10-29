@@ -39,7 +39,7 @@ following them reintroduces or hides the bugs below:
 
 ## Verification
 
-- Fresh database: `npm run migrate` applies all 68 migrations and
+- Fresh database: `npm run migrate` applies all 70 migrations and
   `npm run seed` passes its own assertions (it did not before — see
   "Boot" in the money write-up).
 - `cd apps/settlement && go test ./...` passes against a real, migrated

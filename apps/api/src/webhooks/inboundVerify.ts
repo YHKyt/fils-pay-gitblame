@@ -1,70 +1,47 @@
-import { createHmac } from "node:crypto";
+import { verifySignature, type VerifySignatureFailureReason } from "./sign.js";
 
-/** Verifies the signature on an inbound acquirer callback. */
-
-interface ParsedAcquirerSignatureHeader {
-  timestamp: number;
-  signature: string;
-}
-
-function parseAcquirerSignatureHeader(header: string): ParsedAcquirerSignatureHeader | null {
-  let timestampStr: string | null = null;
-  let signature: string | null = null;
-
-  for (const part of header.split(",")) {
-    const eqIndex = part.indexOf("=");
-    if (eqIndex === -1) continue;
-    const key = part.slice(0, eqIndex).trim();
-    const value = part.slice(eqIndex + 1).trim();
-    if (key === "t") timestampStr = value;
-    else if (key === "v1") signature = value;
-  }
-
-  if (!timestampStr || !signature) return null;
-  if (!/^\d+$/.test(timestampStr)) return null;
-
-  const timestamp = Number.parseInt(timestampStr, 10);
-  if (!Number.isFinite(timestamp)) return null;
-
-  return { timestamp, signature };
-}
-
-/** There is no timestamp reason: freshness is not checked for inbound callbacks. */
-export type VerifyAcquirerCallbackFailureReason = "malformed_header" | "signature_mismatch";
+/**
+ * Verifies the signature on an inbound acquirer callback. Same
+ * `t=<unix seconds>,v1=<hex hmac>` scheme as our outbound webhooks
+ * (webhooks/sign.ts), so it reuses that verifier:
+ *
+ * - over the RAW request bytes, not a re-serialization of the parsed body
+ *   (JSON.stringify of a parsed object is not guaranteed to reproduce what
+ *   the acquirer signed);
+ * - constant-time compare (the old Buffer.compare was not);
+ * - freshness window, so a captured callback can't be replayed later;
+ * - several secrets accepted during a key rotation (current + previous).
+ *
+ * A missing header is a failure unless signatures are explicitly not
+ * required — it used to be accepted by default, so anyone could post a
+ * forged fraud verdict.
+ */
+export type VerifyAcquirerCallbackFailureReason = VerifySignatureFailureReason | "missing_signature";
 
 export interface VerifyAcquirerCallbackResult {
   valid: boolean;
   reason?: VerifyAcquirerCallbackFailureReason;
 }
 
-function constantTimeEquals(a: string, b: string): boolean {
-  return Buffer.from(a).length === Buffer.from(b).length &&
-    Buffer.compare(Buffer.from(a), Buffer.from(b)) === 0;
+/** `ACQUIRER_CALLBACK_SIGNING_SECRET` may hold "current,previous" during a rotation. */
+export function parseSecretList(value: string): string[] {
+  return value
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s !== "");
 }
 
-/** Verifies the acquirer callback signature when present and required. */
 export function verifyAcquirerCallbackSignature(
-  payload: unknown,
+  rawBody: string,
   header: string | undefined,
-  secret: string,
-  requireSignature = false,
+  secrets: string | readonly string[],
+  requireSignature = true,
+  options?: { toleranceSeconds?: number; now?: number },
 ): VerifyAcquirerCallbackResult {
   if (!header) {
-    return requireSignature
-      ? { valid: false, reason: "malformed_header" }
-      : { valid: true };
+    return requireSignature ? { valid: false, reason: "missing_signature" } : { valid: true };
   }
-
-  const parsed = parseAcquirerSignatureHeader(header);
-  if (!parsed) return { valid: false, reason: "malformed_header" };
-
-  const expected = createHmac("sha256", secret)
-    .update(`${parsed.timestamp}.${JSON.stringify(payload)}`)
-    .digest("hex");
-
-  if (!constantTimeEquals(expected, parsed.signature)) {
-    return { valid: false, reason: "signature_mismatch" };
-  }
-
-  return { valid: true };
+  const list = typeof secrets === "string" ? parseSecretList(secrets) : secrets;
+  if (list.length === 0) return { valid: false, reason: "signature_mismatch" };
+  return verifySignature(rawBody, header, list, options);
 }

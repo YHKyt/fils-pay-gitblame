@@ -118,3 +118,11 @@ test("lookupSession returns null for an expired session", async () => {
 
   assert.equal(await lookupSession(pool, rawToken), null, "expires_at in the past must exclude the row");
 });
+
+// Regression: live_sessions does not filter on `authenticated`, so before the
+// fix a pending (password-only, pre-OTP) cookie authenticated every route.
+test("lookupSession returns null for a pending (pre-OTP) session", async () => {
+  const userId = await createMerchantUser("pending");
+  const token = await insertSession({ merchantUserId: userId, authenticated: false, expiresAt: hoursFromNow(1) });
+  assert.equal(await lookupSession(pool, token), null);
+});
