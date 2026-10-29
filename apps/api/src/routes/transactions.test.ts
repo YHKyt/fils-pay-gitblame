@@ -160,6 +160,37 @@ test("authorize -> capture (partial) -> capture (remainder) transitions status c
   assert.equal(holdEnd.rows[0]!.status, "released");
 });
 
+test("capturing an authorization whose hold has expired is a 409 authorization_expired, with no ledger write", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("expired-auth");
+  const txn = await authorize(rawKey, 10_000);
+  // An 8-day-old authorization: the 7-day hold window has passed.
+  await pool.query(`UPDATE transactions SET created_at = now() - interval '8 days' WHERE id = $1`, [txn.id]);
+  await pool.query(`UPDATE holds SET created_at = now() - interval '8 days', expires_at = now() - interval '1 day' WHERE transaction_id = $1`, [txn.id]);
+
+  const res = await capture(rawKey, txn.id);
+  assert.equal(res.statusCode, 409, res.body);
+  assert.equal(res.json().error, "authorization_expired");
+
+  const ledger = await pool.query(`SELECT 1 FROM ledger_entries WHERE transaction_id = $1`, [txn.id]);
+  assert.equal(ledger.rows.length, 0);
+  const row = await pool.query<{ status: string; captured_fils: string }>(
+    `SELECT status, captured_fils FROM transactions WHERE id = $1`,
+    [txn.id],
+  );
+  assert.equal(row.rows[0]!.status, "authorized");
+  assert.equal(Number(row.rows[0]!.captured_fils), 0);
+});
+
+test("a hold already marked 'expired' by the janitor also blocks capture", async () => {
+  const { rawKey } = await createApprovedMerchantWithApiKey("expired-hold-status");
+  const txn = await authorize(rawKey, 10_000);
+  await pool.query(`UPDATE holds SET status = 'expired', expires_at = now() - interval '1 minute' WHERE transaction_id = $1`, [txn.id]);
+
+  const res = await capture(rawKey, txn.id);
+  assert.equal(res.statusCode, 409, res.body);
+  assert.equal(res.json().error, "authorization_expired");
+});
+
 test("authorize -> void happy path releases the hold and transitions to voided", async () => {
   const { rawKey } = await createApprovedMerchantWithApiKey("void-happy");
   const txn = await authorize(rawKey, 5_000);

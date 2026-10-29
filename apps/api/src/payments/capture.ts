@@ -141,6 +141,27 @@ export async function captureTransaction(
       return { statusCode: 409, body };
     }
 
+    // The authorization lapses when its hold does: authorize.ts sets
+    // holds.expires_at (now() + 7 days, the scheme's CNP window) and
+    // expire_holds.ts flips it to 'expired' after that. A transaction with
+    // no hold row (deleted by the old FP-219 janitor) falls back to the
+    // same window from its own created_at.
+    const expiryResult = await client.query<{ expired: boolean }>(
+      `SELECT CASE
+                WHEN EXISTS (SELECT 1 FROM holds WHERE transaction_id = $1)
+                  THEN EXISTS (SELECT 1 FROM holds
+                                WHERE transaction_id = $1
+                                  AND (status = 'expired' OR expires_at <= now()))
+                ELSE (SELECT created_at + interval '7 days' <= now() FROM transactions WHERE id = $1)
+              END AS expired`,
+      [txn.id],
+    );
+    if (expiryResult.rows[0]?.expired) {
+      const body = { error: "authorization_expired" };
+      await completeIdempotencyKey(client, claim.row.id, { statusCode: 409, body });
+      return { statusCode: 409, body };
+    }
+
     // — YA: authorised vs captured. finance says "amount" and means both.
     const amountAuthorized = toFils(Number(txn.amount_fils));
     const capturedSoFar = toFils(Number(txn.captured_fils));
