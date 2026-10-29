@@ -14,14 +14,18 @@ export interface ApiKeyContext {
  *  endpoints. */
 // revoke_after (0056) is a scheduled revocation; it is enforced here at
 // read time rather than trusted to a sweep job (none exists), so a key is
-// dead the moment its revoke_after passes.
+// dead the moment its revoke_after passes. Keys of a suspended/closed
+// merchant are refused, matching login and lookupSession.
 export async function verifyApiKey(pool: Pool, rawKey: string): Promise<ApiKeyContext | null> {
   const keyHash = sha256Hex(rawKey);
   const result = await pool.query<{ id: string; merchant_id: string }>(
-    `SELECT id, merchant_id FROM api_keys
-      WHERE key_hash = $1
-        AND revoked_at IS NULL
-        AND (revoke_after IS NULL OR revoke_after > now())`,
+    `SELECT k.id, k.merchant_id
+       FROM api_keys k
+       JOIN merchants m ON m.id = k.merchant_id
+      WHERE k.key_hash = $1
+        AND k.revoked_at IS NULL
+        AND (k.revoke_after IS NULL OR k.revoke_after > now())
+        AND m.status = 'active'`,
     [keyHash],
   );
   const row = result.rows[0];
