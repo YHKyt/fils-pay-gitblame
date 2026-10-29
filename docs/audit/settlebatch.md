@@ -51,3 +51,15 @@ Invariant used throughout: once a business day is closed and paid, the merchant'
 - **Test:** `internal/settlement/batch_test_mode_test.go`:
   - **Capture:** test-mode capture on D, go live, `RunDailyBatch(D)`. Gross, fee and net are 0, no scheme line, no payout legs, the event stays unclaimed.
   - **Refund:** test-mode capture and 40,000 refund on day 1, go live, 10,000 live capture on day 3. Day 3 nets exactly 9,750, the sandbox refund stays unclaimed, and the only scheme line is the live transaction.
+
+---
+
+## An explicit re-run paid out a suspended merchant — Medium
+**Where:** `apps/settlement/internal/settlement/batch.go` (`CloseBatch` returned "already closed" before its merchant eligibility check; `RunDailyBatch` pays whatever batch `CloseBatch` returns; `PayoutBatch` never reads the merchant)
+**Evidence:** close a 100,000 fils batch without paying it (a failed payout, or a run that died between the two steps), suspend the merchant, then `RunDailyBatch(D, --merchant)`. On the old code the batch went to `paid` with a 97,500 payout leg (`TestRunDailyBatch_ExplicitRerunDoesNotPaySuspendedMerchant`: `batch status = "paid", want closed`, `payout legs = 97500 fils, want none`).
+
+- **What:** the merchant check (`status = 'active' AND test_mode = false`) ran only for an open batch. For an already-closed batch `CloseBatch` returned early, and `RunDailyBatch` went straight on to `PayoutBatch` (or `PayoutSplitBatch`), neither of which looks at the merchant.
+- **Why:** the early return was written for idempotency, and the eligibility check was placed after it on the assumption that the default scan had already filtered merchants. An explicit `--merchant` (CLI `run-batch` or the internal API's run endpoint) skips that scan.
+- **Breaks:** money leaves for a merchant that compliance or risk has suspended, which is exactly what suspension is for. The same applies to a merchant switched back to test mode.
+- **Fix:** move the eligibility query above the already-closed return, inside the same locked transaction. An ineligible merchant now gets `ErrMerchantNotEligible`, which `RunDailyBatch` already skips, so neither payout path runs. The batch stays `closed` and is paid by the first re-run after the merchant is reinstated. This is the smallest change: no new code, one block moved, and it covers the split-payout path too. Side effect: re-running an already-paid day for a suspended merchant no longer lists it in the report (it was a no-op anyway).
+- **Test:** `internal/settlement/batch_suspended_test.go`. Close, suspend, explicit re-run: the merchant is not in the report, the batch stays `closed`, there are no payout legs and the cache still owes 97,500. After reinstatement the same re-run pays 97,500 exactly once and `merchant_payable` is 0.
