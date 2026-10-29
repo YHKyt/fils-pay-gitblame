@@ -2,18 +2,32 @@ package ledger
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/filspay/settlement/internal/money"
 )
 
-// RefreshBalanceCache recomputes each merchant's cached balance from the
-// settled position and overwrites merchant_balances in one transaction.
+// RefreshBalanceCache recomputes every merchant's cached balance from the
+// ledger and overwrites merchant_balances in one transaction. It backs the
+// console's "Rebuild cached balances" button.
+//
+// merchant_balances.cached_payable_fils caches the merchant_payable ledger
+// account (captures, minus fees, refunds and payouts, plus adjustments —
+// settled or not). The button used to rebuild it from merchant_payable_position,
+// a view summing scheme_export_lines: the truncated card-scheme gross of
+// settled batches only, a different quantity entirely. That is how Alpha
+// Retail's balance went from 135K to 7K on a click while the CLI (which walks
+// the ledger) gave the right figure (FP-203). ARCHITECTURE.md says the button
+// "triggers the same refresh" as `settlement rebuild-balances`; it now reads
+// the same source as RebuildAllBalances.
+//
+// ADR-0004 moved the button off the ledger because the CLI's per-merchant
+// walk was too slow for a 30 s request. The fix keeps the source correct and
+// stays fast: one set-based aggregate over ledger_entries instead of one query
+// per merchant.
 func RefreshBalanceCache(ctx context.Context, db *pgxpool.Pool) (map[uuid.UUID]RebuildDiff, error) {
 	tx, err := db.Begin(ctx)
 	if err != nil {
@@ -22,69 +36,56 @@ func RefreshBalanceCache(ctx context.Context, db *pgxpool.Pool) (map[uuid.UUID]R
 	defer tx.Rollback(ctx) //nolint:errcheck
 
 	rows, err := tx.Query(ctx, `
-		SELECT DISTINCT merchant_id FROM (
-			SELECT merchant_id FROM merchant_payable_position
+		WITH payable AS (
+			SELECT merchant_id,
+			       SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END) AS fils
+			  FROM ledger_entries
+			 WHERE account_id = 'merchant_payable'
+			 GROUP BY merchant_id
+		), merchants AS (
+			SELECT merchant_id FROM payable
 			UNION
 			SELECT merchant_id FROM merchant_balances
-		) merchants
+		)
+		SELECT m.merchant_id,
+		       COALESCE(mb.cached_payable_fils, 0) AS cached_before,
+		       COALESCE(p.fils, 0)                 AS rebuilt
+		  FROM merchants m
+		  LEFT JOIN merchant_balances mb ON mb.merchant_id = m.merchant_id
+		  LEFT JOIN payable p            ON p.merchant_id  = m.merchant_id
 	`)
 	if err != nil {
-		return nil, fmt.Errorf("ledger: RefreshBalanceCache: select merchant ids: %w", err)
+		return nil, fmt.Errorf("ledger: RefreshBalanceCache: aggregate ledger: %w", err)
 	}
 
-	var merchantIDs []uuid.UUID
+	diffs := make(map[uuid.UUID]RebuildDiff)
 	for rows.Next() {
 		var id uuid.UUID
-		if err := rows.Scan(&id); err != nil {
+		var before, rebuilt int64
+		if err := rows.Scan(&id, &before, &rebuilt); err != nil {
 			rows.Close()
-			return nil, fmt.Errorf("ledger: RefreshBalanceCache: scan merchant id: %w", err)
+			return nil, fmt.Errorf("ledger: RefreshBalanceCache: scan: %w", err)
 		}
-		merchantIDs = append(merchantIDs, id)
+		diffs[id] = RebuildDiff{MerchantID: id, CachedBefore: money.Fils(before), Rebuilt: money.Fils(rebuilt)}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("ledger: RefreshBalanceCache: iterate merchant ids: %w", err)
+		return nil, fmt.Errorf("ledger: RefreshBalanceCache: iterate: %w", err)
 	}
 	rows.Close()
 
-	diffs := make(map[uuid.UUID]RebuildDiff, len(merchantIDs))
-
-	for _, merchantID := range merchantIDs {
-		var cachedBefore int64
-		err := tx.QueryRow(ctx, `
-			SELECT COALESCE(cached_payable_fils, 0) FROM merchant_balances WHERE merchant_id = $1
-		`, merchantID).Scan(&cachedBefore)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("ledger: RefreshBalanceCache: read cached balance for %s: %w", merchantID, err)
-		}
-
-		var rebuilt int64
-		err = tx.QueryRow(ctx, `
-			SELECT COALESCE(payable_fils, 0) FROM merchant_payable_position WHERE merchant_id = $1
-		`, merchantID).Scan(&rebuilt)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("ledger: RefreshBalanceCache: recompute balance for %s: %w", merchantID, err)
-		}
-
-		_, err = tx.Exec(ctx, `
+	for id, d := range diffs {
+		if _, err := tx.Exec(ctx, `
 			INSERT INTO merchant_balances (merchant_id, cached_payable_fils, updated_at)
 			VALUES ($1, $2, now())
 			ON CONFLICT (merchant_id) DO UPDATE
 			  SET cached_payable_fils = $2, updated_at = now()
-		`, merchantID, rebuilt)
-		if err != nil {
-			return nil, fmt.Errorf("ledger: RefreshBalanceCache: write rebuilt balance for %s: %w", merchantID, err)
-		}
-
-		diffs[merchantID] = RebuildDiff{
-			MerchantID:   merchantID,
-			CachedBefore: money.Fils(cachedBefore),
-			Rebuilt:      money.Fils(rebuilt),
+		`, id, int64(d.Rebuilt)); err != nil {
+			return nil, fmt.Errorf("ledger: RefreshBalanceCache: write rebuilt balance for %s: %w", id, err)
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("ledger: RefreshBalanceCache: commit: %w", err)
 	}
-
 	return diffs, nil
 }

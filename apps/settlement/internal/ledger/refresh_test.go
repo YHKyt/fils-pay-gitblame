@@ -30,7 +30,35 @@ func insertClosedBatchWithLine(t *testing.T, pool *pgxpool.Pool, merchantID uuid
 		t.Fatalf("insertClosedBatchWithLine: insert export line: %v", err)
 	}
 
+	// A real close also credits the merchant's payable in the ledger, which is
+	// what the cache mirrors. (The helper used to write only the scheme line,
+	// matching the old, wrong rebuild source — see RefreshBalanceCache.)
+	postLedgerLeg(t, pool, merchantID, "credit", amountFils)
+
 	return batchID
+}
+
+// Regression for FP-203: the button must agree with the ledger walk the CLI
+// does, even when the ledger holds activity the scheme export does not (here a
+// refund debit that never appears in scheme_export_lines).
+func TestRefreshBalanceCache_MatchesLedgerNotSchemeExport(t *testing.T) {
+	pool := mustPool(t)
+	merchantID := insertActiveMerchant(t, pool)
+
+	insertClosedBatchWithLine(t, pool, merchantID, "2026-06-20", 135_000, 1)
+	postLedgerLeg(t, pool, merchantID, "debit", 7_000) // e.g. a refund
+
+	cli, err := RebuildMerchantBalance(context.Background(), pool, merchantID)
+	if err != nil {
+		t.Fatalf("RebuildMerchantBalance: %v", err)
+	}
+	diffs, err := RefreshBalanceCache(context.Background(), pool)
+	if err != nil {
+		t.Fatalf("RefreshBalanceCache: %v", err)
+	}
+	if got := diffs[merchantID].Rebuilt; got != cli || int64(got) != 128_000 {
+		t.Fatalf("button rebuilt %d, CLI %d, want both 128000", got, cli)
+	}
 }
 
 func TestRefreshBalanceCache_OverwritesDriftedCache(t *testing.T) {
