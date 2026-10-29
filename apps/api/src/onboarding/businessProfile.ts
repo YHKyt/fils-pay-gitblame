@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import { NotFoundError } from "../lib/errors.js";
+import { BadRequestError, NotFoundError } from "../lib/errors.js";
 import { todayStamp } from "../lib/dateUtil.js";
 
 export interface BusinessProfile {
@@ -101,6 +101,17 @@ export async function updateBusinessProfile(
   merchantId: string,
   patch: BusinessProfilePatch,
 ): Promise<BusinessProfile> {
+  // Only keys in PATCHABLE_COLUMNS may reach the SET clause: any other key
+  // (a typo, merchantId, updatedAt, "toString") used to interpolate
+  // `undefined` or garbage as a column name -> invalid SQL -> 500.
+  if (patch === null || typeof patch !== "object" || Array.isArray(patch)) {
+    throw new BadRequestError("invalid_request", "body must be a JSON object");
+  }
+  const unknownKeys = Object.keys(patch).filter((key) => !Object.hasOwn(PATCHABLE_COLUMNS, key));
+  if (unknownKeys.length > 0) {
+    throw new BadRequestError("invalid_request", `unknown business profile field(s): ${unknownKeys.join(", ")}`);
+  }
+
   const entries = Object.entries(patch).filter(([, value]) => value !== undefined) as Array<
     [keyof BusinessProfilePatch, string | null]
   >;
