@@ -1,11 +1,19 @@
-import { toFils, type Fils } from "@filspay/money";
+import { parseBhdToFils, type Fils } from "@filspay/money";
 import { BadRequestError } from "../lib/errors.js";
-import { parseDecimalMinor } from "../lib/decimal.js";
 
-/** Parses one CSV row's amount column into fils. */
+/**
+ * Parses one CSV row's amount column into fils.
+ *
+ * BHD is a 3-decimal currency (1 BD = 1000 fils), so the amount must be read
+ * with the canonical `parseBhdToFils` (string → integer fils, 3 decimals).
+ * The previous code used `parseDecimalMinor(raw)`, which defaults to 2
+ * decimals ("cents"): "4.75" became 475 fils instead of 4750 — every imported
+ * amount was 10x too small. Signed deltas are supported (parseBhdToFils keeps
+ * a leading '-').
+ */
 export function parseAdjustmentAmountFils(raw: string): Fils {
   try {
-    return toFils(parseDecimalMinor(raw), { allowNegative: true });
+    return parseBhdToFils(raw);
   } catch {
     throw new BadRequestError("invalid_amount", `could not parse amount "${raw}"`);
   }
