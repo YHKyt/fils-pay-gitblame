@@ -246,3 +246,14 @@ Smallest fix each, one commit each, with a regression test confirmed to fail bef
 - `streamTransactionsExportCsv` (unused) paginates on `occurred_at >` alone.
 - Admin replay-batch accepts `statuses: ["succeeded"]` although a comment says it is rejected.
 - ADMIN.md says "adjust balance" is journaled; per ADR-0004/0006 it is cache-only. The code is right and the doc needs fixing.
+## S7. Merchant OTP: resend reset the guess budget; login cookie fixation; 10-minute logouts — High
+**Where:** `apps/api/src/routes/auth.ts`, `apps/api/src/auth/sessions.ts`
+- **What:**
+  - `/otp/resend` created the new challenge with `attempt_count = 0` (its doc comment promised it inherited the count), so guess, resend, guess again never reached the lockout.
+  - OTP verify promoted the *pre-OTP* cookie to the logged-in session (fixation).
+  - Verify never re-set the cookie, which kept the 10-minute pending `maxAge`, so a valid 12-hour session dropped out of the browser after 10 minutes.
+- **Fix:** carry `attempt_count` over on resend. Promotion rotates the token, and verify sets the new cookie with `maxAge = sessionTtlHours`.
+- **Test:** `app.test.ts`: resend keeps the budget and the lockout applies; verify sets `Max-Age` to the session lifetime; the login helper asserts the pre-OTP cookie is dead after verify. All fail on the old code.
+
+## S8. CSRF / CORS review — no change needed
+No CORS plugin is registered, so cross-origin scripts cannot read responses. Session cookies are `SameSite=Lax`, so cross-site POST, PUT and DELETE requests carry no cookie. No GET route mutates state (checked every `app.get` handler). JSON bodies are only parsed for `application/json`, which a cross-site form cannot send without a preflight. The residual risk is a hostile *same-site* origin (a sibling subdomain): if one is ever hosted, add an `Origin` check on cookie-authenticated writes.

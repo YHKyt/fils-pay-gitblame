@@ -47,18 +47,24 @@ export async function createPendingSession(
   return { id: row.id, rawToken, expiresAt };
 }
 
-/** Promotes a pending session to authenticated. */
+/**
+ * Promotes a pending session to authenticated and rotates its token: the
+ * pre-OTP cookie (handed out after the password step) must not become the
+ * logged-in session, or anyone who obtained it beforehand (fixation) is
+ * logged in once the real user enters the OTP. Returns the new raw token.
+ */
 export async function promoteSession(
   client: PoolClient,
   sessionId: string,
   sessionTtlHours: number,
-): Promise<Date> {
+): Promise<{ expiresAt: Date; rawToken: string }> {
   const expiresAt = new Date(Date.now() + sessionTtlHours * 3_600_000);
+  const rawToken = randomToken(32);
   await client.query(
-    `UPDATE sessions SET authenticated = true, authenticated_at = now(), expires_at = $2 WHERE id = $1`,
-    [sessionId, expiresAt],
+    `UPDATE sessions SET authenticated = true, authenticated_at = now(), expires_at = $2, token_hash = $3 WHERE id = $1`,
+    [sessionId, expiresAt, sha256Hex(rawToken)],
   );
-  return expiresAt;
+  return { expiresAt, rawToken };
 }
 
 /** Takes a Pool or a PoolClient so logout can run outside a transaction. */

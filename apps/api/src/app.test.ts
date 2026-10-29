@@ -107,8 +107,13 @@ async function signupLoginAndVerify(emailPrefix: string) {
     payload: { code: loginBody.devOtpCode },
   });
   assert.equal(verifyRes.statusCode, 200, verifyRes.body);
+  // Verify rotates the session token; the login cookie is dead from here on.
+  const authedCookie = parseCookie(verifyRes.headers["set-cookie"]);
+  assert.notEqual(authedCookie, cookie, "otp verify must issue a new session token (no fixation)");
+  const stale = await app.inject({ method: "GET", url: "/v1/auth/me", headers: { cookie } });
+  assert.equal(stale.statusCode, 401, "the pre-OTP cookie must not authenticate after verify");
 
-  return { merchantId, email, password, cookie };
+  return { merchantId, email, password, cookie: authedCookie };
 }
 
 function buildMultipart(
@@ -321,4 +326,55 @@ test("API key issuance shows the raw key exactly once; a subsequent list never e
   assert.equal(serialized.includes(issueBody.rawKey), false, "raw key must never appear in the list response");
   assert.equal("rawKey" in (listBody[0] ?? {}), false);
   assert.equal("keyHash" in (listBody[0] ?? {}), false);
+});
+
+// Regression: /otp/resend issued a fresh challenge with attempt_count = 0, so
+// guess, resend, guess again... the 5-attempt lockout was never reached.
+test("otp resend carries the wrong-guess count over; the lockout still applies", async () => {
+  const password = "resend-budget-password-789";
+  const { merchantId, email } = await signup("resendbudget", password);
+  const loginRes = await app.inject({ method: "POST", url: "/v1/auth/login", payload: { merchantId, email, password } });
+  assert.equal(loginRes.statusCode, 200);
+  const cookie = parseCookie(loginRes.headers["set-cookie"]);
+  const wrong = (real: string) => (real === "000000" ? "111111" : "000000");
+
+  let realCode = (loginRes.json() as { devOtpCode: string }).devOtpCode;
+  for (let i = 0; i < config.otpMaxAttempts - 1; i++) {
+    const r = await app.inject({ method: "POST", url: "/v1/auth/otp/verify", headers: { cookie }, payload: { code: wrong(realCode) } });
+    assert.equal(r.statusCode, 401);
+  }
+
+  // Get past the 30s resend throttle, then resend.
+  await pool.query(
+    `UPDATE otp_challenges SET created_at = now() - interval '1 minute'
+      WHERE id = (SELECT otp_challenge_id FROM sessions WHERE token_hash = encode(sha256(convert_to($1, 'UTF8')), 'hex'))`,
+    [cookie.split("=")[1]],
+  );
+  const resend = await app.inject({ method: "POST", url: "/v1/auth/otp/resend", headers: { cookie } });
+  assert.equal(resend.statusCode, 200, resend.body);
+  realCode = (resend.json() as { devOtpCode: string }).devOtpCode;
+
+  // One attempt left in the budget: a wrong guess uses it; the next is locked out.
+  const last = await app.inject({ method: "POST", url: "/v1/auth/otp/verify", headers: { cookie }, payload: { code: wrong(realCode) } });
+  assert.equal(last.statusCode, 401);
+  const locked = await app.inject({ method: "POST", url: "/v1/auth/otp/verify", headers: { cookie }, payload: { code: realCode } });
+  assert.notEqual(locked.statusCode, 200, "the attempt budget must not reset on resend");
+});
+
+// Regression: verify never re-set the cookie, which kept the 10-minute
+// pending maxAge, so a valid 12h session dropped out after 10 minutes.
+test("otp verify sets a session cookie with the full session lifetime", async () => {
+  const password = "cookie-lifetime-password-321";
+  const { merchantId, email } = await signup("cookielife", password);
+  const loginRes = await app.inject({ method: "POST", url: "/v1/auth/login", payload: { merchantId, email, password } });
+  const cookie = parseCookie(loginRes.headers["set-cookie"]);
+  const verifyRes = await app.inject({
+    method: "POST",
+    url: "/v1/auth/otp/verify",
+    headers: { cookie },
+    payload: { code: (loginRes.json() as { devOtpCode: string }).devOtpCode },
+  });
+  assert.equal(verifyRes.statusCode, 200, verifyRes.body);
+  const raw = ([] as string[]).concat(verifyRes.headers["set-cookie"] ?? [])[0] ?? "";
+  assert.match(raw, new RegExp(`Max-Age=${config.sessionTtlHours * 3600}`));
 });

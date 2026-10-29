@@ -175,19 +175,28 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
       const merchantUserResult = await withTransaction(app.db, async (client) => {
         await client.query(`UPDATE otp_challenges SET consumed_at = now() WHERE id = $1`, [challenge.id]);
-        // promoteSession bumps expires_at to 12h server-side; the cookie maxAge doesn't matter because
-        // MK: admin verify re-sets the cookie after this, merchant verify doesnt. related to the 10 min logouts?
-        await promoteSession(client, pending.sessionId, app.config.sessionTtlHours);
+        const promoted = await promoteSession(client, pending.sessionId, app.config.sessionTtlHours);
         const result = await client.query<{ merchant_id: string; role: "owner" | "finance" | "support" }>(
           `SELECT merchant_id, role FROM merchant_users WHERE id = $1`,
           [pending.merchantUserId],
         );
-        return result.rows[0];
+        const row = result.rows[0];
+        return row ? { ...row, rawToken: promoted.rawToken } : undefined;
       });
       if (!merchantUserResult) {
         throw new Error("otp/verify: merchant_users row disappeared mid-transaction");
       }
 
+      // New token (rotated at promotion) with the full session lifetime. The
+      // login cookie carried the pending TTL (10 min) and was never re-set,
+      // so the browser dropped a valid 12h session after 10 minutes.
+      reply.setCookie(app.config.cookieName, merchantUserResult.rawToken, {
+        httpOnly: true,
+        path: "/",
+        sameSite: "lax",
+        secure: app.config.cookieSecure,
+        maxAge: app.config.sessionTtlHours * 3600,
+      });
       reply.code(200).send({
         authenticated: true,
         merchantId: merchantUserResult.merchant_id,
@@ -211,8 +220,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       throw new UnauthorizedError("no_pending_session");
     }
 
-    const existing = await app.db.query<{ id: string; created_at: Date }>(
-      `SELECT id, created_at FROM otp_challenges WHERE id = $1`,
+    const existing = await app.db.query<{ id: string; created_at: Date; attempt_count: number }>(
+      `SELECT id, created_at, attempt_count FROM otp_challenges WHERE id = $1`,
       [pending.otpChallengeId],
     );
     const existingChallenge = existing.rows[0];
@@ -232,6 +241,15 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         codeLength: app.config.otpCodeLength,
         maxAttempts: app.config.otpMaxAttempts,
       });
+      // Carry the guess count over (the doc comment above always promised
+      // this; the new row started at 0, so resend reset the budget and the
+      // lockout was never reached: guess 4, resend, guess 4 more, ...).
+      if (existingChallenge) {
+        await client.query(`UPDATE otp_challenges SET attempt_count = $2 WHERE id = $1`, [
+          challenge.id,
+          existingChallenge.attempt_count,
+        ]);
+      }
       await client.query(`UPDATE sessions SET otp_challenge_id = $1 WHERE id = $2`, [
         challenge.id,
         pending.sessionId,
