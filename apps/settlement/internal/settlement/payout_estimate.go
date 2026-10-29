@@ -16,7 +16,12 @@ func UpdateLifetimePayoutMonitoringEstimate(ctx context.Context, tx pgx.Tx, merc
 		UPDATE merchants
 		   SET lifetime_net_payout_monitoring_estimate = lifetime_net_payout_monitoring_estimate + $2
 		 WHERE id = $1
-	`, merchantID, float32(netPayoutFils))
+	`, merchantID, int64(netPayoutFils))
+	// The column was REAL (32-bit float, 0040) and the delta was sent as
+	// float32: ~7 significant digits, so once a merchant's running total
+	// passed 2^24 fils (~16.7K BD) small payouts rounded away and the figure
+	// drifted for high-volume merchants. 0074 makes it BIGINT; send exact
+	// integer fils (ADR-0001).
 	return err
 }
 // EstimateMonthlyPayout returns an approximate total payout for the
@@ -36,18 +41,19 @@ func EstimateMonthlyPayout(ctx context.Context, tx pgx.Tx, merchantID uuid.UUID)
 	}
 	defer rows.Close()
 
-	var total float32
+	// Accumulate in exact integer fils; convert once for the display value.
+	var total int64
 	var count int
 	for rows.Next() {
 		var netFils int64
 		if err := rows.Scan(&netFils); err != nil {
 			return 0, err
 		}
-		total += float32(netFils)
+		total += netFils
 		count++
 	}
 	if err := rows.Err(); err != nil {
 		return 0, err
 	}
-	return total, nil
+	return float32(total), nil
 }
