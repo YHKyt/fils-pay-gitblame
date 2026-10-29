@@ -144,11 +144,19 @@ async function applyBatchClosed(client: PoolClient, row: OutboxEventRow): Promis
       `SELECT captured_count FROM merchant_daily_volume WHERE merchant_id = $1 AND volume_date = $2`,
       [payload.merchantId, payload.batchDate],
     );
-    const rollup = rollupResult.rows[0] as { captured_count: number };
-    if (rollup.captured_count < groundTruthCount) {
+    // No rollup row at all is the most-lagging case, not an error: it happens
+    // whenever this batch_closed event is consumed before that day's capture
+    // events (consumption is by id, not commit order) or the captures were
+    // bucketed on another date. Reading rows[0].captured_count unguarded threw
+    // a TypeError, which rolled back the WHOLE consumer pass, so the watermark
+    // never advanced past this event and reporting stalled permanently — the
+    // monitoring check took down the consumer it was meant to watch.
+    const rollup = rollupResult.rows[0] as { captured_count: number | string } | undefined;
+    const rolledUp = Number(rollup?.captured_count ?? 0);
+    if (rolledUp < groundTruthCount) {
       console.warn(
         `reporting rollup lags ground truth for merchant ${payload.merchantId} on ${payload.batchDate}: ` +
-          `rollup=${rollup.captured_count} ground_truth=${groundTruthCount}`,
+          `rollup=${rolledUp} ground_truth=${groundTruthCount}`,
       );
     }
   }

@@ -141,3 +141,13 @@ Severity: **Critical** = money moved or recorded wrongly at scale ·
 - **Breaks:** test transactions enter real settlement batches, scheme files and payouts.
 - **Fix:** the recompute no longer touches `test_mode` (going live is a deliberate decision, not a repair side effect); `flagsUpdated` stays in the response, always empty, so clients are unaffected. The helper, whose only behaviour was this, is removed.
 - **Test:** `adminMerchantsRecompute.fix.test.ts` drives the real admin login + OTP and the route; it fails on the old code and passes on the fix.
+
+## M15. A reporting health check can wedge the reporting consumer permanently — Medium
+**Where:** `apps/reporting/src/consumer/applyEvent.ts`
+
+- **What:** applying a `settlement.batch_closed` event threw `Cannot read properties of undefined (reading 'captured_count')`.
+- **Why:** the batch-closed handler runs a "rollup parity" check and read `rows[0].captured_count` without checking that a `merchant_daily_volume` row exists. When a day has real captures but no rollup row yet — its capture events consumed later (consumption is by id, not commit order), or bucketed on the other side of midnight — the read throws. The consumer applies a pass all-or-nothing, so the whole pass rolls back and the watermark can never move past that event: reporting stalls for good, and the check that was meant to detect a stuck consumer is what sticks it.
+- **Fix:** treat a missing row as a rollup of 0 (the most-lagging case) and warn, as the check intends.
+- **Test:** `applyEvent.rollupGap.test.ts` — fails on the old code with exactly that TypeError, passes on the fix.
+
+> **Test isolation note.** Running every workspace's tests against **one shared database** (as `npm test` at the root does) makes four reporting tests fail even on unmodified code: API test fixtures insert `transaction.captured` / `transaction.voided` outbox rows with an empty `{}` payload, and the reporting consumer, which reads every outbox event after its cursor, then tries to apply them. Each suite passes on its own fresh, migrated database (reporting: 12/12).
