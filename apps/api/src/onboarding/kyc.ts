@@ -61,6 +61,9 @@ export async function recordKycDocument(
     throw new UnprocessableEntityError("document_must_be_pdf", "commercial_registration and bank_letter documents must be a PDF");
   }
 
+  // Before anything is written: rejects undecodable / oversized images (422).
+  const thumbnail = await generateKycThumbnail(input.buffer, detected);
+
   const sha256 = sha256Hex(input.buffer);
   const storageKey = join(input.merchantId, `${sha256}.${extensionFor(detected)}`);
   const fullPath = join(config.kycUploadDir, storageKey);
@@ -70,7 +73,6 @@ export async function recordKycDocument(
 
   const mimeType = mimeTypeFor(detected);
 
-  const thumbnail = await generateKycThumbnail(input.buffer, detected);
   let thumbnailStorageKey: string | null = null;
   if (thumbnail) {
     thumbnailStorageKey = join(input.merchantId, `${sha256}.thumb.jpg`);
