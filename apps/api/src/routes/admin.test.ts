@@ -624,6 +624,67 @@ test("bulk approve KYC only touches merchants currently under_review", async () 
   assert.deepEqual(freshAfter.rows[0], freshBefore.rows[0], "a merchant not under_review is untouched");
 });
 
+test("bulk approve KYC writes one merchant_kyc_reviews row per approved merchant, by the acting admin, and reports skipped ids", async () => {
+  const finance = await signedInAdmin("finance", "bulkkyc-trail");
+  const pendingA = await createMerchant("bulkkyc-trail-a");
+  const pendingB = await createMerchant("bulkkyc-trail-b");
+  const rejected = await createMerchant("bulkkyc-trail-rejected");
+  const unknownId = randomUUID();
+  await pool.query(`UPDATE merchants SET onboarding_status = 'under_review' WHERE id = ANY($1)`, [
+    [pendingA.merchantId, pendingB.merchantId],
+  ]);
+  await pool.query(`UPDATE merchants SET onboarding_status = 'rejected', kyc_passed = false WHERE id = $1`, [
+    rejected.merchantId,
+  ]);
+
+  const res = await app.inject({
+    method: "POST",
+    url: "/v1/admin/merchants/bulk-approve",
+    headers: { cookie: finance.cookie },
+    payload: {
+      merchantIds: [pendingA.merchantId, rejected.merchantId, pendingB.merchantId, unknownId],
+      notes: "launch batch",
+    },
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const body = res.json() as {
+    approvedCount: number;
+    approvedMerchantIds: string[];
+    skippedMerchantIds: string[];
+  };
+  assert.equal(body.approvedCount, 2);
+  assert.deepEqual(new Set(body.approvedMerchantIds), new Set([pendingA.merchantId, pendingB.merchantId]));
+  assert.deepEqual(new Set(body.skippedMerchantIds), new Set([rejected.merchantId, unknownId]));
+
+  const reviews = await pool.query<{
+    merchant_id: string;
+    outcome: string;
+    reviewer_identifier: string;
+    reviewer_admin_user_id: string | null;
+    notes: string | null;
+  }>(
+    `SELECT merchant_id, outcome, reviewer_identifier, reviewer_admin_user_id, notes
+       FROM merchant_kyc_reviews WHERE merchant_id = ANY($1)`,
+    [[pendingA.merchantId, pendingB.merchantId, rejected.merchantId]],
+  );
+  assert.equal(reviews.rowCount, 2, "exactly one review row per approved merchant, none for skipped ones");
+  assert.deepEqual(
+    new Set(reviews.rows.map((r) => r.merchant_id)),
+    new Set([pendingA.merchantId, pendingB.merchantId]),
+  );
+  for (const row of reviews.rows) {
+    assert.equal(row.outcome, "approved");
+    assert.equal(row.reviewer_identifier, finance.email);
+    assert.equal(row.reviewer_admin_user_id, finance.id);
+    assert.equal(row.notes, "launch batch");
+  }
+
+  const audit = await auditRowsFor(finance.id, "kyc_bulk_approve");
+  assert.equal(audit.length, 1);
+  const metadata = audit[0]!.metadata as { skippedMerchantIds: string[] };
+  assert.deepEqual(new Set(metadata.skippedMerchantIds), new Set([rejected.merchantId, unknownId]));
+});
+
 test("bulk approve KYC is finance-gated and rejects malformed selections", async () => {
   const support = await signedInAdmin("support", "bulkkyc-role");
   const { merchantId } = await createMerchant("bulkkyc-role");
