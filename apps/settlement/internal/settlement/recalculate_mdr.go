@@ -46,6 +46,11 @@ type batchRow struct {
 
 // RecalculateMDR re-derives the fee on a merchant's closed batches in
 // [from, to) at the merchant's current terms and posts the difference.
+// "Current terms" are resolved the way CloseBatch resolves them: each
+// event's rate is the fee_schedules row in force at that event's time
+// (merchants.mdr_bps when none is), less the platform volume-tier bonus,
+// with the merchant's negotiated discount — so a run with no rate change
+// adjusts nothing.
 func RecalculateMDR(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, from, to time.Time) (RecalcResult, error) {
 	tx, err := db.Begin(ctx)
 	if err != nil {
@@ -90,9 +95,24 @@ func RecalculateMDR(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID,
 	}
 	rows.Close()
 
+	// Resolve the rate exactly as CloseBatch does: the fee_schedules row in
+	// force at each event's time (merchants.mdr_bps only as the fallback),
+	// less the platform volume-tier bonus. Reading merchants.mdr_bps alone
+	// re-rated every scheduled or tier-discounted batch on a run with no
+	// rate change at all.
+	schedules, err := LoadFeeSchedules(ctx, tx, merchantID)
+	if err != nil {
+		return RecalcResult{}, fmt.Errorf("settlement: RecalculateMDR: load fee schedules: %w", err)
+	}
+	platformProcessedFils, err := ReadAndLockPlatformProcessedFils(ctx, tx)
+	if err != nil {
+		return RecalcResult{}, fmt.Errorf("settlement: RecalculateMDR: read platform volume: %w", err)
+	}
+	tierBonusBps := VolumeTierMdrBonusBps(platformProcessedFils)
+
 	var adjusted []BatchAdjustment
 	for _, b := range batches {
-		newFee, err := recomputeBatchFee(ctx, tx, b.id, mdrBps, discountBps)
+		newFee, err := recomputeBatchFee(ctx, tx, b.id, schedules, mdrBps, tierBonusBps, discountBps)
 		if err != nil {
 			return RecalcResult{}, err
 		}
@@ -137,9 +157,9 @@ func RecalculateMDR(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID,
 // CloseBatch step 8 uses, never ApplyRateFils applied once to a pre-summed
 // total, so this recomputation can never itself diverge from what a fresh
 // CloseBatch would have produced at today's rate.
-func recomputeBatchFee(ctx context.Context, tx pgx.Tx, batchID uuid.UUID, mdrBps, discountBps int64) (money.Fils, error) {
+func recomputeBatchFee(ctx context.Context, tx pgx.Tx, batchID uuid.UUID, schedules []FeeScheduleRow, fallbackMdrBps, tierBonusBps, discountBps int64) (money.Fils, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT amount_fils FROM transaction_events WHERE settlement_batch_id = $1 ORDER BY id
+		SELECT amount_fils, occurred_at FROM transaction_events WHERE settlement_batch_id = $1 ORDER BY id
 	`, batchID)
 	if err != nil {
 		return 0, fmt.Errorf("settlement: RecalculateMDR: select batch events for %s: %w", batchID, err)
@@ -149,12 +169,18 @@ func recomputeBatchFee(ctx context.Context, tx pgx.Tx, batchID uuid.UUID, mdrBps
 	var fee money.Fils
 	for rows.Next() {
 		var amountFils int64
-		if err := rows.Scan(&amountFils); err != nil {
+		var occurredAt time.Time
+		if err := rows.Scan(&amountFils, &occurredAt); err != nil {
 			return 0, fmt.Errorf("settlement: RecalculateMDR: scan batch event for %s: %w", batchID, err)
 		}
 		// FH: sums every event with this batch id -- incl. refund events once FP-212 lands? need an event_type filter?
 		// MK: refunds won't carry settlement_batch_id on transaction_events, they live in their own table. non-issue
-		fee += ComputeSettlementFee(money.Fils(amountFils), mdrBps, discountBps)
+		// Same per-event rate as CloseBatch step 8.
+		effectiveMdrBps := EffectiveMdrBpsAt(schedules, occurredAt, fallbackMdrBps)
+		if effectiveMdrBps -= tierBonusBps; effectiveMdrBps < 0 {
+			effectiveMdrBps = 0
+		}
+		fee += ComputeSettlementFee(money.Fils(amountFils), effectiveMdrBps, discountBps)
 	}
 	if err := rows.Err(); err != nil {
 		return 0, fmt.Errorf("settlement: RecalculateMDR: iterate batch events for %s: %w", batchID, err)
