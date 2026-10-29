@@ -15,6 +15,7 @@ import { Pool } from "pg";
 import { enqueueEvent } from "@filspay/events";
 import { loadConfig } from "../config.js";
 import { runConsumerPass, CONSUMER_NAME } from "../consumer/runConsumerPass.js";
+import { waitForHorizon } from "../consumer/testSupport.js";
 import { runRebuild } from "./rebuild.js";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -77,13 +78,13 @@ async function payoutSnapshot(merchantId: string) {
 test("runRebuild: replays to an identical rollup state as incremental processing had already produced, and prints a before/after diff", async () => {
   const merchantId = await createMerchant("rebuild-consistency");
 
-  await enqueueEvent(pool, {
+  const capturedEvent = await enqueueEvent(pool, {
     eventType: "transaction.captured",
     aggregateType: "transaction",
     aggregateId: randomUUID(),
     payload: { merchantId, amountCapturedFils: 9_900, feeFils: 148, newStatus: "captured", capturedTotalFils: 9_900 },
   });
-  await enqueueEvent(pool, {
+  const voidedEvent = await enqueueEvent(pool, {
     eventType: "transaction.voided",
     aggregateType: "transaction",
     aggregateId: randomUUID(),
@@ -96,7 +97,7 @@ test("runRebuild: replays to an identical rollup state as incremental processing
     [merchantId],
   );
   const batchId = batchResult.rows[0]!.id;
-  await enqueueEvent(pool, {
+  const closedEvent = await enqueueEvent(pool, {
     eventType: "settlement.batch_closed",
     aggregateType: "settlement_batch",
     aggregateId: batchId,
@@ -104,6 +105,7 @@ test("runRebuild: replays to an identical rollup state as incremental processing
   });
 
   // Build up the "incremental processing already produced this" baseline.
+  await waitForHorizon(pool, [capturedEvent.id, voidedEvent.id, closedEvent.id]);
   await drainToSteadyState();
   const volumeBeforeRebuild = await volumeSnapshot(merchantId);
   const payoutBeforeRebuild = await payoutSnapshot(merchantId);
