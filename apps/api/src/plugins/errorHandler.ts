@@ -31,6 +31,13 @@ export function errorHandler(
     return;
   }
 
+  // A JSON body over Fastify's bodyLimit (1 MiB), e.g. a large pasted
+  // adjustments CSV: the client sent too much, the server did not crash.
+  if (fastifyErr.code === "FST_ERR_CTP_BODY_TOO_LARGE") {
+    reply.code(413).send({ error: "payload_too_large", message: fastifyErr.message });
+    return;
+  }
+
   request.log.error({ err, occurredOn: formatIsoDate(new Date()) }, "unhandled error");
   reply.code(500).send({ error: "internal_error" });
 }
