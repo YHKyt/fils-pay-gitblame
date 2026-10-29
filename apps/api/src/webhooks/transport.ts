@@ -41,6 +41,29 @@ export interface FetchTransportOptions {
   lookup?: (hostname: string) => Promise<string[]>;
 }
 
+/** Response bytes kept from a receiver; callers store a 2000-char excerpt. */
+export const MAX_RESPONSE_BYTES = 64 * 1024;
+
+async function readBounded(response: Response, maxBytes: number): Promise<string> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (total < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const room = maxBytes - total;
+      const piece = value.byteLength > room ? value.subarray(0, room) : value;
+      chunks.push(piece);
+      total += piece.byteLength;
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 async function defaultLookup(hostname: string): Promise<string[]> {
   const results = await dnsLookup(hostname, { all: true, verbatim: true });
   return results.map((r) => r.address);
@@ -85,9 +108,10 @@ export function createFetchTransport(options: FetchTransportOptions = {}): Webho
         signal: controller.signal,
         redirect: "manual",
       });
-      // unbounded read, a 1gb response would oom us? — am
-      // MK: timeoutMs bounds it. fine for now, revisit after Eid inshallah
-      const body = await response.text();
+      // Bounded read: every consumer keeps at most a 2000-char excerpt, and a
+      // receiver (merchant-controlled) can stream hundreds of MB well inside
+      // the timeout. Read up to MAX_RESPONSE_BYTES, then drop the rest.
+      const body = await readBounded(response, MAX_RESPONSE_BYTES);
       return { statusCode: response.status, body };
     } catch (err) {
       return {
