@@ -2,6 +2,7 @@ package settlement
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,6 +13,11 @@ import (
 	"github.com/filspay/settlement/internal/balances"
 	"github.com/filspay/settlement/internal/money"
 )
+
+// ErrBatchEventsIncomplete is returned by RecalculateMDR, with nothing
+// committed, when a batch's linked capture events do not add up to the
+// gross it froze, so its fee cannot be re-derived event by event.
+var ErrBatchEventsIncomplete = errors.New("settlement: RecalculateMDR: batch's linked events do not add up to its gross")
 
 // BatchAdjustment is one batch's before/after fee, as changed by a
 // recalculation pass.
@@ -113,9 +119,18 @@ func RecalculateMDR(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID,
 
 	var adjusted []BatchAdjustment
 	for _, b := range batches {
-		newFee, err := recomputeBatchFee(ctx, tx, b.id, schedules, mdrBps, tierBonusBps, discountBps)
+		newFee, eventGross, err := recomputeBatchFee(ctx, tx, b.id, schedules, mdrBps, tierBonusBps, discountBps)
 		if err != nil {
 			return RecalcResult{}, err
+		}
+		// CloseBatch freezes gross as the sum of the events it links, so the
+		// two always agree for a batch it closed. A batch whose linked events
+		// fall short of its gross (one written directly, like the seed's
+		// fixture batches) cannot be re-rated per event: the missing activity
+		// would be priced at zero and the merchant refunded fees they owe.
+		if eventGross != b.grossFils {
+			return RecalcResult{}, fmt.Errorf("%w: batch %s (%s) gross %d fils, linked events %d fils",
+				ErrBatchEventsIncomplete, b.id, b.batchDate.Format("2006-01-02"), b.grossFils, eventGross)
 		}
 		diff := newFee - b.feeFils
 		if diff == 0 {
@@ -176,22 +191,24 @@ func RecalculateMDR(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID,
 // CloseBatch step 8 uses, never ApplyRateFils applied once to a pre-summed
 // total, so this recomputation can never itself diverge from what a fresh
 // CloseBatch would have produced at today's rate.
-func recomputeBatchFee(ctx context.Context, tx pgx.Tx, batchID uuid.UUID, schedules []FeeScheduleRow, fallbackMdrBps, tierBonusBps, discountBps int64) (money.Fils, error) {
+// It also returns the events' gross, so the caller can check it against the
+// batch's frozen gross_fils.
+func recomputeBatchFee(ctx context.Context, tx pgx.Tx, batchID uuid.UUID, schedules []FeeScheduleRow, fallbackMdrBps, tierBonusBps, discountBps int64) (fee, gross money.Fils, err error) {
 	rows, err := tx.Query(ctx, `
 		SELECT amount_fils, occurred_at FROM transaction_events WHERE settlement_batch_id = $1 ORDER BY id
 	`, batchID)
 	if err != nil {
-		return 0, fmt.Errorf("settlement: RecalculateMDR: select batch events for %s: %w", batchID, err)
+		return 0, 0, fmt.Errorf("settlement: RecalculateMDR: select batch events for %s: %w", batchID, err)
 	}
 	defer rows.Close()
 
-	var fee money.Fils
 	for rows.Next() {
 		var amountFils int64
 		var occurredAt time.Time
 		if err := rows.Scan(&amountFils, &occurredAt); err != nil {
-			return 0, fmt.Errorf("settlement: RecalculateMDR: scan batch event for %s: %w", batchID, err)
+			return 0, 0, fmt.Errorf("settlement: RecalculateMDR: scan batch event for %s: %w", batchID, err)
 		}
+		gross += money.Fils(amountFils)
 		// FH: sums every event with this batch id -- incl. refund events once FP-212 lands? need an event_type filter?
 		// MK: refunds won't carry settlement_batch_id on transaction_events, they live in their own table. non-issue
 		// Same per-event rate as CloseBatch step 8.
@@ -202,9 +219,9 @@ func recomputeBatchFee(ctx context.Context, tx pgx.Tx, batchID uuid.UUID, schedu
 		fee += ComputeSettlementFee(money.Fils(amountFils), effectiveMdrBps, discountBps)
 	}
 	if err := rows.Err(); err != nil {
-		return 0, fmt.Errorf("settlement: RecalculateMDR: iterate batch events for %s: %w", batchID, err)
+		return 0, 0, fmt.Errorf("settlement: RecalculateMDR: iterate batch events for %s: %w", batchID, err)
 	}
-	return fee, nil
+	return fee, gross, nil
 }
 
 // postMdrAdjustment posts the two-leg, entry_group_id-balanced pair for one
