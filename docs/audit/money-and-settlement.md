@@ -150,4 +150,23 @@ Severity: **Critical** = money moved or recorded wrongly at scale ·
 - **Fix:** treat a missing row as a rollup of 0 (the most-lagging case) and warn, as the check intends.
 - **Test:** `applyEvent.rollupGap.test.ts` — fails on the old code with exactly that TypeError, passes on the fix.
 
-> **Test isolation note.** Running every workspace's tests against **one shared database** (as `npm test` at the root does) makes four reporting tests fail even on unmodified code: API test fixtures insert `transaction.captured` / `transaction.voided` outbox rows with an empty `{}` payload, and the reporting consumer, which reads every outbox event after its cursor, then tries to apply them. Each suite passes on its own fresh, migrated database (reporting: 12/12).
+## M16. The nightly hold janitor deletes every hold on a quiet night — Critical
+**Where:** `scripts/expire_holds.ts`, `scripts/lib/sqlFilter.ts`
+**Evidence:** HANDOVER: "flips `active` to `expired` with one UPDATE. Holds are never deleted." Migration 0005 notes that MK switched it to deleting rows (FP-219). FH flagged the SELECT/DELETE race in a comment.
+
+- **What:** on any night with no expired holds, the janitor deleted every row in `holds`: active authorizations, released and expired ones alike.
+- **Why:**
+  - The script SELECTed the expired hold ids, then built a DELETE from them with `buildDelete`.
+  - `buildWhere` silently skips an empty array, so zero ids produced `DELETE FROM holds` with no WHERE.
+  - Even on normal nights, a hold captured between the SELECT and the DELETE was deleted anyway.
+- **Breaks:** every active authorization loses its hold record, so capture and void can no longer find or release it. Hold history is gone as well.
+- **Fix:**
+  - One atomic `UPDATE holds SET status = 'expired' WHERE status = 'active' AND expires_at < now()`, as the handover and the 0005 status CHECK describe. Nothing is deleted, and there is no race.
+  - `buildWhere` now turns an empty list into `FALSE`, so no other caller can build an unconditional statement.
+- **Test:** `expire_holds.test.ts`.
+  - On the old code, an empty id list builds `DELETE FROM holds`.
+  - On the fix, it builds `... WHERE FALSE`.
+  - Against the DB: a quiet night deletes nothing, and exactly one abandoned hold becomes `expired`.
+  - The old tests asserted the delete design, so they were replaced.
+
+> **Test isolation note.** The shared-database failures noted earlier came from an API test fixture that inserted real event types with `{}` payloads. Teammate B fixed that fixture at the source (see T1 in the API write-up), so `npm test` now passes on one database.
