@@ -13,12 +13,18 @@ import { insertReplayDeliveryRow } from "./replay.js";
 const MAX_BATCH_SIZE = 500;
 
 /** The one truly terminal failure state the dispatcher itself produces.
- *  `pending`/`succeeded`/`failed` are accepted if a caller explicitly asks
- *  for them — deliberately resending a `succeeded` delivery is a legitimate,
- *  if unusual, operator action — but they are never the default. */
-// support can pass status=succeeded and replay everything — am
-// MK: the route rejects succeeded
+ *  Other statuses are accepted only if a caller explicitly asks for them,
+ *  and never by default. */
 export const DEFAULT_REPLAY_STATUSES = ["exhausted"] as const;
+
+/** Every status a caller may name. Anything else is a 400. */
+export const REPLAYABLE_STATUSES: readonly string[] = ["pending", "succeeded", "failed", "exhausted"];
+
+/** What every admin role (including support) may replay. Resending a
+ *  `succeeded` or still-`pending` delivery re-delivers an event the receiver
+ *  may already have acted on, so the route requires finance or super_admin
+ *  for any status outside this list. */
+export const SUPPORT_REPLAYABLE_STATUSES: readonly string[] = ["failed", "exhausted"];
 
 export interface BatchReplayResult {
   matchedCount: number;
