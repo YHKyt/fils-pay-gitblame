@@ -77,7 +77,8 @@ async function signedInAdmin(role: AdminRole): Promise<{ id: string; cookie: str
     payload: { code: loginBody.devOtpCode },
   });
   assert.equal(verifyRes.statusCode, 200, verifyRes.body);
-  return { id: inserted.rows[0]!.id, cookie };
+  // OTP verify rotates the session token; the authenticated cookie is the one it sets.
+  return { id: inserted.rows[0]!.id, cookie: parseCookie(verifyRes.headers["set-cookie"], config.adminCookieName) };
 }
 
 async function createMerchant(): Promise<string> {

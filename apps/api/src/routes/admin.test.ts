@@ -141,7 +141,8 @@ async function loginAdmin(email: string): Promise<string> {
     payload: { code: loginBody.devOtpCode },
   });
   assert.equal(verifyRes.statusCode, 200, verifyRes.body);
-  return cookie;
+  // OTP verify rotates the session token; the authenticated cookie is the one it sets.
+  return parseCookie(verifyRes.headers["set-cookie"], config.adminCookieName);
 }
 
 async function signedInAdmin(role: AdminRole, label: string) {
@@ -282,6 +283,35 @@ test("admin otp verify rejects a wrong code without burning the challenge", asyn
     payload: { code: realCode },
   });
   assert.equal(rightRes.statusCode, 200, rightRes.body);
+});
+
+test("admin otp verify rotates the session token: the pre-OTP cookie is dead after verify (no fixation)", async () => {
+  const { email } = await createAdminUser("super_admin", "fixation");
+  const loginRes = await app.inject({
+    method: "POST",
+    url: "/v1/admin/auth/login",
+    payload: { email, password: ADMIN_PASSWORD },
+  });
+  assert.equal(loginRes.statusCode, 200, loginRes.body);
+  const pendingCookie = parseCookie(loginRes.headers["set-cookie"], config.adminCookieName);
+  const code = (loginRes.json() as { devOtpCode: string }).devOtpCode;
+
+  const verifyRes = await app.inject({
+    method: "POST",
+    url: "/v1/admin/auth/otp/verify",
+    headers: { cookie: pendingCookie },
+    payload: { code },
+  });
+  assert.equal(verifyRes.statusCode, 200, verifyRes.body);
+  const authenticatedCookie = parseCookie(verifyRes.headers["set-cookie"], config.adminCookieName);
+  assert.notEqual(cookieValue(authenticatedCookie), cookieValue(pendingCookie), "verify must issue a fresh token");
+
+  // Whoever planted or copied the pre-OTP cookie gets nothing.
+  const fixated = await app.inject({ method: "GET", url: "/v1/admin/auth/me", headers: { cookie: pendingCookie } });
+  assert.equal(fixated.statusCode, 401, "the pre-OTP token must not become an authenticated session");
+
+  const legit = await app.inject({ method: "GET", url: "/v1/admin/auth/me", headers: { cookie: authenticatedCookie } });
+  assert.equal(legit.statusCode, 200, legit.body);
 });
 
 test("a merchant session cookie grants nothing on the admin plane", async () => {
