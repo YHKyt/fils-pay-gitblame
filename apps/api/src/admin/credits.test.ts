@@ -146,6 +146,31 @@ test("a credit with a fee reversal posts four legs in ONE group that still nets 
   );
 });
 
+test("the fee reversal uses the dated fee_schedules rate in effect on the effective date, not merchants.mdr_bps", async () => {
+  // Contract rate 250 bps; renegotiated to 180 bps from 2026-06-01 (Bahrain
+  // midnight) and to 120 bps from 2026-09-01. A credit for a dispute in July
+  // must hand back what was charged in July: 180 bps.
+  const merchantId = await createMerchant("dated-rate", 250);
+  const admin = await createAdmin("dated-rate");
+  await pool.query(
+    `INSERT INTO fee_schedules (merchant_id, mdr_bps, effective_from)
+     VALUES ($1, 180, '2026-06-01T00:00:00+03:00'), ($1, 120, '2026-09-01T00:00:00+03:00')`,
+    [merchantId],
+  );
+
+  const credit = (effectiveDate: string) =>
+    createCreditRequest(pool, {
+      merchantId,
+      adminUserId: admin.id,
+      body: { baseAmountFils: 20_000, reasonCode: "dispute_resolution", effectiveDate, reverseFee: true },
+    });
+
+  assert.equal((await credit("2026-07-15")).feeReversalFils, 360, "20.000 BD @ 180 bps");
+  assert.equal((await credit("2026-06-01")).feeReversalFils, 360, "the schedule row applies from its first Bahrain day");
+  assert.equal((await credit("2026-05-31")).feeReversalFils, 500, "before any schedule row: merchants.mdr_bps");
+  assert.equal((await credit("2026-09-10")).feeReversalFils, 240, "20.000 BD @ 120 bps");
+});
+
 test("merchant_balances moves by exactly base + reversal, in the same transaction", async () => {
   const merchantId = await createMerchant("balance", 275);
   const admin = await createAdmin("balance");
