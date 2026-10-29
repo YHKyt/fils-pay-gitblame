@@ -200,3 +200,49 @@ Every fix carries a regression test that fails before the change and passes afte
 ## Verification
 
 On a fresh Postgres 16: `npm run migrate` applies all 70 migrations. `npm test` passes in full, and `cd apps/settlement && go test ./...` passes. Run twice back-to-back on the same database (state left over from the first run) and it still passes.
+
+---
+
+## Sweep findings (admin and merchant surfaces)
+
+Smallest fix each, one commit each, with a regression test confirmed to fail before the fix and pass after.
+
+### Admin plane
+
+| # | Finding | Severity | Fix |
+|---|---|---|---|
+| A1 | **Admin session fixation**: the pre-OTP cookie became the logged-in admin session unchanged (the "re-issued at verify" comment re-set the same token) | High | new token issued at OTP verify |
+| A2 | **Admin OTP attempt race**: 26 of 30 parallel guesses were checked against a limit of 5 (the `FOR UPDATE` comment was false) | High | atomic conditional UPDATE reserves each attempt |
+| A3 | **API key rotation left the old key working** (no "24h grace" exists) | High | old key revoked with reason `rotated` (0037); the test that asserted the old key stays active was corrected |
+| A4 | `api_keys.revoke_after` ignored: the sweep job promised in 0056 does not exist | Medium | checked at verification time |
+| A5 | **Bulk KYC approve** approved rejected or never-reviewed merchants and set `kyc_passed` | High | only `under_review` merchants |
+| A6 | **Credit four-eyes compared display names**: the requester could approve their own credit after a rename | High | compare admin user ids |
+| A7 | `notifySettlementRefundAdjustment` sent `amountFils / 10` (ADR-0001) | Low (no callers yet) | integer fils |
+| A8 | Admin invite codes from `Math.random` | Low (no callers) | `crypto.randomInt` |
+
+### Merchant plane
+
+| # | Finding | Severity | Fix |
+|---|---|---|---|
+| M1 | **Report scope IDOR**: any merchant could read any other merchant's split-child transactions via `filter.merchantId` | Critical | the child's parent must be the caller |
+| M2 | `/v1/reporting/export-summary` had no auth preHandler | Low | `requireMerchantAuth` |
+| M3 | **Webhook SSRF**: endpoints could target 169.254.169.254, 10.x, localhost or service names; test-send echoed 2 KB of the response; redirects were followed | High | non-public hosts rejected at create/update and re-checked (with DNS) at send in production; redirects never followed |
+| M4 | **CSV injection** in the transactions export (`= + - @` references) | Medium | formula cells prefixed with `'` |
+| M5 | **Capture idempotency ignored the transaction id**: reusing a key on transaction B replayed A's 200, so B was never captured | Medium–High | the request hash covers the transaction id; reuse is 422 |
+| M6 | KYC PDF-only document types were judged by filename (a JPEG named `.pdf` passed) | Medium | judged by magic bytes |
+| M7 | **The public payment-link read leaked the merchant's API key prefix and stored key hash** | Medium | fields removed |
+| M8 | Settlement summary counted a multi-capture transaction's total once per capture (4 + 6 reported as 20) | Medium | sums capture events in the window |
+| M9 | Reconciliation estimated pending fees with floats at the current mdr_bps (false gaps) | Medium | uses the fee recorded at capture |
+| M10 | KYC image decompression bomb (30 KB PNG → 225 MB decode); a corrupt image gave a 500 after writing to disk | Medium | >40 MP rejected from the header; decode failures are 422; nothing is written before validation |
+| M11 | Ledger-activity analytics treated `to` as inclusive, unlike every other endpoint | Low | exclusive |
+| M12 | Webhook receiver responses were read fully into memory (memory DoS) | Medium | capped at 64 KB |
+| M13 | `amountFils: 0` on link create was a 500 | Low | 400 |
+
+**Noted, not changed:**
+- No password rate limiting on admin login.
+- Multipart does not enforce one file per request.
+- The KYC filename is put unescaped into `Content-Disposition`.
+- Malformed report filters return 500 instead of 400.
+- `streamTransactionsExportCsv` (unused) paginates on `occurred_at >` alone.
+- Admin replay-batch accepts `statuses: ["succeeded"]` although a comment says it is rejected.
+- ADMIN.md says "adjust balance" is journaled; per ADR-0004/0006 it is cache-only. The code is right and the doc needs fixing.
