@@ -1,0 +1,31 @@
+# Image for apps/api, apps/reporting and the one-off migrate/seed jobs.
+# Sized for the hosted demo box (0.5 vCPU / 2 GB RAM / 2 GB disk): slim base,
+# npm cache dropped in the same layer, runs as the unprivileged `node` user.
+FROM node:20-slim
+
+WORKDIR /app
+ENV NODE_ENV=production \
+    NPM_CONFIG_UPDATE_NOTIFIER=false \
+    NPM_CONFIG_FUND=false
+
+# Manifests first so the dependency layer is cached across source edits.
+COPY package.json package-lock.json tsconfig.base.json tsconfig.json ./
+COPY packages/money/package.json packages/money/
+COPY packages/events/package.json packages/events/
+COPY apps/api/package.json apps/api/
+COPY apps/reporting/package.json apps/reporting/
+COPY apps/web/package.json apps/web/
+COPY apps/admin/package.json apps/admin/
+
+# Services run TypeScript through tsx (a devDependency), so dev deps stay.
+RUN npm ci --include=dev --no-audit \
+ && npm cache clean --force
+
+COPY packages ./packages
+COPY apps/api ./apps/api
+COPY apps/reporting ./apps/reporting
+COPY db ./db
+
+USER node
+EXPOSE 3000
+CMD ["npx", "tsx", "apps/api/src/index.ts"]

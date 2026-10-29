@@ -122,3 +122,40 @@ func TestEnqueuePayoutNotificationsSkipsIneligibleBatches(t *testing.T) {
 		t.Fatalf("a batch that has not reached 'paid' must not be notified, got %d event(s)", got)
 	}
 }
+
+// Regression: the daemon and `run-batch` (or two daemons) scanning at the same
+// time both passed the scan's NOT EXISTS and each enqueued settlement.paid.
+func TestEnqueuePayoutNotificationsConcurrentScansEnqueueOnce(t *testing.T) {
+	pool := mustPool(t)
+	ctx := context.Background()
+
+	merchantID := insertActiveMerchant(t, pool, 250)
+	// Many batches widen the window between the scan and the inserts.
+	batches := make([]uuid.UUID, 0, 40)
+	for d := 0; d < 40; d++ {
+		batches = append(batches, insertBatch(t, pool, merchantID, time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, d), "paid", 9_000))
+	}
+
+	const scanners = 12
+	errs := make(chan error, scanners)
+	start := make(chan struct{})
+	for i := 0; i < scanners; i++ {
+		go func() {
+			<-start
+			_, err := EnqueuePayoutNotifications(ctx, pool)
+			errs <- err
+		}()
+	}
+	close(start)
+	for i := 0; i < scanners; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("EnqueuePayoutNotifications: %v", err)
+		}
+	}
+
+	for _, b := range batches {
+		if got := countPaidEvents(t, pool, b); got != 1 {
+			t.Fatalf("concurrent scans must enqueue exactly one settlement.paid event per batch, got %d for %s", got, b)
+		}
+	}
+}

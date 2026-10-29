@@ -1,0 +1,8 @@
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+.git
+.claude
+ops/.env
+ops/.env.*
+!ops/.env.example
