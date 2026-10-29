@@ -166,6 +166,15 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         [challenge.id],
       );
       if (reserved.rowCount === 0) {
+        // Consumed by a concurrent verify (double submit) is not a lockout:
+        // revoking here would kill the session that verify just promoted.
+        const state = await app.db.query<{ consumed_at: Date | null }>(
+          `SELECT consumed_at FROM otp_challenges WHERE id = $1`,
+          [challenge.id],
+        );
+        if (state.rows[0]?.consumed_at != null) {
+          throw new GoneError("otp_expired");
+        }
         await revokeSession(app.db, pending.sessionId);
         throw new TooManyRequestsError("too_many_attempts");
       }
@@ -176,7 +185,15 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const merchantUserResult = await withTransaction(app.db, async (client) => {
-        await client.query(`UPDATE otp_challenges SET consumed_at = now() WHERE id = $1`, [challenge.id]);
+        // Only one verify may consume the challenge; a second concurrent one
+        // would promote again and rotate the token out from under the first.
+        const consumed = await client.query(
+          `UPDATE otp_challenges SET consumed_at = now() WHERE id = $1 AND consumed_at IS NULL`,
+          [challenge.id],
+        );
+        if ((consumed.rowCount ?? 0) === 0) {
+          throw new GoneError("otp_expired");
+        }
         const promoted = await promoteSession(client, pending.sessionId, app.config.sessionTtlHours);
         const result = await client.query<{ merchant_id: string; role: "owner" | "finance" | "support" }>(
           `SELECT merchant_id, role FROM merchant_users WHERE id = $1`,

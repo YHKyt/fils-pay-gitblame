@@ -119,3 +119,25 @@ for (const status of ["suspended", "closed"] as const) {
     assert.equal(after.statusCode, 200, after.body);
   });
 }
+
+test("parallel otp verifies with the right code yield exactly one live session", async () => {
+  const { merchantId, email } = await signup("otp-parallel");
+  // A double-submitted verify form. Each round is a fresh login.
+  for (let round = 0; round < 5; round += 1) {
+    const { cookie, code } = await login(merchantId, email);
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        app.inject({ method: "POST", url: "/v1/auth/otp/verify", headers: { cookie }, payload: { code } }),
+      ),
+    );
+    const ok = results.filter((r) => r.statusCode === 200);
+    assert.equal(
+      ok.length,
+      1,
+      `round ${round}: expected one 200, got ${results.map((r) => `${r.statusCode} ${r.json().error ?? ""}`).join(", ")}`,
+    );
+    const authed = parseCookie(ok[0]!.headers["set-cookie"]);
+    const me = await app.inject({ method: "GET", url: "/v1/auth/me", headers: { cookie: authed } });
+    assert.equal(me.statusCode, 200, `round ${round}: the cookie from the successful verify does not authenticate`);
+  }
+});
