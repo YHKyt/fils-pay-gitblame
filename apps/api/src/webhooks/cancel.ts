@@ -1,25 +1,28 @@
 import type { Pool } from "pg";
 
-/** "deleted" also when the endpoint had deliveries; those rows are kept with endpoint_id set to NULL. */
+/** "deleted" also when the endpoint had deliveries; those rows are kept, still linked to the endpoint. */
 export type DeleteWebhookEndpointResult = "deleted" | "not_found";
 
 /**
  * `DELETE /v1/merchants/:merchantId/webhook-endpoints/:id` business logic.
- * The statement carries the merchant-scoped predicate, never `id` alone. A hard
- * delete, not a status flip — `PATCH .../status: 'disabled'` (update.ts) is
- * the separate tool for "pause without losing history." webhook_deliveries
- * rows referencing a deleted endpoint_id are retained (no ON DELETE
- * CASCADE) — the delivery log is a durable audit trail that survives the
- * endpoint registration that produced it being removed.
+ * The statement carries the merchant-scoped predicate, never `id` alone.
+ *
+ * A soft delete (0080): the row is kept, disabled and stamped `deleted_at`,
+ * because webhook_deliveries (and delivery archives) reference it and the
+ * delivery log is a durable audit trail. A deleted endpoint is hidden from
+ * list/get/update, cannot be re-enabled, and is never sent to (the
+ * dispatcher only sends to active endpoints). `PATCH .../status: 'disabled'`
+ * (update.ts) remains the reversible "pause" tool.
  */
-// FH: docblock says deliveries are kept and there's no ON DELETE CASCADE — then the FK blocks the DELETE and we 500?
-// YA: FK is ON DELETE SET NULL (0029). fine
 export async function deleteWebhookEndpoint(
   pool: Pool,
   input: { merchantId: string; id: string },
 ): Promise<DeleteWebhookEndpointResult> {
   const result = await pool.query<{ id: string }>(
-    `DELETE FROM webhook_endpoints WHERE id = $1 AND merchant_id = $2 RETURNING id`,
+    `UPDATE webhook_endpoints
+        SET status = 'disabled', deleted_at = now(), updated_at = now()
+      WHERE id = $1 AND merchant_id = $2 AND deleted_at IS NULL
+      RETURNING id`,
     [input.id, input.merchantId],
   );
   return result.rows[0] ? "deleted" : "not_found";

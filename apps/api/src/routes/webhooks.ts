@@ -100,8 +100,6 @@ export async function webhookEndpointRoutes(app: FastifyInstance): Promise<void>
   );
 
   app.delete<{ Params: EndpointIdParams }>(
-    // FH: deleting an endpoint that has deliveries 500s (FK violation)
-    // fixed — ON DELETE CASCADE added in 0047 — am
     "/:merchantId/webhook-endpoints/:id",
     { preHandler: [requireMerchantAuth, requireMerchantRole("owner", "finance")] },
     async (request, reply) => {

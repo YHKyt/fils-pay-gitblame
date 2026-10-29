@@ -50,8 +50,9 @@ export type DispatcherConfig = Pick<
   | "webhookSecretEncryptionKey"
 >;
 
-/** Exponential backoff with a cap and ±10 % jitter. attemptNumber is the
- *  attempt that just failed (1-indexed). */
+/** Exponential backoff with ±10 % jitter, never above webhookBackoffCapMs
+ *  (the cap is re-applied after jitter). attemptNumber is the attempt that
+ *  just failed (1-indexed). */
 export function backoffDelayMs(
   attemptNumber: number,
   config: Pick<Config, "webhookBackoffBaseMs" | "webhookBackoffCapMs">,
@@ -59,7 +60,7 @@ export function backoffDelayMs(
 ): number {
   const raw = config.webhookBackoffBaseMs * 2 ** (attemptNumber - 1);
   const capped = Math.min(raw, config.webhookBackoffCapMs);
-  return Math.round(capped * (0.9 + jitter() * 0.2));
+  return Math.min(Math.round(capped * (0.9 + jitter() * 0.2)), config.webhookBackoffCapMs);
 }
 
 interface DueEventRow {
@@ -179,7 +180,9 @@ async function attemptOneDelivery(
   const responseStatusCode = isTransportFailure ? null : result.statusCode;
   // NULL for a transport-level failure that never got a response, matching
   // response_status_code — left() truncation happens in SQL below either way.
-  const responseBodyParam = isTransportFailure ? null : result.body;
+  // Postgres TEXT cannot hold U+0000: a receiver echoing a NUL would make the
+  // outcome UPDATE throw, leaving the row pending and resent forever.
+  const responseBodyParam = isTransportFailure ? null : (result.body ?? "").replace(/\u0000/g, "");
 
   if (!isTransportFailure && result.statusCode! >= 200 && result.statusCode! < 300) {
     await pool.query(
@@ -230,6 +233,9 @@ async function attemptDueDeliveries(pool: Pool, transport: WebhookTransport, con
         WHERE wd.id IN (
           SELECT id FROM webhook_deliveries
            WHERE status = 'pending' AND next_attempt_at <= now()
+             -- a disabled endpoint's pending rows wait (unclaimed) until it is re-enabled
+             AND EXISTS (SELECT 1 FROM webhook_endpoints we
+                          WHERE we.id = webhook_deliveries.endpoint_id AND we.status = 'active')
            ORDER BY next_attempt_at ASC
            LIMIT $1
            FOR UPDATE SKIP LOCKED)

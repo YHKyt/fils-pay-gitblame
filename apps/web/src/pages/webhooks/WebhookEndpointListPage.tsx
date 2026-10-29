@@ -60,12 +60,10 @@ export function WebhookEndpointListPage() {
     }
   }
 
-  // delete 500s if the endpoint has deliveries — am
-  // MK: fixed in FP-240
   async function handleDelete(endpoint: WebhookEndpointDto): Promise<void> {
     if (!merchantId) return;
-    // A hard delete — the endpoint row is gone, while its delivery log
-    // outlives it. Irreversible, so it asks first.
+    // The endpoint disappears for good (the API keeps it, disabled, only so
+    // its delivery log stays intact). Irreversible, so it asks first.
     if (
       !window.confirm(
         `Delete ${endpoint.url}? This cannot be undone, and its secret cannot be recovered.`,

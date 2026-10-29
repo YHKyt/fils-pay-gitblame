@@ -44,7 +44,7 @@ export async function updateWebhookEndpoint(
         SET url = COALESCE($3, url),
             status = COALESCE($4, status),
             updated_at = now()
-      WHERE id = $1 AND merchant_id = $2
+      WHERE id = $1 AND merchant_id = $2 AND deleted_at IS NULL
       RETURNING id, url, secret_prefix, status, created_at, updated_at`,
     [input.id, input.merchantId, input.url ?? null, input.status ?? null],
   );

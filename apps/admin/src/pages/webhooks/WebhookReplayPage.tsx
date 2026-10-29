@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { getMerchant, listMerchants } from "../../api/merchants.js";
 import { replayBatch } from "../../api/webhooks.js";
 import { describeError } from "../../api/client.js";
+import { RequireRole } from "../../auth/RequireRole.js";
 import type {
   AdminMerchantDetail,
   AdminMerchantSummary,
@@ -10,12 +11,11 @@ import type {
   WebhookDeliveryStatus,
 } from "../../types.js";
 
-const REPLAYABLE_STATUSES: WebhookDeliveryStatus[] = [
-  "exhausted",
-  "failed",
-  "pending",
-  "succeeded",
-];
+/** Any admin role may replay these. */
+const SUPPORT_REPLAYABLE_STATUSES: WebhookDeliveryStatus[] = ["exhausted", "failed"];
+/** Re-delivers an event the receiver may already have acted on: finance or
+ *  super_admin only (the API answers 403 to anyone else). */
+const FINANCE_REPLAYABLE_STATUSES: WebhookDeliveryStatus[] = ["pending", "succeeded"];
 
 /** `<input type="datetime-local">` wants a local-time `YYYY-MM-DDTHH:mm`
  *  string; the API wants ISO-8601 instants. Convert at both edges rather
@@ -33,9 +33,9 @@ function defaultRange(): { from: string; to: string } {
 }
 
 /**
- * Replay every delivery for one endpoint inside a date range. Any
- * admin role: it is routine, reversible, and deduped receiver-side by the
- * delivery id, so no money moves as a direct result.
+ * Replay every delivery for one endpoint inside a date range. Any admin role
+ * can replay `failed`/`exhausted` deliveries; replaying `pending` or
+ * `succeeded` ones needs finance or super_admin.
  */
 export function WebhookReplayPage() {
   const { merchantId } = useParams<{ merchantId?: string }>();
@@ -201,7 +201,7 @@ export function WebhookReplayPage() {
         </label>
         <fieldset className="admin-filters">
           <legend>Delivery statuses to replay</legend>
-          {REPLAYABLE_STATUSES.map((status) => (
+          {SUPPORT_REPLAYABLE_STATUSES.map((status) => (
             <label key={status}>
               <input
                 type="checkbox"
@@ -211,10 +211,23 @@ export function WebhookReplayPage() {
               {status}
             </label>
           ))}
+          <RequireRole allow={["finance", "super_admin"]}>
+            {FINANCE_REPLAYABLE_STATUSES.map((status) => (
+              <label key={status}>
+                <input
+                  type="checkbox"
+                  checked={statuses.includes(status)}
+                  onChange={() => toggleStatus(status)}
+                />
+                {status}
+              </label>
+            ))}
+          </RequireRole>
           <p className="admin-muted">
             Defaults to <code>exhausted</code> — the one terminal failure state the dispatcher
-            produces. Replaying a <code>succeeded</code> delivery is allowed but resends an event the
-            receiver already accepted.
+            produces. Any role can replay <code>failed</code> and <code>exhausted</code> deliveries;
+            replaying <code>pending</code> or <code>succeeded</code> ones needs finance or super_admin,
+            because it resends events the receiver may already have accepted.
           </p>
         </fieldset>
         <button type="submit" disabled={busy || !endpointId}>
