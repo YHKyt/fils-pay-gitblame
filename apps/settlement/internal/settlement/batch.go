@@ -56,7 +56,13 @@ type eligibleEvent struct {
 // or already-paid batch for the same (merchant, date) is a safe no-op.
 // Every capture-type transaction_events row it selects is marked with this
 // batch's id inside the same transaction that freezes the batch's totals,
-// so a row can never be picked up by two batches.
+// so a row can never be picked up by two batches. The same holds for the
+// refunds it deducts (refunds.settlement_batch_id) and for an earlier
+// negative batch whose shortfall it carries in.
+//
+// net_payout_fils = gross - fee - (refunded - fee reversed) + carried-in
+// shortfall. The scheme export stays one presentment line per captured
+// transaction: refunds are not netted into it (see docs/audit/settlebatch.md).
 func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, businessDate time.Time) (BatchResult, error) {
 	start, end := BusinessDayWindow(businessDate)
 	batchDateOnly := time.Date(businessDate.Year(), businessDate.Month(), businessDate.Day(), 0, 0, 0, 0, time.UTC)
@@ -216,7 +222,23 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 		batchGross += grossForTxn
 		batchFee += feeForTxn
 	}
-	netPayout := NetPayableFils(batchGross, batchFee)
+
+	// Step 9: refunds come off the payout. Each one was journaled by
+	// processRefund as a merchant_payable debit of its gross and a credit of
+	// its fee reversal, so the batch deducts exactly amount - fee reversed;
+	// without this the merchant was paid for money already returned to the
+	// cardholder and merchant_payable went negative by that much.
+	refunds, err := claimBatchRefunds(ctx, tx, merchantID, batchID, end)
+	if err != nil {
+		return BatchResult{}, err
+	}
+	ownNet := NetPayableFils(batchGross, batchFee) - refunds.netDeductionFils()
+	// A shortfall from an earlier negative batch is recovered here.
+	carriedIn, err := claimCarriedShortfall(ctx, tx, merchantID, batchID)
+	if err != nil {
+		return BatchResult{}, err
+	}
+	netPayout := ownNet + carriedIn
 
 	// Record this batch's contribution to the platform-wide lifetime
 	// processed-volume counter, in the same transaction that freezes this
@@ -296,8 +318,10 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 		return BatchResult{}, fmt.Errorf("settlement: CloseBatch: enqueue outbox event: %w", err)
 	}
 
-	// Step 14: incrementally update the merchant_balances cache.
-	if err := balances.ApplyBatchClose(ctx, tx, merchantID, batchID, netPayout); err != nil {
+	// Step 14: incrementally update the merchant_balances cache by this
+	// batch's own activity. A carried-in shortfall is already in the cache:
+	// it was added when its own batch closed and never paid out.
+	if err := balances.ApplyBatchClose(ctx, tx, merchantID, batchID, ownNet); err != nil {
 		return BatchResult{}, fmt.Errorf("settlement: CloseBatch: apply balance cache delta: %w", err)
 	}
 
@@ -369,11 +393,16 @@ func PayoutBatch(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) (Payo
 		}
 	}
 
+	// What actually leaves: nothing for a zero or negative net. A negative
+	// net (refunds above the day's captures) stays owed in merchant_payable
+	// and the cache, and the next CloseBatch deducts it.
+	paid := paidOutFils(money.Fils(netPayout))
+
 	// Runs unconditionally, including for a zero-payout batch: adding zero
 	// is a no-op, and keeping the running total's every update in lockstep
 	// with every processed batch — rather than skipping zero-value ones —
 	// keeps its own bookkeeping simple.
-	if err := UpdateLifetimePayoutMonitoringEstimate(ctx, tx, merchantID, money.Fils(netPayout)); err != nil {
+	if err := UpdateLifetimePayoutMonitoringEstimate(ctx, tx, merchantID, paid); err != nil {
 		return PayoutResult{}, fmt.Errorf("settlement: PayoutBatch: update lifetime payout monitoring estimate: %w", err)
 	}
 
@@ -384,7 +413,7 @@ func PayoutBatch(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) (Payo
 		return PayoutResult{}, fmt.Errorf("settlement: PayoutBatch: update batch status: %w", err)
 	}
 
-	if err := balances.ApplyPayout(ctx, tx, merchantID, batchID, money.Fils(netPayout)); err != nil {
+	if err := balances.ApplyPayout(ctx, tx, merchantID, batchID, paid); err != nil {
 		return PayoutResult{}, fmt.Errorf("settlement: PayoutBatch: apply balance cache delta: %w", err)
 	}
 
