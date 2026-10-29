@@ -168,12 +168,13 @@ export interface KycReviewResult {
 }
 
 /** `POST /v1/admin/merchants/bulk-approve` → `200 { approvedCount,
- *  approvedMerchantIds }`. `approvedMerchantIds` is the authoritative list
- *  of what actually moved — an id naming no merchant row is simply absent
- *  from it. */
+ *  approvedMerchantIds, skippedMerchantIds }`. `approvedMerchantIds` is the
+ *  authoritative list of what actually moved; `skippedMerchantIds` holds the
+ *  requested ids that were not under_review or name no merchant row. */
 export interface BulkApproveKycResult {
   approvedCount: number;
   approvedMerchantIds: string[];
+  skippedMerchantIds: string[];
 }
 
 /** `POST /v1/admin/merchants/:id/api-keys/:keyId/rotate` →
