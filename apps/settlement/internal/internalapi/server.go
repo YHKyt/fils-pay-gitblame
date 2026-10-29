@@ -107,7 +107,8 @@ type recalculateMDRResponse struct {
 }
 
 type errorResponse struct {
-	Error string `json:"error"`
+	Error   string `json:"error"`
+	Message string `json:"message,omitempty"`
 }
 
 // Handler builds the internal API's http.Handler. Exported separately from
@@ -221,6 +222,12 @@ func handleRunBatch(pool *pgxpool.Pool) http.Handler {
 		businessDate, err := time.Parse(businessDateLayout, body.Date)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_date"})
+			return
+		}
+		// Closing a day that is still running would strand its later
+		// captures for good (a closed batch is never re-scanned).
+		if err := settlement.RequireBusinessDayOver(businessDate, time.Now()); err != nil {
+			writeJSON(w, http.StatusUnprocessableEntity, errorResponse{Error: "business_day_not_over", Message: err.Error()})
 			return
 		}
 

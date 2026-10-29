@@ -14,7 +14,7 @@ import {
   type SettlementInternalConfig,
 } from "../admin/settlementClient.js";
 import { withTransaction } from "../db/withTransaction.js";
-import { AppError, BadRequestError, NotFoundError, UnauthorizedError } from "../lib/errors.js";
+import { AppError, BadRequestError, NotFoundError, UnauthorizedError, UnprocessableEntityError } from "../lib/errors.js";
 import { adminAdjustmentImportRoutes } from "./adminAdjustmentImport.js";
 import { adminAuthRoutes } from "./adminAuth.js";
 import { adminBalanceAdjustmentRoutes } from "./adminBalanceAdjustments.js";
@@ -120,6 +120,17 @@ export async function adminRoutes(app: FastifyInstance, options: AdminRoutesOpti
       }
       if (merchantId !== undefined && !UUID_RE.test(merchantId)) {
         throw new BadRequestError("invalid_request", "merchantId, if given, must be a UUID");
+      }
+      // A batch only takes its own day's captures and a closed day is never
+      // re-scanned, so closing today (or a later day) strands every capture
+      // made after the click. Today is the Asia/Bahrain date (fixed UTC+3).
+      const bahrainNow = Date.now() + 3 * 60 * 60 * 1000;
+      if (date >= new Date(bahrainNow).toISOString().slice(0, 10)) {
+        const latest = new Date(bahrainNow - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        throw new UnprocessableEntityError(
+          "business_day_not_over",
+          `business day ${date} has not ended yet (Asia/Bahrain); the latest date that can be closed is ${latest}`,
+        );
       }
 
       const auditLogId = await withTransaction(app.db, async (client) =>

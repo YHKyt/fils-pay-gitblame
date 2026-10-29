@@ -72,7 +72,9 @@ Don't submit the same file twice; there's no duplicate detection yet.
 
 **Re-run a daily batch** — pick a business date (and optionally one
 merchant). Days that are already closed or paid are skipped, so re-running
-is always safe.
+is always safe. Only a day that has ended can be run (yesterday, Bahrain
+time, or earlier): today is refused, because a closed day is never
+re-scanned and its later payments would never be paid out.
 
 **Rebuild cached balances** — refreshes every merchant's cached balance.
 Run it whenever a balance looks off or after any manual correction.

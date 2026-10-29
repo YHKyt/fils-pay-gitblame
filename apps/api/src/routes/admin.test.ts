@@ -1617,6 +1617,40 @@ test("settlement run-batch validates its input before writing an audit row or ca
   assert.equal((await auditRowsFor(finance.id, "settlement_run_batch")).length, 0);
 });
 
+// Regression: today was accepted, and closing a day that is still running
+// strands every capture made later that day (a closed day is never
+// re-scanned). Today and later Asia/Bahrain dates are refused with a code the
+// console can show; yesterday still goes through.
+test("settlement run-batch refuses a business day that has not ended (Asia/Bahrain)", async () => {
+  const finance = await signedInAdmin("finance", "runbatch-today");
+  settlementSpy.runBatchCalls = [];
+  const bahrainNow = Date.now() + 3 * 60 * 60 * 1000;
+  const day = (offset: number) => new Date(bahrainNow + offset * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  for (const date of [day(0), day(1)]) {
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/admin/settlement/run-batch",
+      headers: { cookie: finance.cookie },
+      payload: { date },
+    });
+    assert.equal(res.statusCode, 422, `${date}: ${res.body}`);
+    assert.equal(res.json().error, "business_day_not_over");
+    assert.match(res.json().message, new RegExp(day(-1)));
+  }
+  assert.equal(settlementSpy.runBatchCalls.length, 0, "a refused date must never reach settlement");
+  assert.equal((await auditRowsFor(finance.id, "settlement_run_batch")).length, 0);
+
+  const ok = await app.inject({
+    method: "POST",
+    url: "/v1/admin/settlement/run-batch",
+    headers: { cookie: finance.cookie },
+    payload: { date: day(-1) },
+  });
+  assert.equal(ok.statusCode, 200, ok.body);
+  assert.deepEqual(settlementSpy.runBatchCalls, [{ date: day(-1), merchantId: undefined }]);
+});
+
 // stubbed settlement client, so this says nothing about what the Go side computes — FH
 test("balance rebuild: calls the settlement client, surfaces only changed rows, and audits before/after", async () => {
   const admin = await signedInAdmin("super_admin", "rebuild");

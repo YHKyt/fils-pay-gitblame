@@ -105,6 +105,9 @@ func main() {
 		if err != nil {
 			log.Fatalf("settlement run-batch: invalid --date: %v", err)
 		}
+		if err := settlement.RequireBusinessDayOver(businessDate, time.Now()); err != nil {
+			log.Fatalf("settlement run-batch: %v", err)
+		}
 
 		var onlyMerchant *uuid.UUID
 		if *merchantFlag != "" {
