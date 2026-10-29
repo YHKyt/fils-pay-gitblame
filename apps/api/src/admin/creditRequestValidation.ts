@@ -31,8 +31,16 @@ function isRealCalendarDate(value: string): boolean {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
-/** Validates and normalises an "issue credit" request body. */
-export function parseCreditRequestInput(body: unknown): CreditRequestDraft {
+/** Today's Asia/Bahrain calendar date as YYYY-MM-DD. Bahrain is a fixed
+ *  UTC+3 with no DST, and the ledger legs post at Bahrain midnight of the
+ *  effective date, so "today" is the Bahrain business day, not UTC. */
+function bahrainTodayIso(now: Date): string {
+  return new Date(now.getTime() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/** Validates and normalises an "issue credit" request body. `now` is
+ *  injectable for tests only. */
+export function parseCreditRequestInput(body: unknown, now: Date = new Date()): CreditRequestDraft {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     throw new BadRequestError("invalid_request", "a JSON object body is required");
   }
@@ -78,6 +86,15 @@ export function parseCreditRequestInput(body: unknown): CreditRequestDraft {
     throw new BadRequestError(
       "invalid_effective_date",
       "effectiveDate must be a real calendar date formatted YYYY-MM-DD",
+    );
+  }
+
+  // A credit belongs to a period that has already happened. A future date
+  // would journal legs into a business day that has not closed yet.
+  if (rawDate > bahrainTodayIso(now)) {
+    throw new BadRequestError(
+      "invalid_effective_date",
+      "effectiveDate must be today (Asia/Bahrain) or earlier",
     );
   }
 

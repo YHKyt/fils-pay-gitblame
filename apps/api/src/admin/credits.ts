@@ -3,6 +3,8 @@ import type { Pool, PoolClient } from "pg";
 import { addFils, toFils, ZERO_FILS, type Fils } from "@filspay/money";
 import { insertAdminAuditLog } from "../adminAudit/log.js";
 import { withTransaction } from "../db/withTransaction.js";
+import { getEffectiveMdrBps } from "../fees/feeSchedule.js";
+import { getVolumeTierBonusBps } from "../fees/platformVolumeTier.js";
 import { ConflictError, NotFoundError } from "../lib/errors.js";
 import { assertDistinctApprover } from "./creditApproval.js";
 import { calculateCreditFeeReversal, creditRequiresSecondApprover } from "./creditThreshold.js";
@@ -218,11 +220,27 @@ export async function createCreditRequest(
       throw new NotFoundError("merchant_not_found");
     }
 
-    // Never operator-supplied: the reversal is the merchant's own contracted
-    // rate applied to the amount they asked to credit.
-    const feeReversalFils = draft.reverseFee
-      ? calculateCreditFeeReversal(draft.baseAmountFils, merchant.mdr_bps)
-      : ZERO_FILS;
+    // Never operator-supplied: the reversal is the rate the merchant was
+    // actually charged for the period being credited, resolved exactly as
+    // capture.ts resolves it (dated fee_schedules row, falling back to
+    // merchants.mdr_bps, less the platform volume-tier bonus), as of
+    // Asia/Bahrain midnight of the effective date, the same instant the
+    // ledger legs are anchored to. merchants.mdr_bps alone is only the
+    // fallback and over- or under-reverses once a schedule row exists.
+    let feeReversalFils = ZERO_FILS;
+    if (draft.reverseFee) {
+      const effectiveMdrBps = await getEffectiveMdrBps(
+        client,
+        input.merchantId,
+        new Date(`${draft.effectiveDate}T00:00:00+03:00`),
+        merchant.mdr_bps,
+      );
+      const volumeTierBonusBps = await getVolumeTierBonusBps(client);
+      feeReversalFils = calculateCreditFeeReversal(
+        draft.baseAmountFils,
+        Math.max(0, effectiveMdrBps - volumeTierBonusBps),
+      );
+    }
     // FH: threshold compares base + reversal, so a 50.000 BD credit with a fee reversal needs a second approver
     // MK: no — base only. fee reversal is mechanical. intended.
     const requiresApproval = creditRequiresSecondApprover({

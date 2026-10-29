@@ -120,3 +120,25 @@ test("the effective date is carried through exactly as given", () => {
     );
   }
 });
+
+test("a future effective date is rejected, judged against the Asia/Bahrain business day", () => {
+  assertBadRequest(
+    () => parseCreditRequestInput({ ...VALID, effectiveDate: "2099-01-01" }),
+    "invalid_effective_date",
+  );
+  assertBadRequest(
+    () => parseCreditRequestInput({ ...VALID, effectiveDate: isoDaysFromToday(2) }),
+    "invalid_effective_date",
+  );
+  // 2026-03-15 22:30 UTC is already 2026-03-16 01:30 in Bahrain: the 16th is
+  // "today" there and is accepted; the 17th is tomorrow and is not.
+  const lateUtcEvening = new Date("2026-03-15T22:30:00Z");
+  assert.equal(
+    parseCreditRequestInput({ ...VALID, effectiveDate: "2026-03-16" }, lateUtcEvening).effectiveDate,
+    "2026-03-16",
+  );
+  assertBadRequest(
+    () => parseCreditRequestInput({ ...VALID, effectiveDate: "2026-03-17" }, lateUtcEvening),
+    "invalid_effective_date",
+  );
+});

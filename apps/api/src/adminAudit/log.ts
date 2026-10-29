@@ -38,7 +38,9 @@ export interface AdminAuditEntry {
    *  which has no single target. */
   targetId?: string | null;
   metadata?: Record<string, unknown>;
-  outcome?: "succeeded" | "failed";
+  /** 'requested' is phase 1 of a cross-process action: committed before the
+   *  outbound call, then moved to succeeded/failed by markAdminAuditOutcome. */
+  outcome?: "requested" | "succeeded" | "failed";
 }
 
 /**
