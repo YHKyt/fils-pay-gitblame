@@ -165,7 +165,7 @@ export function WebhookReplayPage() {
       {error ? <p className="admin-error">{error}</p> : null}
 
       {detail && endpoints.length === 0 ? (
-        <p className="admin-muted">This merchant has no webhook endpoints registered.</p>
+        <div className="admin-empty">This merchant has no webhook endpoints registered.</div>
       ) : null}
 
       <form className="admin-form" onSubmit={(e) => void handleReplay(e)}>

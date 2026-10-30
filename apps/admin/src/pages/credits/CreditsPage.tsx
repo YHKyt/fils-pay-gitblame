@@ -8,6 +8,7 @@ import {
 } from "../../api/credits.js";
 import { describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
+import { StatusPill } from "../../components/StatusPill.js";
 import type { CreditRequestDto, CreditRequestStatus } from "../../types.js";
 
 function bhd(fils: number): string {
@@ -112,7 +113,7 @@ export function CreditsPage() {
         <code>super_admin</code> operator — not the one who raised it — approves it.
       </p>
 
-      <nav className="admin-nav">
+      <div className="admin-tabs">
         {STATUS_TABS.map((tab) => (
           <button
             key={tab.value}
@@ -123,14 +124,14 @@ export function CreditsPage() {
             {tab.label}
           </button>
         ))}
-      </nav>
+      </div>
 
       {loadError ? <p className="admin-error">{loadError}</p> : null}
       {actionError ? <p className="admin-error">{actionError}</p> : null}
       {notice ? <p className="admin-notice">{notice}</p> : null}
 
       {items.length === 0 ? (
-        <p className="admin-muted">Nothing here.</p>
+        <div className="admin-empty">Nothing here.</div>
       ) : (
         <table className="admin-table">
           <thead>
@@ -138,9 +139,9 @@ export function CreditsPage() {
               <th>Requested by</th>
               <th>Merchant</th>
               <th>Reason</th>
-              <th>Base</th>
-              <th>Fee reversal</th>
-              <th>Posted total</th>
+              <th className="admin-num">Base</th>
+              <th className="admin-num">Fee reversal</th>
+              <th className="admin-num">Posted total</th>
               <th>Effective date</th>
               <th>Approved by</th>
               <th />
@@ -159,9 +160,11 @@ export function CreditsPage() {
                   {item.reasonCode}
                   {item.memo ? <div className="admin-muted">{item.memo}</div> : null}
                 </td>
-                <td>{bhd(item.baseAmountFils)}</td>
-                <td>{item.feeReversalFils > 0 ? bhd(item.feeReversalFils) : "-"}</td>
-                <td>
+                <td className="admin-num">{bhd(item.baseAmountFils)}</td>
+                <td className="admin-num">
+                  {item.feeReversalFils > 0 ? bhd(item.feeReversalFils) : "-"}
+                </td>
+                <td className="admin-num">
                   <strong>{bhd(item.postedAmountFils)}</strong>
                 </td>
                 <td>{item.effectiveDate}</td>
@@ -174,6 +177,7 @@ export function CreditsPage() {
                     >
                       <button
                         type="button"
+                        className="admin-btn-primary"
                         disabled={busyId === item.id}
                         onClick={() => void handleApprove(item.id)}
                       >
@@ -188,7 +192,7 @@ export function CreditsPage() {
                       </button>
                     </RequireRole>
                   ) : (
-                    item.status
+                    <StatusPill value={item.status} />
                   )}
                 </td>
               </tr>
@@ -213,6 +217,7 @@ export function CreditsPage() {
           </label>
           <button
             type="button"
+            className="admin-btn-danger"
             disabled={busyId === pendingReject}
             onClick={() => void handleReject(pendingReject)}
           >
@@ -220,6 +225,7 @@ export function CreditsPage() {
           </button>{" "}
           <button
             type="button"
+            className="admin-btn-ghost"
             onClick={() => {
               setPendingReject(null);
               setRejectReason("");

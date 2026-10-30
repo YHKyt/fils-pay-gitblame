@@ -3,6 +3,7 @@ import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { login, verifyOtp } from "../../api/auth.js";
 import { describeError } from "../../api/client.js";
 import { time } from "../../format.js";
+import { Brand } from "../../components/Brand.js";
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import type { AdminLoginResponse } from "../../types.js";
 
@@ -72,7 +73,7 @@ export function LoginPage() {
 
   return (
     <main className="admin-centered">
-      <h1>FilsPay Admin</h1>
+      <Brand />
       <p className="admin-muted">Internal operations console.</p>
 
       {error ? <p className="admin-error">{error}</p> : null}

@@ -5,6 +5,7 @@ import { recalculateMdr } from "../../api/mdrRecalculation.js";
 import { describeError } from "../../api/client.js";
 import { bahrainDate } from "../../format.js";
 import { RequireRole } from "../../auth/RequireRole.js";
+import { StatusPill } from "../../components/StatusPill.js";
 import type {
   AnalyticsRebuildSummary,
   BalanceRebuildSummary,
@@ -173,9 +174,9 @@ export function SettlementPage() {
                 <tr>
                   <th>Merchant</th>
                   <th>Batch</th>
-                  <th>Gross</th>
-                  <th>Fee</th>
-                  <th>Net payout</th>
+                  <th className="admin-num">Gross</th>
+                  <th className="admin-num">Fee</th>
+                  <th className="admin-num">Net payout</th>
                   <th>Already closed</th>
                   <th>Already paid</th>
                 </tr>
@@ -189,9 +190,9 @@ export function SettlementPage() {
                     <td>
                       <code>{outcome.batchId}</code>
                     </td>
-                    <td>{bhd(outcome.grossFils)}</td>
-                    <td>{bhd(outcome.feeFils)}</td>
-                    <td>{bhd(outcome.netPayoutFils)}</td>
+                    <td className="admin-num">{bhd(outcome.grossFils)}</td>
+                    <td className="admin-num">{bhd(outcome.feeFils)}</td>
+                    <td className="admin-num">{bhd(outcome.netPayoutFils)}</td>
                     <td>{outcome.alreadyClosed ? "yes" : "no"}</td>
                     <td>{outcome.alreadyPaid ? "yes" : "no"}</td>
                   </tr>
@@ -223,15 +224,25 @@ export function SettlementPage() {
               <strong>Rebuild balances for every merchant?</strong> This recalculates all cached
               payable balances and records the action in the admin audit log.
             </p>
-            <button type="button" disabled={rebuildBusy} onClick={() => void handleRebuild()}>
+            <button
+              type="button"
+              className="admin-btn-primary"
+              disabled={rebuildBusy}
+              onClick={() => void handleRebuild()}
+            >
               {rebuildBusy ? "Rebuilding..." : "Yes, rebuild all balances"}
             </button>{" "}
-            <button type="button" disabled={rebuildBusy} onClick={() => setConfirmingRebuild(false)}>
+            <button
+              type="button"
+              className="admin-btn-ghost"
+              disabled={rebuildBusy}
+              onClick={() => setConfirmingRebuild(false)}
+            >
               Cancel
             </button>
           </div>
         ) : (
-          <button type="button" onClick={() => setConfirmingRebuild(true)}>
+          <button type="button" className="admin-btn-primary" onClick={() => setConfirmingRebuild(true)}>
             Rebuild balances
           </button>
         )}
@@ -249,8 +260,8 @@ export function SettlementPage() {
               <thead>
                 <tr>
                   <th>Merchant</th>
-                  <th>Before</th>
-                  <th>After</th>
+                  <th className="admin-num">Before</th>
+                  <th className="admin-num">After</th>
                 </tr>
               </thead>
               <tbody>
@@ -259,8 +270,8 @@ export function SettlementPage() {
                     <td>
                       <code>{change.merchantId}</code>
                     </td>
-                    <td>{bhd(change.before)}</td>
-                    <td>{bhd(change.after)}</td>
+                    <td className="admin-num">{bhd(change.before)}</td>
+                    <td className="admin-num">{bhd(change.after)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -295,6 +306,7 @@ export function SettlementPage() {
             </p>
             <button
               type="button"
+              className="admin-btn-primary"
               disabled={analyticsBusy}
               onClick={() => void handleRebuildAnalytics()}
             >
@@ -302,6 +314,7 @@ export function SettlementPage() {
             </button>{" "}
             <button
               type="button"
+              className="admin-btn-ghost"
               disabled={analyticsBusy}
               onClick={() => setConfirmingAnalytics(false)}
             >
@@ -309,7 +322,7 @@ export function SettlementPage() {
             </button>
           </div>
         ) : (
-          <button type="button" onClick={() => setConfirmingAnalytics(true)}>
+          <button type="button" className="admin-btn-primary" onClick={() => setConfirmingAnalytics(true)}>
             Rebuild analytics
           </button>
         )}
@@ -378,19 +391,21 @@ export function SettlementPage() {
                 <tr>
                   <th>Batch date</th>
                   <th>Status</th>
-                  <th>Old fee</th>
-                  <th>New fee</th>
-                  <th>Difference</th>
+                  <th className="admin-num">Old fee</th>
+                  <th className="admin-num">New fee</th>
+                  <th className="admin-num">Difference</th>
                 </tr>
               </thead>
               <tbody>
                 {mdrAdjusted.map((adjustment) => (
                   <tr key={adjustment.batchId}>
                     <td>{adjustment.batchDate}</td>
-                    <td>{adjustment.status}</td>
-                    <td>{bhd(adjustment.oldFeeFils)}</td>
-                    <td>{bhd(adjustment.newFeeFils)}</td>
-                    <td>{bhd(adjustment.diffFils)}</td>
+                    <td>
+                      <StatusPill value={adjustment.status} />
+                    </td>
+                    <td className="admin-num">{bhd(adjustment.oldFeeFils)}</td>
+                    <td className="admin-num">{bhd(adjustment.newFeeFils)}</td>
+                    <td className="admin-num">{bhd(adjustment.diffFils)}</td>
                   </tr>
                 ))}
               </tbody>
