@@ -289,7 +289,7 @@ export async function getReconciliationReport(
   const windowStart = bahrainLocalMidnightUtc(input.from);
   const windowEnd = bahrainLocalMidnightUtc(input.to);
 
-  const [ledgerResult, settlementResult, pendingResult, refundResult, merchantResult] = await Promise.all([
+  const [ledgerResult, settlementResult, pendingResult, refundResult, merchantResult, correctionResult] = await Promise.all([
     // What the merchant earned in the window. Payout legs (the
     // merchant_payable debit PayoutBatch / PayoutSplitBatch pair with a
     // platform_cash credit) are excluded: they pay out what the batches below
@@ -355,6 +355,25 @@ export async function getReconciliationReport(
       `SELECT mdr_bps, negotiated_discount_bps FROM merchants WHERE id = $1`,
       [input.merchantId],
     ),
+    // Journaled corrections (admin credits, CSV imports and journaled
+    // balance adjustments) move merchant_payable with no transaction and are
+    // paid by the next close, which claims them in
+    // settlement_batch_corrections (0113). Until claimed they are pending
+    // like an unbatched capture; same selection as the settlement service's
+    // claimBatchCorrections. Without this every period with a correction
+    // reported a gap of exactly its amount.
+    pool.query<{ net: string }>(
+      `SELECT COALESCE(SUM(CASE WHEN le.direction = 'credit' THEN le.amount_fils ELSE -le.amount_fils END), 0) AS net
+         FROM ledger_entries le
+        WHERE le.merchant_id = $1 AND le.account_id = 'merchant_payable'
+          AND le.transaction_id IS NULL AND le.settlement_batch_id IS NULL
+          AND le.occurred_at >= $2 AND le.occurred_at < $3
+          AND EXISTS (SELECT 1 FROM ledger_entries c
+                       WHERE c.entry_group_id = le.entry_group_id
+                         AND c.account_id IN ('merchant_credit_contra', 'manual_balance_adjustment_contra'))
+          AND NOT EXISTS (SELECT 1 FROM settlement_batch_corrections s WHERE s.entry_group_id = le.entry_group_id)`,
+      [input.merchantId, windowStart, windowEnd],
+    ),
   ]);
 
   // The fee is the one capture.ts actually charged and journaled (recorded on
@@ -388,6 +407,7 @@ export async function getReconciliationReport(
       row.fee_reversed_fils !== null && row.fee_reversed_fils !== undefined ? Number(row.fee_reversed_fils) : 0;
     pendingUnbatchedFils += amountFils + feeReversedFils;
   }
+  pendingUnbatchedFils += Number(correctionResult.rows[0]?.net ?? 0);
 
   const ledgerMerchantPayableNetFils = Number(ledgerResult.rows[0]?.net ?? 0);
   const settlementNetPayoutFils = Number(settlementResult.rows[0]?.total ?? 0);

@@ -6,7 +6,7 @@
 // Usage: BASE_URL=https://<host> node ops/e2e/judge-suite.mjs
 // See ops/e2e/README.md for every environment variable.
 
-import { randomUUID, randomBytes, createHash } from "node:crypto";
+import { randomUUID, randomBytes, createHash, createHmac } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 
 const env = process.env;
@@ -22,6 +22,15 @@ const MERCHANT_B_NAME = env.MERCHANT_B_NAME ?? "Delta Wholesale Traders";
 const MERCHANT_B_EMAIL = env.MERCHANT_B_EMAIL ?? "owner@deltawholesale.example";
 const APPROVED_CARD = { pan: env.CARD_PAN ?? "4000000000000010", expiryMonth: 12, expiryYear: 2030, cvv: "123" };
 const VERBOSE = env.VERBOSE === "1";
+const SUPPORT_ADMIN_EMAIL = env.SUPPORT_ADMIN_EMAIL ?? "support@filspay.test";
+const TEST_MERCHANT_NAME = env.TEST_MERCHANT_NAME ?? "Gamma Hospitality Group";
+// Production only accepts public https webhook URLs. Deliveries to this one
+// fail (405), but each attempt is still recorded with its payload and
+// signature, which is all the signature check needs.
+const WEBHOOK_TEST_URL = env.WEBHOOK_TEST_URL ?? "https://example.com/filspay-judge-suite";
+// Only when the operator knows the acquirer secret (local stacks): enables
+// the signed-callback half of the FP-201 check.
+const ACQUIRER_SECRET = env.ACQUIRER_CALLBACK_SIGNING_SECRET?.split(",")[0]?.trim();
 
 // ---------------------------------------------------------------- reporting
 const results = [];
@@ -161,6 +170,18 @@ async function merchantLogin(client, merchantId, email, password) {
   must(`merchant otp/verify -> 200 (otp via ${otp.via})`, v.status === 200 && v.body?.merchantId === merchantId, v);
   const me = await client.req("GET", "/v1/auth/me");
   check("GET /v1/auth/me -> 200 same merchant", me.status === 200 && JSON.stringify(me.body).includes(merchantId), me);
+  return otp.code;
+}
+
+/** Like adminLogin, but a missing OTP or a refused login skips the caller's
+ *  checks instead of aborting the whole run. */
+async function tryAdminLogin(client, email, password) {
+  const login = await client.req("POST", "/v1/admin/auth/login", { body: { email, password } });
+  if (login.status !== 200 || login.body?.otpRequired !== true) return false;
+  const otp = await obtainOtp("admin", login.body, { email });
+  if (!otp) return false;
+  const v = await client.req("POST", "/v1/admin/auth/otp/verify", { body: { code: otp.code } });
+  return v.status === 200;
 }
 
 // ---------------------------------------------------------------- helpers
@@ -217,6 +238,384 @@ async function refund(client, merchantId, transactionId, amountFils, key = idem(
   });
 }
 
+/** Round-half-even integer division, the rounding packages/money uses. */
+function divHalfEven(n, d) {
+  const q = Math.floor(n / d);
+  const r = n - q * d;
+  if (2 * r > d) return q + 1;
+  if (2 * r < d) return q;
+  return q % 2 === 0 ? q : q + 1;
+}
+/** Webhook signature check a merchant would run: HMAC-SHA256 over
+ *  `${t}.${body}`, header "t=<unix>,v1=<hex>" (webhooks/sign.ts). */
+function verifyWebhookSignature(body, header, secret) {
+  const parts = Object.fromEntries(String(header ?? "").split(",").map((p) => p.trim().split("=")));
+  if (!parts.t || !parts.v1) return { ok: false, why: "malformed header" };
+  const expected = createHmac("sha256", secret).update(`${parts.t}.${body}`).digest("hex");
+  return { ok: expected === parts.v1, t: Number(parts.t), why: expected === parts.v1 ? undefined : "mismatch" };
+}
+function signAcquirerBody(body, secret, t = Math.floor(Date.now() / 1000)) {
+  return `t=${t},v1=${createHmac("sha256", secret).update(`${t}.${body}`).digest("hex")}`;
+}
+async function adminBalance(admin, merchantId) {
+  const r = await admin.req("GET", `/v1/admin/merchants/${merchantId}`);
+  return r.body?.balance?.cachedPayableFils;
+}
+async function dbQuery(sql, params) {
+  const pool = await dbPool();
+  return pool ? (await pool.query(sql, params)).rows : null;
+}
+/** Polls an endpoint's deliveries until `pick` finds one (or ~30 s pass). */
+async function waitForDelivery(client, merchantId, endpointId, pick) {
+  for (let i = 0; i < 30; i++) {
+    const list = await client.req("GET", `/v1/merchants/${merchantId}/webhook-endpoints/${endpointId}/deliveries?limit=100`);
+    const found = (list.body?.deliveries ?? []).filter((d) => d.signature !== undefined || d.id);
+    for (const d of found) {
+      const detail = await client.req("GET", `/v1/merchants/${merchantId}/webhook-endpoints/${endpointId}/deliveries/${d.id}`);
+      if (detail.status === 200 && detail.body?.signature && pick(detail.body)) return detail.body;
+    }
+    await sleep(1_000);
+  }
+  return null;
+}
+
+/**
+ * One black-box check per case-file item (Evidence 01 FP-300 "done when",
+ * Evidence 02 finance memo, Evidence 03 incident log and the handwritten
+ * list). Each check name starts with the item it covers.
+ */
+async function caseFileChecks({ admin, a, apiA, apiB, b, mA, mB, rows, txId, amount, aOtpCode }) {
+  const today = bahrainDate(0);
+  const tomorrow = bahrainDate(1);
+  const yesterday = bahrainDate(-1);
+  const uniq = Date.now();
+
+  // ------------------------------------------------------------ finance memo
+  section("case file: finance memo");
+
+  // Balance cache (FP-203): rebuild, then a journaled CSV adjustment moves the
+  // cache incrementally; a second rebuild from the ledger must agree with it.
+  const rb1 = await admin.req("POST", "/v1/admin/balances/rebuild");
+  check("memo/FP-203 POST /v1/admin/balances/rebuild -> 200", rb1.status === 200, rb1);
+  const balBefore = await adminBalance(admin, mA.id);
+
+  // CSV import: "4.755 BD showed 4.750; 4.75 BD showed 0.475".
+  const csv = `merchantId,amount,reason\n${mA.id},4.755,judge-${uniq}-a\n${mA.id},4.75,judge-${uniq}-b\n`;
+  const imp = await admin.req("POST", "/v1/admin/adjustment-imports", { body: { csvContent: csv, originalFilename: `judge-${uniq}.csv` } });
+  check("memo CSV import 4.755 + 4.75 BD -> 201 posted, total 9505 fils", imp.status === 201 && imp.body?.totalPostedFils === 9_505 && imp.body?.status === "posted", imp);
+  if (imp.status === 201) {
+    const impRows = await admin.req("GET", `/v1/admin/adjustment-imports/${imp.body.importId}/rows`);
+    const parsed = (impRows.body?.rows ?? []).map((r) => r.parsedAmountFils);
+    check("memo CSV row 4.755 BD -> 4755 fils", parsed[0] === 4_755, impRows.body);
+    check("memo CSV row 4.75 BD -> 4750 fils (not 475)", parsed[1] === 4_750, impRows.body);
+    const dup = await admin.req("POST", "/v1/admin/adjustment-imports", { body: { csvContent: csv, originalFilename: `judge-${uniq}.csv` } });
+    check("memo CSV re-upload of the same file -> 409, posted once", dup.status === 409, dup);
+  }
+  const badAmount = await admin.req("POST", "/v1/admin/adjustment-imports", {
+    body: { csvContent: `merchantId,amount,reason\n${mA.id},4.7555,judge-${uniq}-c\n` },
+  });
+  check("memo CSV amount with 4 decimals -> 400, nothing posted", badAmount.status === 400, badAmount);
+  const balAfter = await adminBalance(admin, mA.id);
+  check("memo CSV import moves the cached balance by exactly +9505", isFils(balBefore) && balAfter - balBefore === 9_505, { balBefore, balAfter });
+  const rb2 = await admin.req("POST", "/v1/admin/balances/rebuild");
+  const changedA = (rb2.body?.changed ?? []).find((c) => c.merchantId === mA.id);
+  check("memo/FP-203 rebuild from the ledger agrees with the cache (A unchanged)", rb2.status === 200 && !changedA, changedA ?? rb2.status);
+
+  // Fee shown vs fee charged: 245 bps (backfill) vs 225 bps (in force).
+  const detailA = await admin.req("GET", `/v1/admin/merchants/${mA.id}`);
+  const shownBps = detailA.body?.currentFeeSchedule?.mdrBps ?? detailA.body?.merchant?.mdrBps;
+  const events = await apiA.req("GET", `/v1/transactions/${txId}/events`);
+  const capEv = (Array.isArray(events.body) ? events.body : events.body?.events ?? []).find((e) => e.eventType === "captured");
+  const chargedFee = capEv?.metadata?.feeFils;
+  if (capEv?.metadata?.discountBps) skip("memo fee shown = fee charged", "merchant has a negotiated discount");
+  else
+    check(
+      `memo fee shown (${shownBps} bps) = fee charged on a new capture`,
+      isFils(chargedFee) && chargedFee === divHalfEven(amount * shownBps, 10_000),
+      { shownBps, chargedFee, amount },
+    );
+
+  // MDR recalculation must never change a paid batch.
+  const paidBefore = ((await apiA.req("GET", "/v1/settlement/batches?limit=100")).body?.batches ?? []).filter((x) => x.status === "paid");
+  const recalc = await admin.req("POST", `/v1/admin/merchants/${mA.id}/mdr-recalculation`, { body: { from: bahrainDate(-120), to: today } });
+  check("memo MDR recalculation over seeded history -> 200", recalc.status === 200, recalc);
+  if (recalc.status === 200) {
+    const paidIds = new Set(paidBefore.map((x) => x.id));
+    const touchedPaid = (recalc.body?.adjusted ?? []).filter((x) => paidIds.has(x.batchId ?? x.BatchID ?? x.id));
+    check("memo MDR recalculation adjusts no paid batch", touchedPaid.length === 0, touchedPaid);
+    const after = new Map(((await apiA.req("GET", "/v1/settlement/batches?limit=100")).body?.batches ?? []).map((x) => [x.id, x]));
+    const moved = paidBefore.filter((x) => {
+      const y = after.get(x.id);
+      return !y || y.feeFils !== x.feeFils || y.netPayoutFils !== x.netPayoutFils || y.status !== "paid";
+    });
+    check("memo paid batches keep fee and net after MDR recalculation", moved.length === 0, moved.slice(0, 3));
+  }
+
+  // Test merchants never settle, whatever admin tool runs.
+  const testM = rows.find((m) => (m.displayName ?? m.name) === TEST_MERCHANT_NAME && (m.testMode ?? m.test_mode));
+  if (!testM) skip("memo test merchant never settled", `no test-mode merchant named "${TEST_MERCHANT_NAME}"`);
+  else {
+    const runAll = await admin.req("POST", "/v1/admin/settlement/run-batch", { body: { date: yesterday } });
+    check("memo full run-batch for yesterday -> 200", runAll.status === 200, runAll);
+    const inRun = (runAll.body?.merchantResults ?? []).filter((r) => JSON.stringify(r).includes(testM.id));
+    check("memo full run-batch leaves the test merchant out", inRun.length === 0, inRun);
+    const runTest = await admin.req("POST", "/v1/admin/settlement/run-batch", { body: { date: yesterday, merchantId: testM.id } });
+    check("memo run-batch for the test merchant settles nothing", runTest.status !== 200 || (runTest.body?.merchantResults ?? []).length === 0, runTest);
+    const recalcTest = await admin.req("POST", `/v1/admin/merchants/${testM.id}/mdr-recalculation`, { body: { from: bahrainDate(-120), to: today } });
+    check("memo MDR recalculation on the test merchant -> not 5xx", recalcTest.status < 500, recalcTest);
+    const tDetail = await admin.req("GET", `/v1/admin/merchants/${testM.id}`);
+    const settled = (tDetail.body?.recentSettlementBatches ?? []).filter((x) => x.status !== "open" && x.grossFils !== 0);
+    check("memo test merchant has no closed or paid batch with money in it", tDetail.status === 200 && settled.length === 0, settled);
+  }
+
+  // Daily close at Bahrain midnight: today's capture belongs to today's
+  // Asia/Bahrain business day, and today cannot be closed yet.
+  const sumToday = await apiA.req("GET", `/v1/settlement/summary?from=${today}&to=${tomorrow}`);
+  check(`memo capture made now counts in Bahrain business day ${today}`, sumToday.status === 200 && sumToday.body?.totalCapturedFils >= amount, sumToday.body);
+
+  // "Login works without entering the OTP code?"
+  const o = newClient("otp");
+  const ol = await o.req("POST", "/v1/auth/login", { body: { merchantId: mA.id, email: MERCHANT_A_EMAIL, password: MERCHANT_PASSWORD } });
+  check("memo login -> 200 otpRequired, no session yet", ol.status === 200 && ol.body?.otpRequired === true, ol);
+  for (const p of [`/v1/merchants/${mA.id}/payment-links`, `/v1/merchants/${mA.id}/api-keys`, "/v1/settlement/batches"]) {
+    const r = await o.req("GET", p);
+    check(`memo password-only session -> 401 on GET ${p}`, r.status === 401, r.status);
+  }
+  const reuse = await o.req("POST", "/v1/auth/otp/verify", { body: { code: aOtpCode } });
+  check("memo OTP: a code already used for an earlier login -> rejected", reuse.status === 401 || reuse.status === 429, reuse);
+  // The reused code above already spent one attempt of the challenge's budget.
+  const wrong = [];
+  for (let i = 0; i < 6; i++) wrong.push((await o.req("POST", "/v1/auth/otp/verify", { body: { code: String(100000 + i) } })).status);
+  const after = await o.req("GET", "/v1/transactions?limit=1");
+  check(
+    "memo OTP: wrong codes -> 401 until the attempt limit, then 429; never a session",
+    wrong.every((s) => s === 401 || s === 429) && wrong.includes(429) && after.status === 401,
+    { wrong, after: after.status },
+  );
+  const noPending = await newClient("x").req("POST", "/v1/auth/otp/verify", { body: { code: "123456" } });
+  check("memo OTP verify without a pending login -> 401", noPending.status === 401, noPending);
+
+  // "I cancelled merchant B's payment link from merchant A's dashboard."
+  const victim = await createLink(apiA, mA.id, 2_500);
+  if (victim.status === 201) {
+    const c1 = await b.req("DELETE", `/v1/merchants/${mA.id}/payment-links/${victim.body.id}`);
+    check("memo B's session cancels A's link via A's path -> 403/404", c1.status === 403 || c1.status === 404, c1.status);
+    const c2 = await apiB.req("DELETE", `/v1/merchants/${mB.id}/payment-links/${victim.body.id}`);
+    check("memo B's API key cancels A's link via B's path -> 404", c2.status === 404, c2.status);
+    const still = await anon.req("GET", `/v1/payment-links/${victim.body.token}`);
+    check("memo A's link is still active after B's attempts", still.status === 200 && still.body?.status === "active", still.body);
+    const own = await apiA.req("DELETE", `/v1/merchants/${mA.id}/payment-links/${victim.body.id}`);
+    check("memo A cancels its own link -> 204", own.status === 204 || own.status === 200, own);
+    const payCanceled = await anon.req("POST", `/v1/payment-links/${victim.body.token}/pay`, { body: { card: APPROVED_CARD }, headers: { "idempotency-key": idem() } });
+    check("memo paying a canceled link -> 4xx, no charge", payCanceled.status >= 400 && payCanceled.status < 500, payCanceled);
+  } else check("setup: link for the cancel check", false, victim);
+
+  // ------------------------------------------------------------ incident log
+  section("case file: incident log");
+
+  // INCIDENT 2026-05-14: several buyers on one link at once -> one charge.
+  const raceLink = await createLink(apiA, mA.id, 4_200);
+  if (raceLink.status === 201) {
+    const racers = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        anon.req("POST", `/v1/payment-links/${raceLink.body.token}/pay`, { body: { card: APPROVED_CARD }, headers: { "idempotency-key": idem() } }),
+      ),
+    );
+    const winners = racers.filter((r) => r.status === 200);
+    check("incident 2026-05-14 5 concurrent pays of one link -> exactly one 200", winners.length === 1, racers.map((r) => r.status));
+    check("incident 2026-05-14 the losers get 4xx, not 5xx", racers.every((r) => r.status < 500), racers.map((r) => [r.status, r.body?.error]));
+    const linkNow = await apiA.req("GET", `/v1/merchants/${mA.id}/payment-links/${raceLink.body.id}`);
+    check("incident 2026-05-14 the link records the winning transaction", linkNow.body?.transactionId === winners[0]?.body?.transactionId, linkNow.body);
+    const caps = await dbQuery(
+      `SELECT count(*)::int AS n FROM transactions t JOIN payment_links pl ON pl.reference = t.reference AND pl.merchant_id = t.merchant_id
+        WHERE pl.id = $1 AND t.status IN ('captured','partially_refunded','refunded')`,
+      [raceLink.body.id],
+    ).catch(() => null);
+    if (caps) check("incident 2026-05-14 (DB) one captured transaction for the link", caps[0].n === 1, caps);
+  } else check("setup: link for the double-pay race", false, raceLink);
+
+  // FP-201: the acquirer callback is authenticated and idempotent.
+  const cbBody = JSON.stringify({
+    callbackId: `cb-judge-${uniq}`,
+    type: "fraud_review.completed",
+    transactionId: txId,
+    occurredAt: new Date().toISOString(),
+    outcome: "cleared",
+    note: "judge suite",
+  });
+  const cbPost = (headers) =>
+    fetch(`${BASE_URL}/v1/acquirer/callbacks`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: cbBody }).then((r) => r.status);
+  check("FP-201 unsigned acquirer callback -> 401", (await cbPost({})) === 401);
+  check("FP-201 callback with a forged signature -> 401", (await cbPost({ "acquirer-callback-signature": signAcquirerBody(cbBody, "not-the-secret") })) === 401);
+  if (ACQUIRER_SECRET) {
+    const stale = await cbPost({ "acquirer-callback-signature": signAcquirerBody(cbBody, ACQUIRER_SECRET, Math.floor(Date.now() / 1000) - 3_600) });
+    check("FP-201 correctly signed but 1 h old callback -> 401", stale === 401, stale);
+    const s1 = await cbPost({ "acquirer-callback-signature": signAcquirerBody(cbBody, ACQUIRER_SECRET) });
+    const s2 = await cbPost({ "acquirer-callback-signature": signAcquirerBody(cbBody, ACQUIRER_SECRET) });
+    check("FP-201 the same signed callback twice -> 200 both times", s1 === 200 && s2 === 200, [s1, s2]);
+    const notes = await dbQuery(`SELECT count(*)::int AS n FROM acquirer_callback_notes WHERE callback_id = $1`, [`cb-judge-${uniq}`]);
+    if (notes) check("FP-201 (DB) the redelivered callback saved one note", notes[0].n === 1, notes);
+  } else skip("FP-201 signed callback twice -> one note", "set ACQUIRER_CALLBACK_SIGNING_SECRET (local stacks)");
+
+  // FP-240: the webhook signature verifies over the exact body.
+  const ep = await a.req("POST", `/v1/merchants/${mA.id}/webhook-endpoints`, { body: { url: WEBHOOK_TEST_URL } });
+  const whSecret = ep.body?.secret;
+  check("FP-240 create webhook endpoint -> 201 with its secret once", ep.status === 201 && typeof whSecret === "string", ep);
+
+  // ------------------------------------------------------- FP-300 refunds
+  section("case file: FP-300 refunds end to end");
+  const fp = await paidTransaction(apiA, mA.id, 3_000);
+  if (fp.pay?.status === 200 && whSecret) {
+    const fTx = fp.pay.body.transactionId;
+    const capEvents = (await apiA.req("GET", `/v1/transactions/${fTx}/events`)).body ?? [];
+    const fee = (Array.isArray(capEvents) ? capEvents : []).find((e) => e.eventType === "captured")?.metadata?.feeFils;
+    const parts = [];
+    for (const amt of [1_000, 1_000, 1_000]) parts.push(await refund(apiA, mA.id, fTx, amt));
+    check("FP-300 three 1000-fils refunds of 3000 -> 200 each", parts.every((r) => r.status === 200), parts.map((r) => [r.status, r.body?.error]));
+    const reversed = parts.map((r) => r.body?.feeReversedFils);
+    check("FP-300 first refund reverses the pro-rata fee (half-even)", isFils(fee) && reversed[0] === divHalfEven(fee * 1_000, 3_000), { fee, reversed });
+    check("FP-300 fee reversals of a full refund add up to the whole fee", isFils(fee) && reversed.reduce((s, v) => s + v, 0) === fee, { fee, reversed });
+    const more = await refund(apiA, mA.id, fTx, 1);
+    check("FP-300 refund after a full refund -> 409/422, nothing refunded", more.status === 409 || more.status === 422, more);
+    check("FP-300 refund error body uses the uniform { error, message } shape", typeof more.body?.error === "string", more.body);
+    const fTxNow = await apiA.req("GET", `/v1/transactions/${fTx}`);
+    check("FP-300 transaction is refunded with refundedFils = capturedFils", fTxNow.body?.status === "refunded" && fTxNow.body?.refundedFils === 3_000, fTxNow.body);
+    const tl = (await apiA.req("GET", `/v1/transactions/${fTx}/events`)).body ?? [];
+    const refundEvents = (Array.isArray(tl) ? tl : []).filter((e) => e.eventType === "refunded" || e.eventType === "refund_partial");
+    check(
+      "FP-300 timeline: one refund event per refund, amounts sum to -3000",
+      refundEvents.length === 3 && refundEvents.reduce((s, e) => s + e.amountFils, 0) === -3_000,
+      refundEvents.map((e) => [e.eventType, e.amountFils]),
+    );
+    const lastRefundId = parts[2]?.body?.id;
+    const delivery = await waitForDelivery(a, mA.id, ep.body.id, (d) => d.eventType === "refund.succeeded" && d.payload?.data?.refundId === lastRefundId);
+    check("FP-300/FP-240 the shop gets a refund.succeeded webhook", Boolean(delivery), lastRefundId);
+    if (delivery) {
+      const data = delivery.payload.data;
+      check(
+        "FP-300 webhook carries the refund amount, fee reversal and new status",
+        data.amountFils === 1_000 && data.feeReversedFils === reversed[2] && data.status === "refunded" && data.transactionId === fTx,
+        data,
+      );
+      const v = verifyWebhookSignature(JSON.stringify(delivery.payload), delivery.signature, whSecret);
+      check("FP-240 webhook signature verifies over the exact body with the endpoint secret", v.ok, { why: v.why, signature: delivery.signature });
+      check("FP-240 signature timestamp is current (within 5 min of the attempt)", v.ok && Math.abs(v.t * 1000 - Date.parse(delivery.lastAttemptedAt ?? delivery.createdAt)) < 300_000, v);
+    }
+    const rep = await apiA.req("GET", "/v1/reporting/transactions?limit=50");
+    const repRow = (Array.isArray(rep.body) ? rep.body : rep.body?.transactions ?? []).find((r) => r.id === fTx);
+    check("FP-300 reports: transaction listed as refunded", repRow?.status === "refunded", repRow ?? rep.status);
+    let vol;
+    for (let i = 0; i < 15; i++) {
+      vol = await apiA.req("GET", `/v1/analytics/volumes?from=${today}&to=${tomorrow}`);
+      if ((vol.body?.points ?? []).some((p) => p.refundGrossFils >= 3_000)) break;
+      await sleep(1_000);
+    }
+    check("FP-300 reports: today's analytics show the refunds", (vol.body?.points ?? []).some((p) => p.refundCount >= 3 && p.refundGrossFils >= 3_000), vol.body);
+    const rec = await apiA.req("GET", `/v1/settlement/reconciliation?from=${today}&to=${tomorrow}`);
+    check("FP-300 reconciliation for today explains to zero after refunds and adjustments", rec.status === 200 && rec.body?.explained === true && rec.body?.gapFils === 0, rec.body);
+  } else check("setup: paid transaction + webhook endpoint for FP-300", false, fp.pay ?? fp.link);
+
+  // INCIDENT 2026-08-21: one payout notification per payout.
+  const disb = await dbQuery(
+    `SELECT settlement_batch_id, count(*)::int AS n FROM settlement_payout_disbursements GROUP BY 1 HAVING count(*) > 1`,
+  ).catch(() => null);
+  if (disb) check("incident 2026-08-21 (DB) at most one payout disbursement per batch", disb.length === 0, disb);
+  const paidEvents = await dbQuery(
+    `SELECT aggregate_id, count(*)::int AS n FROM outbox_events WHERE event_type = 'settlement.paid' GROUP BY 1 HAVING count(*) > 1`,
+  ).catch(() => null);
+  if (paidEvents) check("incident 2026-08-21 (DB) at most one settlement.paid event per batch", paidEvents.length === 0, paidEvents);
+  if (!disb && !paidEvents) skip("incident 2026-08-21 duplicate payout notifications", "needs DATABASE_URL (no HTTP view of payout events)");
+
+  // ------------------------------------------------------- handwritten list
+  section("case file: handwritten list");
+
+  // "can you refund more than what was actually charged?"
+  const capOnly = await paidTransaction(apiA, mA.id, 1_500);
+  if (capOnly.pay?.status === 200) {
+    const over = await refund(apiA, mA.id, capOnly.pay.body.transactionId, 1_501);
+    check("note refund of captured + 1 fils -> 422 refund_exceeds_refundable", over.status === 422, over);
+    const full = await refund(apiA, mA.id, capOnly.pay.body.transactionId);
+    check("note refund without amount refunds exactly the captured amount", full.status === 200 && full.body?.amountFils === 1_500, full.body);
+  }
+
+  // "the settlement splits are always a few fils short"
+  const splits = await dbQuery(
+    `SELECT sb.id, sb.net_payout_fils, SUM(s.allocated_fils)::bigint AS allocated
+       FROM settlement_batches sb JOIN settlement_batch_splits s ON s.settlement_batch_id = sb.id
+      GROUP BY sb.id, sb.net_payout_fils HAVING SUM(s.allocated_fils) <> sb.net_payout_fils`,
+  ).catch(() => null);
+  if (splits) check("note (DB) every split batch: child payouts add up to the parent net", splits.length === 0, splits.slice(0, 3));
+  else skip("note split payouts add up", "needs DATABASE_URL (splits have no HTTP view)");
+
+  // "some admin actions don't seem to have the right role checks"
+  const sup = newClient("support");
+  if (await tryAdminLogin(sup, SUPPORT_ADMIN_EMAIL, ADMIN_PASSWORD)) {
+    const denied = [
+      ["POST", "/v1/admin/settlement/run-batch", { date: yesterday }],
+      ["POST", "/v1/admin/balances/rebuild", {}],
+      ["POST", "/v1/admin/reporting/rebuild", {}],
+      ["POST", "/v1/admin/adjustment-imports", { csvContent: `merchantId,amount,reason\n${mA.id},1.000,judge-${uniq}-s` }],
+      ["POST", `/v1/admin/merchants/${mA.id}/mdr-recalculation`, { from: yesterday, to: today }],
+      ["POST", `/v1/admin/merchants/${mA.id}/balance-adjustments`, { amountFils: 1, reason: "judge" }],
+      // Requesting a credit is open to any admin (maker); approving is not.
+      ["POST", `/v1/admin/credits/${randomUUID()}/approve`, {}],
+      ["POST", `/v1/admin/adjustment-imports/${randomUUID()}/approve`, {}],
+      ["POST", `/v1/admin/merchants/${mA.id}/api-keys/${randomUUID()}/rotate`, {}],
+    ];
+    for (const [m, p, body] of denied) {
+      const r = await sup.req(m, p, { body, headers: { "idempotency-key": idem() } });
+      check(`note support admin ${m} ${p} -> 403`, r.status === 403, r);
+    }
+    const imp2 = await sup.req("POST", `/v1/admin/merchants/${mA.id}/impersonate`);
+    if (imp2.status === 201) {
+      const w1 = await sup.req("POST", `/v1/merchants/${mA.id}/payment-links`, { body: { amountFils: 1_000, reference: "imp", expiresAt: new Date(Date.now() + 3600_000).toISOString() } });
+      check("note impersonation is read-only: create link -> 403", w1.status === 403, w1);
+      const w2 = await sup.req("POST", `/v1/merchants/${mA.id}/refunds`, { body: { transactionId: txId, amountFils: 1 }, headers: { "idempotency-key": idem() } });
+      check("note impersonation is read-only: refund -> 403", w2.status === 403, w2);
+      const w3 = await sup.req("POST", `/v1/merchants/${mA.id}/api-keys`, { body: { label: "imp" } });
+      check("note impersonation is read-only: issue API key -> 401/403", w3.status === 403 || w3.status === 401, w3);
+      await sup.req("POST", `/v1/admin/impersonation/${imp2.body.grantId}/end`);
+    } else check("note support admin can start a read-only impersonation", false, imp2);
+  } else skip("note admin role checks", `could not log in ${SUPPORT_ADMIN_EMAIL} (set ADMIN_PASSWORD / DATABASE_URL)`);
+
+  // "there's a key rotation flow that doesn't do what you'd expect"
+  const k = await a.req("POST", `/v1/merchants/${mA.id}/api-keys`, { body: { label: `rotate-${uniq}` } });
+  if (k.status === 201) {
+    const rot = await admin.req("POST", `/v1/admin/merchants/${mA.id}/api-keys/${k.body.id}/rotate`, { body: { label: `rotated-${uniq}` } });
+    check("note admin rotates an API key -> 201 new rawKey", rot.status === 201 && typeof rot.body?.rawKey === "string" && rot.body.rawKey !== k.body.rawKey, rot.status);
+    const oldUse = await anon.req("GET", "/v1/transactions?limit=1", { bearer: k.body.rawKey });
+    check("note the rotated-out key stops working -> 401", oldUse.status === 401, oldUse.status);
+    if (rot.status === 201) {
+      const newUse = await anon.req("GET", "/v1/transactions?limit=1", { bearer: rot.body.rawKey });
+      check("note the new key works -> 200", newUse.status === 200, newUse.status);
+      const del = await a.req("DELETE", `/v1/merchants/${mA.id}/api-keys/${rot.body.id}`);
+      const afterDel = await anon.req("GET", "/v1/transactions?limit=1", { bearer: rot.body.rawKey });
+      check("note a revoked key stops working at once -> 401", (del.status === 204 || del.status === 200) && afterDel.status === 401, [del.status, afterDel.status]);
+    }
+  }
+
+  // "one of the reporting queries is suspiciously slow"
+  for (const p of [
+    `/v1/settlement/summary?from=${bahrainDate(-120)}&to=${tomorrow}`,
+    "/v1/reporting/transactions?limit=100",
+    "/v1/reporting/export-summary",
+    `/v1/settlement/reconciliation?from=${bahrainDate(-120)}&to=${tomorrow}`,
+    `/v1/analytics/volumes?from=${bahrainDate(-120)}&to=${tomorrow}`,
+  ]) {
+    const t0 = Date.now();
+    const r = await apiA.req("GET", p);
+    const ms = Date.now() - t0;
+    check(`note GET ${p.split("?")[0]} -> 200 in under 2 s (${ms} ms)`, r.status === 200 && ms < 2_000, { status: r.status, ms });
+  }
+
+  // "has anyone tried uploading a really large export?"
+  const big = `merchantId,amount,reason\n${`${mA.id},0.001,${"x".repeat(100)}\n`.repeat(120_000)}`;
+  const tooBig = await admin.req("POST", "/v1/admin/adjustment-imports", { body: { csvContent: big } });
+  check(`note ${Math.round(big.length / 1e6)} MB CSV upload -> 413, not 5xx`, tooBig.status === 413, tooBig.status);
+  const exp = await apiA.req("GET", "/v1/transactions/export");
+  check("note transaction export -> 200", exp.status === 200, exp.status);
+}
+
 // ------------------------------------------------------------------- run
 async function main() {
   console.log(`FilsPay judge suite against ${BASE_URL}`);
@@ -261,7 +660,7 @@ async function main() {
 
   section("merchant login + API key");
   const a = newClient("A");
-  await merchantLogin(a, mA.id, MERCHANT_A_EMAIL, MERCHANT_PASSWORD);
+  const aOtpCode = await merchantLogin(a, mA.id, MERCHANT_A_EMAIL, MERCHANT_PASSWORD);
   const key = await a.req("POST", `/v1/merchants/${mA.id}/api-keys`, { body: { label: "judge-suite" } });
   must("POST /v1/merchants/:id/api-keys -> 201 rawKey", key.status === 201 && typeof key.body?.rawKey === "string", key.status);
   const keys = await a.req("GET", `/v1/merchants/${mA.id}/api-keys`);
@@ -409,6 +808,8 @@ async function main() {
   } else skip("B reads A's settlement batch", "A has no batches");
   const xAdmin = await apiA.req("GET", "/v1/admin/merchants");
   check("merchant API key on the admin plane -> 401/403", xAdmin.status === 401 || xAdmin.status === 403, xAdmin.status);
+
+  await caseFileChecks({ admin, a, apiA, apiB, b, mA, mB, rows, txId, amount, aOtpCode });
 
   section("settlement close + money integrity");
   const today = bahrainDate(0);
