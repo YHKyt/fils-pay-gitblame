@@ -91,3 +91,13 @@ regression test that fails on the old code and passes on the fix.
 - **Breaks:** That capture is stranded: never in any batch, never paid out.
 - **Fix:** Require the day to have ended at least 2 minutes ago (`BusinessDayCloseGrace` in Go, `BUSINESS_DAY_CLOSE_GRACE_MS` in the API; the daemon already waits 15 minutes by default). The test case that asserted "exactly midnight is allowed" now asserts refusal.
 - **Test:** Go table cases at midnight, grace minus 1 ns and grace; a TS unit test on the extracted date helper.
+
+## FX9 Compose kills the settlement daemon mid-drain; hosted links default to localhost — LOW (ops)
+
+**Where:** `ops/docker-compose.yml` (settlement service, api `CHECKOUT_BASE_URL`), `ops/.env.example`, `ops/README.md`.
+**Evidence:** `docker compose config` on the old file: no `stop_grace_period` on settlement (compose default 10 s), and with `CHECKOUT_BASE_URL` unset the api silently gets `http://localhost:8080`. On the new file the same command refuses with "required variable CHECKOUT_BASE_URL is missing a value: set in ops/.env"; with `.env.example` copied it resolves to `http://localhost:8080` and shows `stop_grace_period: 40s`.
+
+- **What / Why:** `cmd/settlement/main.go` drains an in-flight admin request for up to 30 s on SIGTERM, but compose SIGKILLs after 10 s, so a redeploy during a manual batch kills it mid-run. A forgotten `CHECKOUT_BASE_URL` on the hosted box produced payment links pointing at `localhost` with no error.
+- **Breaks:** Interrupted batches on redeploy; customers of the hosted demo get links they cannot open.
+- **Fix:** `stop_grace_period: 40s` on settlement; `CHECKOUT_BASE_URL` uses `:?` like the secrets, and `.env.example` now sets the local value so a local `cp ops/.env.example ops/.env` keeps working.
+- **Test:** The `docker compose config` runs above (no code path to unit test).

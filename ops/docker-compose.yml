@@ -102,8 +102,10 @@ services:
       DATABASE_URL: *database-url
       SETTLEMENT_INTERNAL_URL: http://settlement:8091
       # Public origin of the `web` service below, no trailing slash; every
-      # payment link's `url` is built from it.
-      CHECKOUT_BASE_URL: ${CHECKOUT_BASE_URL:-http://localhost:8080}
+      # payment link's `url` is built from it. Required: a silent localhost
+      # default sent customers of the hosted box links they cannot open.
+      # ops/.env.example sets http://localhost:8080 for a local stack.
+      CHECKOUT_BASE_URL: ${CHECKOUT_BASE_URL:?set in ops/.env}
       # The acquirer simulator randomly declines this fraction of approved
       # cards (code default 0.02). 0 on this stack so demos and automated
       # tests are deterministic; set it in ops/.env to exercise failures.
@@ -143,6 +145,9 @@ services:
     # `daemon` exits at boot without SETTLEMENT_INTERNAL_TOKEN (there is no
     # dev-token fallback). It must equal the api's value.
     command: ["./settlement", "daemon"]
+    # The daemon drains an in-flight admin request for up to 30 s on SIGTERM.
+    # Compose's default 10 s would SIGKILL it mid-batch.
+    stop_grace_period: 40s
     mem_limit: 128m
     restart: unless-stopped
     environment:
