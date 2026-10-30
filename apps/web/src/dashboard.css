@@ -355,7 +355,8 @@
 }
 @media (max-width: 960px) {
   .dash-split {
-    grid-template-columns: 1fr;
+    /* minmax(0, …): a wide timeline table must not stretch the column past the screen. */
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -1556,6 +1557,17 @@ footer.dash-main {
   /* Keep cells on one line so the wrapper scrolls them rather than wrapping
      into an unreadable stack. */
   .dash-tablewrap .dash-table {
+    white-space: nowrap;
+  }
+  /* Long values (acquirer refs, checkout URLs, ids) wrap. */
+  .dash-dl dd {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  /* A table not inside .dash-tablewrap scrolls itself instead of widening the page. */
+  .dash-table:not(.dash-tablewrap .dash-table) {
+    display: block;
+    overflow-x: auto;
     white-space: nowrap;
   }
 }
