@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { requireRole, requireSession } from "../auth/middleware.js";
 import { issueApiKey, listApiKeys, revokeApiKey } from "../apiKeys/issue.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "../lib/errors.js";
+import { assertMaxLength, TEXT_LIMITS } from "../lib/requestParams.js";
 
 interface MerchantIdParams {
   merchantId: string;
@@ -41,6 +42,7 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
       if (label !== undefined && label !== null && typeof label !== "string") {
         throw new BadRequestError("invalid_request", "label must be a string");
       }
+      assertMaxLength(label, "label", TEXT_LIMITS.label);
       const issued = await issueApiKey(app.db, app.config, {
         merchantId: request.params.merchantId,
         createdBy: request.auth!.merchantUserId,

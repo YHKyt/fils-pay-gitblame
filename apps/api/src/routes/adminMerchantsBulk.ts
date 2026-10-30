@@ -3,6 +3,7 @@ import { requireAdminRole, requireAdminSession } from "../adminAuth/middleware.j
 import { UUID_RE } from "../admin/merchants.js";
 import { bulkApproveMerchantsKyc } from "../admin/bulkKyc.js";
 import { BadRequestError, UnauthorizedError } from "../lib/errors.js";
+import { assertMaxLength, TEXT_LIMITS } from "../lib/requestParams.js";
 
 /** Same idea as the webhook batch-replay cap — a bound on how much
  *  work one request can trigger, not a correctness check on the ids
@@ -38,6 +39,10 @@ export async function adminMerchantsBulkRoutes(app: FastifyInstance): Promise<vo
       if (!merchantIds.every((id) => typeof id === "string" && UUID_RE.test(id))) {
         throw new BadRequestError("invalid_request", "merchantIds must all be UUIDs");
       }
+      if (notes !== undefined && notes !== null && typeof notes !== "string") {
+        throw new BadRequestError("invalid_request", "notes must be a string");
+      }
+      assertMaxLength(notes, "notes", TEXT_LIMITS.notes);
 
       // Ids that name no merchant row (or are not under_review) come back in
       // skippedMerchantIds; approvedMerchantIds is the authoritative list of

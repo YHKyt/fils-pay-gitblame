@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import type { Config } from "../config.js";
 import { randomToken } from "../lib/crypto.js";
 import { BadRequestError } from "../lib/errors.js";
+import { assertMaxLength, TEXT_LIMITS } from "../lib/requestParams.js";
 import { decodeEncryptionKey, encryptSecret } from "./secretCrypto.js";
 import { isBlockedHostname } from "./urlPolicy.js";
 
@@ -21,6 +22,7 @@ export function validateWebhookUrl(rawUrl: string, config: Pick<Config, "nodeEnv
   if (typeof rawUrl !== "string") {
     throw new BadRequestError("invalid_url");
   }
+  assertMaxLength(rawUrl, "url", TEXT_LIMITS.url, "invalid_url");
   let parsed: URL;
   try {
     parsed = new URL(rawUrl);

@@ -89,3 +89,31 @@ export function parseOptionalNumericLimit(value: unknown, name: string): number 
   }
   return Number(value);
 }
+
+/** Upper bounds for client-supplied free text, in UTF-16 code units (the
+ *  same unit as an HTML maxlength attribute). Every column behind these is
+ *  Postgres TEXT, which has no limit of its own, so a 100k-character
+ *  reference used to be stored and echoed back on every list and export. */
+export const TEXT_LIMITS = {
+  reference: 128,
+  description: 500,
+  reason: 1000,
+  notes: 1000,
+  url: 2048,
+  label: 100,
+  legalName: 200,
+  registrationNumber: 64,
+  contactEmail: 254,
+  contactPhone: 32,
+  addressLine: 200,
+  city: 100,
+  postalCode: 20,
+} as const;
+
+/** A string over `max` characters is 400 `code`. Non-strings are left to the
+ *  caller's own type check. */
+export function assertMaxLength(value: unknown, field: string, max: number, code = "invalid_request"): void {
+  if (typeof value === "string" && value.length > max) {
+    throw new BadRequestError(code, `${field} must be at most ${max} characters`);
+  }
+}

@@ -15,6 +15,8 @@ import {
   parseOptionalNumericLimit,
   parsePositiveAmountFils,
   requireUuidParam,
+  assertMaxLength,
+  TEXT_LIMITS,
 } from "../lib/requestParams.js";
 import type { SimulatedCardInput } from "../acquirer/types.js";
 
@@ -90,6 +92,7 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
       if (reference !== undefined && reference !== null && (typeof reference !== "string" || reference.includes("\u0000"))) {
         throw new BadRequestError("invalid_request", "reference must be a string without NUL characters");
       }
+      assertMaxLength(reference, "reference", TEXT_LIMITS.reference);
       // The acquirer reads card.pan as a string; anything else threw a
       // TypeError there and answered 500. Spaces and dashes in a grouped PAN
       // are stripped so a formatted number is accepted, as the simulator did.

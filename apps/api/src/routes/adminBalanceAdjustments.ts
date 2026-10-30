@@ -5,6 +5,7 @@ import { readIdempotencyKeyHeader } from "../admin/adminIdempotency.js";
 import { applyBalanceCorrection } from "../admin/balanceAdjustments.js";
 import { UUID_RE } from "../admin/merchants.js";
 import { BadRequestError, NotFoundError, UnauthorizedError } from "../lib/errors.js";
+import { assertMaxLength, TEXT_LIMITS } from "../lib/requestParams.js";
 
 interface MerchantIdParams {
   id: string;
@@ -36,6 +37,7 @@ function parseBalanceAdjustmentBody(body: unknown): { deltaFils: Fils; reason: s
   if (typeof source.reason !== "string" || source.reason.trim() === "") {
     throw new BadRequestError("invalid_request", "reason is required");
   }
+  assertMaxLength(source.reason.trim(), "reason", TEXT_LIMITS.reason);
 
   return {
     deltaFils: toFils(source.deltaFils, { allowNegative: true }),

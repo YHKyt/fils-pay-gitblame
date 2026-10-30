@@ -1,7 +1,12 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { requireRole, requireSession } from "../auth/middleware.js";
 import { createMerchantWithOwner, type SignupInput } from "../onboarding/signup.js";
-import { getBusinessProfile, updateBusinessProfile, type BusinessProfilePatch } from "../onboarding/businessProfile.js";
+import {
+  assertProfileTextLimits,
+  getBusinessProfile,
+  updateBusinessProfile,
+  type BusinessProfilePatch,
+} from "../onboarding/businessProfile.js";
 import { BadRequestError, ForbiddenError } from "../lib/errors.js";
 
 /** Mirrors the merchant_business_profiles.business_type CHECK (migration 0014). */
@@ -48,6 +53,7 @@ export async function businessProfileRoutes(app: FastifyInstance): Promise<void>
     if (bp.country !== undefined && bp.country !== null && (typeof bp.country !== "string" || !/^[A-Z]{2}$/.test(bp.country))) {
       throw new BadRequestError("invalid_request", "country must be a two-letter ISO 3166 code, e.g. BH");
     }
+    assertProfileTextLimits(bp as unknown as Record<string, unknown>);
 
     const result = await createMerchantWithOwner(app.db, app.config, body as SignupInput);
     reply.code(201).send({

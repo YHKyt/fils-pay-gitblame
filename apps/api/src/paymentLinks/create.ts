@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import { toFils } from "@filspay/money";
 import { BadRequestError } from "../lib/errors.js";
-import { isAcceptedAmountFils, MAX_AMOUNT_FILS } from "../lib/requestParams.js";
+import { assertMaxLength, isAcceptedAmountFils, MAX_AMOUNT_FILS, TEXT_LIMITS } from "../lib/requestParams.js";
 import { randomFromAlphabet } from "../lib/random.js";
 import { serializePaymentLink, type PaymentLinkDto, type PaymentLinkRow } from "./serialize.js";
 
@@ -56,6 +56,8 @@ export async function createPaymentLink(
       throw new BadRequestError("invalid_request", `${field} must be a string`);
     }
   }
+  assertMaxLength(input.reference, "reference", TEXT_LIMITS.reference);
+  assertMaxLength(input.description, "description", TEXT_LIMITS.description);
   // new Date(["2027-01-01"]) parses too; only an ISO 8601 string is accepted.
   const expiresAtDate = new Date(typeof input.expiresAt === "string" ? input.expiresAt : Number.NaN);
   if (Number.isNaN(expiresAtDate.getTime()) || expiresAtDate.getTime() <= Date.now()) {
