@@ -36,9 +36,10 @@ export class ApiError extends Error {
  * (`FST_ERR_CTP_EMPTY_JSON_BODY`). Same fix apps/admin's client.ts already
  * carries, for the same reason.
  */
-// FH: credentials include needs allow-credentials CORS on the api. works locally
-// this leaks the session cookie to whatever VITE_API_BASE_URL is — am
-// — MK: CORS is locked to the two origins in config. fine
+// apps/api has no CORS handling at all (no plugin, no allowed origins in
+// config), so a cross-origin VITE_API_BASE_URL cannot work from a browser.
+// Leave it unset: the hosted stack serves this app and /v1 on one origin
+// (ops/nginx.web.conf), and the dev server proxies /v1 (vite.config.ts).
 /** `timeoutMs`: abort the request (fetch rejects with an AbortError, not an
  *  ApiError) if the full response hasn't arrived in time. The server may
  *  still have processed it — callers treat a timeout as "outcome unknown". */
