@@ -62,8 +62,8 @@ type eligibleEvent struct {
 // refunds it deducts (refunds.settlement_batch_id) and for an earlier
 // negative batch whose shortfall it carries in.
 //
-// net_payout_fils = gross - fee - (refunded - fee reversed) + carried-in
-// shortfall. The scheme export stays one presentment line per captured
+// net_payout_fils = gross - fee - (refunded - fee reversed) + journaled
+// corrections + carried-in shortfall. The scheme export stays one presentment line per captured
 // transaction: refunds are not netted into it (see docs/audit/settlebatch.md).
 func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, businessDate time.Time) (BatchResult, error) {
 	start, end := BusinessDayWindow(businessDate)
@@ -254,7 +254,12 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 	if err != nil {
 		return BatchResult{}, err
 	}
-	ownNet := NetPayableFils(batchGross, batchFee) - refunds.netDeductionFils()
+	// Journaled credits and adjustments are paid (or collected) the same way.
+	corrections, err := claimBatchCorrections(ctx, tx, merchantID, batchID, end)
+	if err != nil {
+		return BatchResult{}, err
+	}
+	ownNet := NetPayableFils(batchGross, batchFee) - refunds.netDeductionFils() + corrections
 	// A shortfall from an earlier negative batch is recovered here.
 	carriedIn, err := claimCarriedShortfall(ctx, tx, merchantID, batchID)
 	if err != nil {
@@ -342,8 +347,10 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 
 	// Step 14: incrementally update the merchant_balances cache by this
 	// batch's own activity. A carried-in shortfall is already in the cache:
-	// it was added when its own batch closed and never paid out.
-	if err := balances.ApplyBatchClose(ctx, tx, merchantID, batchID, ownNet); err != nil {
+	// it was added when its own batch closed and never paid out. So are the
+	// claimed corrections: credits.ts and ledgerAdjustments.ts callers move
+	// the cache when they post.
+	if err := balances.ApplyBatchClose(ctx, tx, merchantID, batchID, ownNet-corrections); err != nil {
 		return BatchResult{}, fmt.Errorf("settlement: CloseBatch: apply balance cache delta: %w", err)
 	}
 
