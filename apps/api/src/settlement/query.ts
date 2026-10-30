@@ -321,7 +321,14 @@ export async function getReconciliationReport(
          FROM transaction_events te
          JOIN transactions t ON t.id = te.transaction_id
         WHERE t.merchant_id = $1 AND te.event_type IN ('refunded', 'refund_partial')
-          AND te.settlement_batch_id IS NULL
+          -- CloseBatch claims a refund on the refunds row and leaves its
+          -- timeline event unstamped, so te.settlement_batch_id is always
+          -- NULL here: a settled refund has to be recognised by its row.
+          AND NOT EXISTS (
+            SELECT 1 FROM refunds r
+             WHERE r.id = (te.metadata->>'refundId')::uuid
+               AND r.settlement_batch_id IS NOT NULL
+          )
           AND te.occurred_at >= $2 AND te.occurred_at < $3`,
       [input.merchantId, windowStart, windowEnd],
     ),
