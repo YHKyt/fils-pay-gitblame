@@ -13,7 +13,7 @@ ratings such as "Medium-High"; they are listed as written).
 
 | File | IDs | What it covers | Findings |
 |---|---|---|---|
-| [BRIEFING.md](BRIEFING.md) | — | Team briefing for the case review and the judges: scoreboard, case-file coverage map, top findings, FP-300 demo, judge Q&A. Its scoreboard (90) predates `ledgerint.md`, `settlebatch.md`, `moneyhunt.md`, `fp300hunt.md` and `reporting.md`. | summary only |
+| [BRIEFING.md](BRIEFING.md) | — | Team briefing for the case review and the judges: scoreboard, case-file coverage map, top findings, FP-300 demo, judge Q&A. Its scoreboard (90) predates `ledgerint.md`, `settlebatch.md`, `moneyhunt.md`, `fp300hunt.md`, `reporting.md`, `settlerun.md` and `sqlhunt.md`. | summary only |
 | [money-and-settlement.md](money-and-settlement.md) | M1–M17 | Money parsing, payouts, splits, balance rebuild, MDR, daily close, counters, fee display, scheme residue, March sweep, sandbox merchants, reporting wedge, hold janitor, refunded-status recompute, fresh-database boot | 17 (3 Critical, 8 High, 5 Medium, 1 Low) |
 | [api-security-and-refunds.md](api-security-and-refunds.md) | S1–S8, R1–R7, W1–W4, H1, P1–P2, T1 | Auth and OTP, impersonation, FP-300 refunds (built as R1), webhooks, payment links, hosting, test isolation | 21 fixed + the FP-300 feature (R1); S8 is a review with no change |
 | ↳ same file, "Sweep findings" | A1–A8 (admin plane), M1–M13 (merchant plane) | Table-form sweep of the admin and merchant surfaces | 8 + 13 |
@@ -24,13 +24,15 @@ ratings such as "Medium-High"; they are listed as written).
 | [settleguards.md](settleguards.md) | G1–G3 | Settlement run guards: closing an unfinished day, split weights, SIGTERM during a run | 3 (1 High, 1 Medium, 1 Medium-Low) + reported-only items |
 | [settlemdr.md](settlemdr.md) | R1–R5 | Recalculate MDR: fee schedules and volume tier, outbox events, correction dates, zero-fee re-rate | 4 fixed (1 High, 3 Medium) + R5 verified, not fixed (Low) |
 | [settlebatch.md](settlebatch.md) | unnumbered | Batch close and payout: refunds not netted, test-mode captures settled, suspended merchant paid, fee recomputed at close | 4 (1 Critical, 1 High, 1 Medium-High, 1 Medium) |
+| [settlerun.md](settlerun.md) | unnumbered | Settlement daily run isolation (one merchant's error stopped the run) and the nightly balance-cache refresh that never ran | 2 (1 High, 1 Low-Medium) |
+| [sqlhunt.md](sqlhunt.md) | Q1 | SQL layer sweep (migrations, seed, raw SQL): refund summary view never refreshed | 1 (Low) + reported-only items |
 | [ledgerint.md](ledgerint.md) | unnumbered | Ledger append-only, payout disbursement records, settlement DB config, rebuild deadlock, a flaky test | 5 (1 Medium-High, 1 Medium, 2 Low-Medium, 1 Low) |
 | [adminmoney.md](adminmoney.md) | unnumbered | Admin CSV import approval and replay; credit and adjustment retries | 2 (1 High, 1 Medium) |
 | [moneyhunt.md](moneyhunt.md) | N1–N2 | `packages/money` and its Go mirror: weight allocation, rate overflow | 2 (Low, Low) + reported-only items |
 | [mystery-timeline.md](mystery-timeline.md) | rows 1–24 | The vanished developer: timeline, the three transmissions, and the 24 clues that point to real bugs, each with its fix status | mystery deliverable |
 | [ai-config-traps.md](ai-config-traps.md) | claim rows | Claim-by-claim check of the planted `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, the ONBOARDING canary and AI-citing code comments | reference, no fixes of its own |
 
-Fixed findings across the write-ups: 17 + 21 + 8 + 13 + 20 + 5 + 5 + 2 + 3 + 4 + 4 + 5 + 2 + 2 = **111**, plus the FP-300 feature.
+Fixed findings across the write-ups: 17 + 21 + 8 + 13 + 20 + 5 + 5 + 2 + 3 + 4 + 4 + 2 + 1 + 5 + 2 + 2 = **114**, plus the FP-300 feature.
 
 ## Reading the IDs (duplicate prefixes)
 
