@@ -91,7 +91,7 @@ const ERROR_COPY: Record<string, string> = {
   invalid_credentials:
     "The email or password is incorrect. After several failed tries, sign-in pauses for a few minutes.",
   no_pending_session: "Your sign-in timed out. Enter your email and password again.",
-  otp_expired: "That code has expired. Send a new code to continue.",
+  otp_expired: "That code has expired. Use Resend code to get a new one.",
   otp_required: "Enter the one-time code to finish signing in.",
   invalid_code: "That code isn't correct. Check the latest code we sent and try again.",
   too_many_attempts: "Too many incorrect codes. For your security, sign in again.",

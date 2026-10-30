@@ -203,6 +203,75 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
+  /**
+   * Re-issues the OTP for a pending admin session. Mirrors the merchant
+   * /v1/auth/otp/resend exactly: throttled to one per 30 s, the previous
+   * challenge is consumed, and the new challenge inherits its attempt_count
+   * so a resend never resets the guess budget.
+   */
+  app.post("/otp/resend", async (request: FastifyRequest, reply: FastifyReply) => {
+    const rawToken = request.cookies[app.config.adminCookieName];
+    if (!rawToken) {
+      throw new UnauthorizedError("no_pending_session");
+    }
+    const pending = await lookupPendingAdminSession(app.db, rawToken);
+    if (!pending || !pending.otpChallengeId) {
+      throw new UnauthorizedError("no_pending_session");
+    }
+
+    const { code, expiresAt } = await withTransaction(app.db, async (client) => {
+      // Read the current challenge under a row lock, inside the transaction,
+      // so parallel resends cannot all pass the throttle (same as merchant).
+      const existing = await client.query<{ id: string; created_at: Date; attempt_count: number; consumed_at: Date | null }>(
+        `SELECT id, created_at, attempt_count, consumed_at FROM admin_otp_challenges WHERE id = $1 FOR UPDATE`,
+        [pending.otpChallengeId],
+      );
+      const existingChallenge = existing.rows[0];
+      if (existingChallenge) {
+        if (existingChallenge.consumed_at !== null || Date.now() - existingChallenge.created_at.getTime() < 30_000) {
+          throw new TooManyRequestsError("resend_too_soon");
+        }
+        await client.query(`UPDATE admin_otp_challenges SET consumed_at = now() WHERE id = $1`, [
+          existingChallenge.id,
+        ]);
+      }
+      const challenge = await issueAdminChallenge(client, {
+        adminUserId: pending.adminUserId,
+        ttlMinutes: app.config.adminOtpTtlMinutes,
+        codeLength: app.config.adminOtpCodeLength,
+        maxAttempts: app.config.adminOtpMaxAttempts,
+      });
+      // Carry the guess count over so resend never resets the lockout budget.
+      if (existingChallenge) {
+        await client.query(`UPDATE admin_otp_challenges SET attempt_count = $2 WHERE id = $1`, [
+          challenge.id,
+          existingChallenge.attempt_count,
+        ]);
+      }
+      await client.query(`UPDATE admin_sessions SET otp_challenge_id = $1 WHERE id = $2`, [
+        challenge.id,
+        pending.adminSessionId,
+      ]);
+      return challenge;
+    });
+
+    const userResult = await app.db.query<{ email: string }>(`SELECT email FROM admin_users WHERE id = $1`, [
+      pending.adminUserId,
+    ]);
+    sendAdminOtpCode(
+      request.log,
+      app.config,
+      { adminUserId: pending.adminUserId, email: userResult.rows[0]?.email ?? "" },
+      code,
+    );
+
+    const responseBody: Record<string, unknown> = { otpRequired: true, otpExpiresAt: expiresAt.toISOString() };
+    if (app.config.otpDevExpose) {
+      responseBody.devOtpCode = code;
+    }
+    reply.code(200).send(responseBody);
+  });
+
   app.get("/me", { preHandler: requireAdminSession }, async (request: FastifyRequest) => {
     const auth = request.adminAuth;
     if (!auth) {

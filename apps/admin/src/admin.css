@@ -653,6 +653,7 @@ body:has(.admin-centered) {
   display: flex;
   gap: 0.6rem;
   align-items: center;
+  flex-wrap: wrap;
 }
 .admin-login-actions button[type="submit"] {
   flex: 1;
