@@ -4,10 +4,11 @@ import { getPayoutTrends, getTopLinks, getVolumes } from "../../api/analytics.js
 import { describeError } from "../../api/client.js";
 import { StalenessBadge } from "../../components/StalenessBadge.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
-import { bhd, dash, dateTime, statusLabel } from "../../format.js";
+import { bhdDisplay, dash, dateTime, humanDate, statusLabel } from "../../format.js";
+import { usePageTitle } from "../../hooks/usePageTitle.js";
 import { formatCount } from "../../utils/helpers.js";
 import { StatCards } from "./StatCards.js";
-import { VolumeChart } from "./VolumeChart.js";
+import { VolumeChart, zeroFill } from "./VolumeChart.js";
 import type { PayoutTrendsResponse, TopLinksResponse, VolumesResponse } from "../../types.js";
 
 /** A time-of-day greeting in Asia/Bahrain, where this dashboard lives. */
@@ -26,12 +27,27 @@ function greeting(): string {
  *  not introduce the first one. */
 const POLL_MS = 60_000;
 
+/** Preset windows, as Bahrain calendar dates. `to` is the API's exclusive
+ *  bound, so "last 7 days" is from today-6 to tomorrow. */
+const PRESETS = [7, 30, 90] as const;
+const BAHRAIN_OFFSET_MS = 3 * 60 * 60 * 1000;
+function bahrainDay(offsetDays: number): string {
+  return new Date(Date.now() + BAHRAIN_OFFSET_MS + offsetDays * 86_400_000).toISOString().slice(0, 10);
+}
+function presetRange(days: number): { from: string; to: string } {
+  return { from: bahrainDay(-(days - 1)), to: bahrainDay(1) };
+}
+
 export function OverviewPage() {
+  usePageTitle("Overview");
   const { me } = useDashboardAuth();
   // Left blank, the server applies its own "last 30 Asia/Bahrain days"
   // default — the client does not compute a competing one.
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  // Default window: last 90 Bahrain days, so recent history shows rather
+  // than a near-empty month. Both bounds are explicit so the chart can
+  // zero-fill exactly the window the API was asked for.
+  const [from, setFrom] = useState(() => presetRange(90).from);
+  const [to, setTo] = useState(() => presetRange(90).to);
   const [topLinksLimit, setTopLinksLimit] = useState(10);
 
   const [volumes, setVolumes] = useState<VolumesResponse | null>(null);
@@ -77,6 +93,20 @@ export function OverviewPage() {
     return () => window.clearInterval(timer);
   }, [load]);
 
+  const activePreset = PRESETS.find((d) => {
+    const r = presetRange(d);
+    return r.from === from && r.to === to;
+  });
+  const firstDay = volumes?.points[0]?.date;
+  const lastDay = volumes?.points[volumes.points.length - 1]?.date;
+  const periodLabel = activePreset
+    ? `Last ${activePreset} days`
+    : !from && !to
+      ? "Last 30 days"
+      : firstDay && lastDay
+        ? `${humanDate(firstDay)} to ${humanDate(lastDay)}`
+        : "Selected period";
+
   const peakGross = Math.max(1, ...(volumes?.points.map((point) => point.capturedGrossFils) ?? [1]));
 
   return (
@@ -88,6 +118,28 @@ export function OverviewPage() {
           {me ? <>, <span className="dash-hero-name">{me.merchant.displayName}</span></> : null}
         </h1>
         <p className="dash-hero-sub">Here is how your payments are moving, in Asia/Bahrain time.</p>
+      </div>
+
+      <div className="dash-range-chips" role="group" aria-label="Date range">
+        {PRESETS.map((d) => {
+          const selected = activePreset === d || (d === 30 && !from && !to);
+          return (
+            <button
+              key={d}
+              type="button"
+              className={`dash-chip${selected ? " is-active" : ""}`}
+              aria-pressed={selected}
+              onClick={() => {
+                const r = presetRange(d);
+                setFrom(r.from);
+                setTo(r.to);
+              }}
+            >
+              {d} days
+            </button>
+          );
+        })}
+        <span className="dash-muted dash-range-note">All dates in Bahrain time (GMT+3)</span>
       </div>
 
       <form
@@ -102,7 +154,7 @@ export function OverviewPage() {
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
         </label>
         <label>
-          To (exclusive)
+          To (not included)
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         </label>
         <label>
@@ -126,8 +178,8 @@ export function OverviewPage() {
           tables below render — no extra fetch. */}
       {volumes && payouts ? (
         <>
-          <StatCards volumes={volumes} payouts={payouts} />
-          <VolumeChart points={volumes.points} />
+          <StatCards volumes={volumes} payouts={payouts} periodLabel={periodLabel} />
+          <VolumeChart points={zeroFill(volumes.points, from, to || presetRange(1).to)} />
         </>
       ) : loading ? (
         <div className="dash-stats" aria-hidden="true">
@@ -157,7 +209,7 @@ export function OverviewPage() {
             <tr key={point.date}>
               <td>{point.date}</td>
               <td className="dash-num">{formatCount(point.capturedCount)}</td>
-              <td className="dash-num">{bhd(point.capturedGrossFils)}</td>
+              <td className="dash-num">{bhdDisplay(point.capturedGrossFils)}</td>
               <td className="dash-num">{formatCount(point.voidedCount)}</td>
               <td className="dash-bar-cell">
                 {/* A plain CSS bar, scaled to the window's own peak — no
@@ -201,9 +253,9 @@ export function OverviewPage() {
               <td>
                 <span className={`dash-status dash-status-${point.status}`}>{statusLabel(point.status)}</span>
               </td>
-              <td className="dash-num">{bhd(point.grossFils)}</td>
-              <td className="dash-num">{bhd(point.feeFils)}</td>
-              <td className="dash-num">{bhd(point.netPayoutFils)}</td>
+              <td className="dash-num">{bhdDisplay(point.grossFils)}</td>
+              <td className="dash-num">{bhdDisplay(point.feeFils)}</td>
+              <td className="dash-num">{bhdDisplay(point.netPayoutFils)}</td>
               <td>{dateTime(point.paidAt)}</td>
             </tr>
           ))}
@@ -239,7 +291,7 @@ export function OverviewPage() {
                 <Link to={`/dashboard/payment-links/${link.id}`}>{dash(link.reference)}</Link>
               </td>
               <td>{dash(link.description)}</td>
-              <td className="dash-num">{bhd(link.amountFils)}</td>
+              <td className="dash-num">{bhdDisplay(link.amountFils)}</td>
               <td>{dateTime(link.paidAt)}</td>
             </tr>
           ))}

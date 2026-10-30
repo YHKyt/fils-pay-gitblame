@@ -5,7 +5,8 @@ import { ApiError, describeError } from "../../api/client.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { ConfirmDialog } from "../../components/ConfirmDialog.js";
-import { bhd, dash, dateTime, statusLabel } from "../../format.js";
+import { bhdDisplay, dash, dateTime, statusLabel } from "../../format.js";
+import { usePageTitle } from "../../hooks/usePageTitle.js";
 import type { PaymentLinkDto } from "../../types.js";
 import { canCancelPaymentLink, paymentLinkDisplayStatus } from "../../utils/paymentLinkStatus.js";
 
@@ -26,6 +27,7 @@ export function PaymentLinkDetailPage() {
   const merchantId = me?.merchant.id;
 
   const [state, setState] = useState<LoadState>({ kind: "loading" });
+  usePageTitle(state.kind === "loaded" ? `Payment link ${state.link.reference ?? bhdDisplay(state.link.amountFils)}` : "Payment link");
   const [actionError, setActionError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -111,9 +113,12 @@ export function PaymentLinkDetailPage() {
           <p className="dash-eyebrow">
             <Link to="/dashboard/payment-links">Payment links</Link> / Detail
           </p>
-          <h1>Payment link</h1>
+          <h1>
+            {bhdDisplay(link.amountFils)}
+            {link.reference ? <span className="dash-h1-sub"> · {link.reference}</span> : null}
+          </h1>
           <p className="dash-muted dash-id-line">
-            <code>{link.id}</code>
+            <code title="Payment link ID">{link.id}</code>
           </p>
         </div>
         <span className={`dash-status dash-status-${displayStatus}`}>{statusLabel(displayStatus)}</span>
@@ -121,7 +126,7 @@ export function PaymentLinkDetailPage() {
 
       <dl className="dash-dl">
         <dt>Amount</dt>
-        <dd>{bhd(link.amountFils)}</dd>
+        <dd>{bhdDisplay(link.amountFils)}</dd>
         <dt>Currency</dt>
         <dd>{link.currency}</dd>
         <dt>Status</dt>
@@ -181,7 +186,7 @@ export function PaymentLinkDetailPage() {
       <ConfirmDialog
         open={cancelConfirm}
         title="Cancel this payment link"
-        amount={bhd(link.amountFils)}
+        amount={bhdDisplay(link.amountFils)}
         message={
           <>
             Once canceled, {link.reference ? <strong>{link.reference}</strong> : "this link"} can no longer be

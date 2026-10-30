@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { getReconciliation } from "../../api/settlement.js";
 import { ApiError, describeError } from "../../api/client.js";
-import { bhd } from "../../format.js";
+import { bhdDisplay } from "../../format.js";
 import type { ReconciliationReport } from "../../types.js";
+import { usePageTitle } from "../../hooks/usePageTitle.js";
 
 /**
  * `from`/`to` are required by this endpoint (`400 invalid_request` without
@@ -29,6 +30,7 @@ function defaultRange(): { from: string; to: string } {
 // FH: 'explained: false' only shows when settlement is mid-run, a refresh fixes it
 // YA: gap != 0 is real when a fee schedule changes mid-period
 export function ReconciliationPage() {
+  usePageTitle("Reconciliation");
   const initial = defaultRange();
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
@@ -93,7 +95,7 @@ export function ReconciliationPage() {
           <input type="date" required value={from} onChange={(e) => setFrom(e.target.value)} />
         </label>
         <label>
-          To (exclusive)
+          To (not included)
           <input type="date" required value={to} onChange={(e) => setTo(e.target.value)} />
         </label>
         <button type="submit" className="dash-button" disabled={loading}>
@@ -106,35 +108,42 @@ export function ReconciliationPage() {
       {report ? (
         <>
           {/* A nonzero gap is shown as a nonzero gap. This page never rounds
-              it away, hides it behind a tolerance, or explains it as expected —
-              the endpoint reports honestly and so does this. */}
-          <p>
-            {report.explained ? (
-              <span className="dash-badge dash-badge-ok">Reconciled — no gap</span>
-            ) : (
-              <span className="dash-badge dash-badge-gap">Gap: {bhd(report.gapFils)}</span>
-            )}
+              it away, hides it behind a tolerance, or explains it as expected. */}
+          <p className="dash-recon-period dash-muted">
+            {report.periodFrom} to {report.periodTo} (end date not included) · Bahrain time
           </p>
-
-          <dl className="dash-dl">
-            <dt>Period</dt>
-            <dd>
-              {report.periodFrom} to {report.periodTo} (exclusive)
-            </dd>
-            <dt>Ledger merchant payable (net)</dt>
-            <dd>{bhd(report.ledgerMerchantPayableNetFils)}</dd>
-            <dt>Settlement net payout</dt>
-            <dd>{bhd(report.settlementNetPayoutFils)}</dd>
-            <dt>Pending, not yet batched</dt>
-            <dd>{bhd(report.pendingUnbatchedFils)}</dd>
-            <dt>Gap</dt>
-            <dd>{bhd(report.gapFils)}</dd>
-          </dl>
+          <div className="dash-recon-grid">
+            <div className="dash-recon-card">
+              <span className="dash-stat-label">Earned (net of fees)</span>
+              <span className="dash-recon-value">{bhdDisplay(report.ledgerMerchantPayableNetFils)}</span>
+              <span className="dash-stat-sub">Captured payments minus refunds and fees</span>
+            </div>
+            <div className="dash-recon-card">
+              <span className="dash-stat-label">Paid out</span>
+              <span className="dash-recon-value">{bhdDisplay(report.settlementNetPayoutFils)}</span>
+              <span className="dash-stat-sub">Already in settlement batches</span>
+            </div>
+            <div className="dash-recon-card">
+              <span className="dash-stat-label">Waiting for next settlement</span>
+              <span className="dash-recon-value">{bhdDisplay(report.pendingUnbatchedFils)}</span>
+              <span className="dash-stat-sub">Not yet in a batch</span>
+            </div>
+            <div className={`dash-recon-card ${report.explained ? "dash-recon-ok" : "dash-recon-gap"}`}>
+              <span className="dash-stat-label">Difference</span>
+              <span className="dash-recon-value">{bhdDisplay(report.gapFils)}</span>
+              <span className={`dash-badge ${report.explained ? "dash-badge-ok" : "dash-badge-gap"}`}>
+                {report.explained ? "✓ Reconciled" : "Needs a look"}
+              </span>
+            </div>
+          </div>
 
           <p className="dash-muted">
-            Gap = ledger merchant payable − settlement net payout − pending
-            unbatched. A zero gap means every captured fil is accounted for in
-            either a settled batch or the pending queue.
+            {report.explained
+              ? "Everything matches: every payment you earned is either paid out or waiting for the next settlement."
+              : "A difference usually means settlement is still running or a fee changed during the period. Refresh in a few minutes. If it stays, contact FilsPay support with this period."}{" "}
+            <span title="Difference = earned (net of fees) - paid out - waiting for next settlement">
+              How is this calculated?
+            </span>
           </p>
         </>
       ) : null}

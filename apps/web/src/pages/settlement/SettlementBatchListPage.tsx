@@ -4,7 +4,8 @@ import { listSettlementBatches } from "../../api/settlement.js";
 import { describeError } from "../../api/client.js";
 import { Pagination } from "../../components/Pagination.js";
 import { SkeletonRows } from "../../components/SkeletonRows.js";
-import { bhd, dateTime, statusLabel } from "../../format.js";
+import { bhdDisplay, dateTime, humanDate, shortId, statusLabel } from "../../format.js";
+import { usePageTitle } from "../../hooks/usePageTitle.js";
 import type { SettlementBatchDto, SettlementBatchStatus } from "../../types.js";
 
 const STATUSES: SettlementBatchStatus[] = ["open", "closed", "paid"];
@@ -21,6 +22,7 @@ const PAGE_SIZE = 25;
  */
 /** Filters by batch_date, which is a Bahrain business date. */
 export function SettlementBatchListPage() {
+  usePageTitle("Settlements");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [statuses, setStatuses] = useState<SettlementBatchStatus[]>([]);
@@ -66,6 +68,7 @@ export function SettlementBatchListPage() {
     <section>
       <h1>Settlement batches</h1>
 
+      <div className="dash-filter-row">
       <fieldset className="dash-filters">
         <legend>Batch date</legend>
         <label>
@@ -73,7 +76,7 @@ export function SettlementBatchListPage() {
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
         </label>
         <label>
-          To (exclusive)
+          To (not included)
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
         </label>
       </fieldset>
@@ -87,17 +90,18 @@ export function SettlementBatchListPage() {
               checked={statuses.includes(status)}
               onChange={() => toggleStatus(status)}
             />
-            {status}
+            {statusLabel(status)}
           </label>
         ))}
       </fieldset>
+      </div>
 
       {error ? <p className="dash-error">{error}</p> : null}
 
       <div className="dash-tablewrap"><table className="dash-table">
         <thead>
           <tr>
-            <th>Batch date</th>
+            <th>Batch</th>
             <th>Status</th>
             <th className="dash-num">Gross</th>
             <th className="dash-num">Fee</th>
@@ -110,14 +114,19 @@ export function SettlementBatchListPage() {
           {batches.map((batch) => (
             <tr key={batch.id}>
               <td>
-                <Link to={`/dashboard/settlement/${batch.id}`}>{batch.batchDate}</Link>
+                <Link className="dash-ref-main" to={`/dashboard/settlement/${batch.id}`}>
+                  {humanDate(batch.batchDate)}
+                </Link>
+                <span className="dash-ref-sub" title={batch.id}>
+                  {shortId(batch.id)}
+                </span>
               </td>
               <td>
                 <span className={`dash-status dash-status-${batch.status}`}>{statusLabel(batch.status)}</span>
               </td>
-              <td className="dash-num">{bhd(batch.grossFils)}</td>
-              <td className="dash-num">{bhd(batch.feeFils)}</td>
-              <td className="dash-num">{bhd(batch.netPayoutFils)}</td>
+              <td className="dash-num">{bhdDisplay(batch.grossFils)}</td>
+              <td className="dash-num">{bhdDisplay(batch.feeFils)}</td>
+              <td className="dash-num">{bhdDisplay(batch.netPayoutFils)}</td>
               <td>{dateTime(batch.closedAt)}</td>
               <td>{dateTime(batch.paidAt)}</td>
             </tr>

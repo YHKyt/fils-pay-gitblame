@@ -6,7 +6,8 @@ import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { Pagination } from "../../components/Pagination.js";
 import { SkeletonRows } from "../../components/SkeletonRows.js";
-import { bhd, dash, dateTime, statusLabel } from "../../format.js";
+import { bhdDisplay, dash, dateTime, statusLabel } from "../../format.js";
+import { usePageTitle } from "../../hooks/usePageTitle.js";
 import type { PaymentLinkDto, PaymentLinkStatus } from "../../types.js";
 import { paymentLinkDisplayStatus } from "../../utils/paymentLinkStatus.js";
 
@@ -23,6 +24,7 @@ const PAGE_SIZE = 25;
  * — FH
  */
 export function PaymentLinkListPage() {
+  usePageTitle("Payment links");
   const { me } = useDashboardAuth();
   const merchantId = me?.merchant.id;
 
@@ -113,7 +115,7 @@ export function PaymentLinkListPage() {
                   <Link to={`/dashboard/payment-links/${link.id}`}>{dash(link.reference)}</Link>
                 </td>
                 <td>{dash(link.description)}</td>
-                <td className="dash-num">{bhd(link.amountFils)}</td>
+                <td className="dash-num">{bhdDisplay(link.amountFils)}</td>
                 <td>
                   <span className={`dash-status dash-status-${displayStatus}`}>{statusLabel(displayStatus)}</span>
                 </td>

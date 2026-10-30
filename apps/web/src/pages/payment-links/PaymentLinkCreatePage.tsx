@@ -4,7 +4,8 @@ import { parseBhdToFils } from "@filspay/money";
 import { createPaymentLink } from "../../api/paymentLinks.js";
 import { describeError } from "../../api/client.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
-import { bhd, localDateTimeToIso } from "../../format.js";
+import { bhdDisplay, localDateTimeToIso } from "../../format.js";
+import { usePageTitle } from "../../hooks/usePageTitle.js";
 
 /**
  * `POST /v1/merchants/:merchantId/payment-links`, `owner`/`finance`
@@ -22,13 +23,18 @@ import { bhd, localDateTimeToIso } from "../../format.js";
  * answer and are rendered verbatim.
  */
 export function PaymentLinkCreatePage() {
+  usePageTitle("New payment link");
   const { me } = useDashboardAuth();
   const navigate = useNavigate();
 
   const [amountBhd, setAmountBhd] = useState("");
   const [reference, setReference] = useState("");
   const [description, setDescription] = useState("");
-  const [expiresAt, setExpiresAt] = useState("");
+  // Default: one week from now, as Bahrain wall time for the
+  // datetime-local input (the form labels it Bahrain time).
+  const [expiresAt, setExpiresAt] = useState(() =>
+    new Date(Date.now() + 3 * 3_600_000 + 7 * 86_400_000).toISOString().slice(0, 16),
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,7 +43,7 @@ export function PaymentLinkCreatePage() {
   let amountPreview: string | null = null;
   if (amountBhd.trim() !== "") {
     try {
-      amountPreview = bhd(parseBhdToFils(amountBhd.trim()));
+      amountPreview = bhdDisplay(parseBhdToFils(amountBhd.trim()));
     } catch {
       amountPreview = null;
     }
@@ -63,11 +69,11 @@ export function PaymentLinkCreatePage() {
     }
     const expiresAtIso = localDateTimeToIso(expiresAt);
     if (!expiresAtIso) {
-      setError("Expiry must be a valid date and time.");
+      setError("Choose an expiry date and time.");
       return;
     }
     if (new Date(expiresAtIso).getTime() <= Date.now()) {
-      setError("Expiry must be in the future.");
+      setError("Choose an expiry date and time in the future (Bahrain time).");
       return;
     }
 
@@ -93,6 +99,7 @@ export function PaymentLinkCreatePage() {
 
       {error ? <p className="dash-error">{error}</p> : null}
 
+      <div className="dash-create-grid">
       <form className="dash-form" onSubmit={(e) => void handleSubmit(e)}>
         <label>
           Amount
@@ -121,18 +128,31 @@ export function PaymentLinkCreatePage() {
           <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} />
         </label>
         <label>
-          Expires at (Bahrain time)
+          Expires at (Bahrain time) *
           <input
             type="datetime-local"
             required
             value={expiresAt}
             onChange={(e) => setExpiresAt(e.target.value)}
           />
+          <span className="dash-muted">Required. Defaults to 7 days from now; the customer can't pay after this.</span>
         </label>
         <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
           {submitting ? "Creating..." : "Create payment link"}
         </button>
       </form>
+
+      <aside className="dash-preview-card" aria-label="What the customer will see">
+        <p className="dash-stat-label">Customer will see</p>
+        <p className="dash-preview-merchant">{me?.merchant.displayName ?? "Your business"}</p>
+        <p className="dash-preview-amount">{amountPreview ?? "0.000 BHD"}</p>
+        <p className="dash-muted">{description.trim() || "No description"}</p>
+        {reference.trim() ? <p className="dash-muted">Reference: {reference.trim()}</p> : null}
+        <p className="dash-muted dash-preview-expiry">
+          {expiresAt ? `Link expires ${expiresAt.replace("T", " ")} (Bahrain time)` : "Choose an expiry"}
+        </p>
+      </aside>
+      </div>
 
       <p>
         <Link to="/dashboard/payment-links">Back to payment links</Link>

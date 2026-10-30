@@ -10,7 +10,8 @@ import {
 import { ApiError, describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { ConfirmDialog } from "../../components/ConfirmDialog.js";
-import { bhd, dash, dateTime, statusLabel } from "../../format.js";
+import { actorLabel, bhdDisplay, dash, dateTime, eventLabel, shortId, statusLabel } from "../../format.js";
+import { usePageTitle } from "../../hooks/usePageTitle.js";
 import type { TransactionDto, TransactionEventDto } from "../../types.js";
 import { attemptFor, isDefinitiveFailure, type IdempotentAttempt } from "../../utils/idempotencyIntent.js";
 import { RefundDrawer } from "./RefundDrawer.js";
@@ -33,6 +34,7 @@ type LoadState =
 export function TransactionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [state, setState] = useState<LoadState>({ kind: "loading" });
+  usePageTitle(state.kind === "loaded" ? `Payment ${state.txn.reference ?? bhdDisplay(state.txn.amountFils)}` : "Payment");
   const [events, setEvents] = useState<TransactionEventDto[]>([]);
   const [actionError, setActionError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -183,9 +185,12 @@ export function TransactionDetailPage() {
           <p className="dash-eyebrow">
             <Link to="/dashboard/transactions">Transactions</Link> / Detail
           </p>
-          <h1>Transaction</h1>
+          <h1>
+            {bhdDisplay(txn.amountFils)}
+            {txn.reference ? <span className="dash-h1-sub"> · {txn.reference}</span> : null}
+          </h1>
           <p className="dash-muted dash-id-line">
-            <code>{txn.id}</code>
+            <code title="Transaction ID">{txn.id}</code>
           </p>
         </div>
         <span className={`dash-status dash-status-${txn.status}`}>{statusLabel(txn.status)}</span>
@@ -193,29 +198,41 @@ export function TransactionDetailPage() {
 
       <div className="dash-split">
         <div className="dash-split-main">
-      <dl className="dash-dl dash-dl-stack">
-        <dt>Status</dt>
-        <dd>
-          <span className={`dash-status dash-status-${txn.status}`}>{statusLabel(txn.status)}</span>
-        </dd>
-        <dt>Authorized amount</dt>
-        <dd>{bhd(txn.amountFils)}</dd>
-        <dt>Captured amount</dt>
-        <dd>{bhd(txn.capturedFils)}</dd>
-        <dt>Refunded amount</dt>
-        <dd>{bhd(txn.refundedFils)}</dd>
-        <dt>Currency</dt>
-        <dd>{txn.currency}</dd>
-        <dt>Reference</dt>
-        <dd>{dash(txn.reference)}</dd>
-        <dt>Acquirer reference</dt>
-        <dd>
-          <code>{txn.acquirerReference}</code>
-        </dd>
-        <dt>Occurred at</dt>
-        <dd>{dateTime(txn.occurredAt)}</dd>
-        <dt>Created at</dt>
-        <dd>{dateTime(txn.createdAt)}</dd>
+      <dl className="dash-dl dash-dl-stack dash-facts">
+        <div>
+          <dt>Authorized</dt>
+          <dd className="dash-num-left">{bhdDisplay(txn.amountFils)}</dd>
+        </div>
+        <div>
+          <dt>Captured</dt>
+          <dd className="dash-num-left">{bhdDisplay(txn.capturedFils)}</dd>
+        </div>
+        <div>
+          <dt>Refunded</dt>
+          <dd className="dash-num-left">{bhdDisplay(txn.refundedFils)}</dd>
+        </div>
+        <div>
+          <dt>Currency</dt>
+          <dd>{txn.currency}</dd>
+        </div>
+        <div className="dash-facts-wide">
+          <dt>Reference</dt>
+          <dd>{dash(txn.reference)}</dd>
+        </div>
+        <div className="dash-facts-wide">
+          <dt>Acquirer reference</dt>
+          <dd>
+            <code className="dash-mono-wrap">{txn.acquirerReference}</code>
+          </dd>
+        </div>
+        <div>
+          <dt>Occurred</dt>
+          <dd>{dateTime(txn.occurredAt)}</dd>
+        </div>
+        <div>
+          <dt>Created</dt>
+          <dd>{dateTime(txn.createdAt)}</dd>
+        </div>
       </dl>
 
       {/* Capture and void are hidden from `support`: a support agent looks
@@ -235,7 +252,7 @@ export function TransactionDetailPage() {
                       <input
                         type="text"
                         inputMode="decimal"
-                        placeholder={bhd(txn.amountFils - txn.capturedFils).replace(" BHD", "")}
+                        placeholder={bhdDisplay(txn.amountFils - txn.capturedFils).replace(" BHD", "")}
                         value={captureAmount}
                         onChange={(e) => setCaptureAmount(e.target.value)}
                       />
@@ -279,11 +296,11 @@ export function TransactionDetailPage() {
         <ConfirmDialog
           open={captureConfirm}
           title="Capture this payment"
-          amount={bhd(parseCaptureFils().fils ?? txn.amountFils - txn.capturedFils)}
+          amount={bhdDisplay(parseCaptureFils().fils ?? txn.amountFils - txn.capturedFils)}
           message={
             <>
               This captures{" "}
-              <strong>{bhd(parseCaptureFils().fils ?? txn.amountFils - txn.capturedFils)}</strong> from the
+              <strong>{bhdDisplay(parseCaptureFils().fils ?? txn.amountFils - txn.capturedFils)}</strong> from the
               authorized amount. The customer's card is charged.
             </>
           }
@@ -325,14 +342,14 @@ export function TransactionDetailPage() {
           {events.map((event) => (
             <tr key={event.id}>
               <td>{dateTime(event.occurredAt)}</td>
-              <td>{statusLabel(event.eventType)}</td>
-              <td className="dash-num">{event.amountFils === null ? "—" : bhd(event.amountFils)}</td>
+              <td>{eventLabel(event.eventType)}</td>
+              <td className="dash-num">{event.amountFils === null ? "—" : bhdDisplay(event.amountFils)}</td>
               <td>
-                {statusLabel(event.actorType)}
-                {event.actorId ? (
-                  <div className="dash-muted">
-                    <code>{event.actorId}</code>
-                  </div>
+                {actorLabel(event.actorType)}
+                {event.actorId && event.actorType !== "system" ? (
+                  <span className="dash-ref-sub" title={event.actorId}>
+                    {shortId(event.actorId)}
+                  </span>
                 ) : null}
               </td>
             </tr>
