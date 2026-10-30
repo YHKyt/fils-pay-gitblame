@@ -1,8 +1,8 @@
 # Local development stack for FilsPay. Brings up Postgres plus the three
 # services that talk to it directly (apps/api, apps/settlement,
-# apps/reporting) and runs the migration/seed jobs once against a fresh
-# database. apps/web and apps/admin are not included here — neither one
-# opens its own database connection; they call apps/api over HTTP.
+# apps/reporting), the merchant dashboard (apps/web, served by nginx with
+# /v1 proxied to the api on the same origin), and runs the migration/seed
+# jobs once against a fresh database. apps/admin is not included here.
 #
 #
 # The hosted demo box runs this same file. Service settings that aren't
@@ -99,6 +99,20 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  # Merchant dashboard + public checkout. nginx serves the Vite build and
+  # proxies /v1 to the api, so the browser sees a single origin: the api has
+  # no CORS handling, and a dashboard served from anywhere else cannot log in
+  # (the preflight OPTIONS /v1/... gets a 404 and fetch fails).
+  web:
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.web
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - api
 
   settlement:
     build:

@@ -11,12 +11,23 @@ cp ops/.env.example ops/.env   # then fill in the three secrets
 docker compose -f ops/docker-compose.yml up -d postgres
 docker compose -f ops/docker-compose.yml run --rm migrate
 docker compose -f ops/docker-compose.yml run --rm seed
-docker compose -f ops/docker-compose.yml up api settlement reporting
+docker compose -f ops/docker-compose.yml up api settlement reporting web
 ```
 
-apps/web and apps/admin aren't part of this compose file — they're plain
-Vite dev servers that talk to apps/api over HTTP (`npm run dev` inside
-each package), not services with their own database connection.
+The merchant dashboard and public checkout (apps/web) are served by the
+`web` service on port 8080: nginx serves the Vite build and proxies `/v1`
+to the api on the same origin (`nginx.web.conf`). This is required, not a
+convenience: apps/api sends no CORS headers, so a dashboard on any other
+origin fails every call at the preflight (`OPTIONS /v1/...` -> 404) and
+cannot log in. In development, `npm run dev -w @filspay/web` does the same
+through Vite's proxy (`API_PROXY_TARGET`, default `http://localhost:3000`).
+
+With `NODE_ENV=production` the session cookie is `Secure`, so the hosted
+dashboard must be reached over HTTPS (or `localhost`); browsers drop a
+Secure cookie set over plain http on any other host.
+
+apps/admin is not part of this compose file; it is a Vite dev server
+(`npm run dev -w @filspay/admin`) that calls apps/api over HTTP.
 
 ## Files
 
@@ -26,6 +37,8 @@ each package), not services with their own database connection.
 | `.env.docker` | shared service settings, loaded by compose for every service |
 | `Dockerfile.node` | image for api, reporting, migrate and seed (`node:20`, full install) |
 | `Dockerfile.go` | multi-stage build of `apps/settlement` |
+| `Dockerfile.web` | builds apps/web, serves it from nginx |
+| `nginx.web.conf` | nginx site for `web`: SPA fallback, `/v1` proxied to the api |
 
 `.env.example` lists the secrets every host must supply in `ops/.env` (gitignored).
 
