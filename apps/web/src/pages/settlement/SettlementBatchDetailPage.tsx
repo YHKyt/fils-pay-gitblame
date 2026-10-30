@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { getSettlementBatch, getSettlementBatchTransactions } from "../../api/settlement.js";
 import { ApiError, describeError } from "../../api/client.js";
 import { bhdDisplay, dash, dateTime, humanDate, shortId, statusLabel } from "../../format.js";
+import { CopyId } from "../../components/CopyId.js";
 import { usePageTitle } from "../../hooks/usePageTitle.js";
 import type { SettlementBatchDetailDto, SettlementBatchTransactionDto } from "../../types.js";
 
@@ -91,11 +92,9 @@ export function SettlementBatchDetailPage() {
           <p className="dash-eyebrow">
             <Link to="/dashboard/settlement">Settlements</Link> / Batch
           </p>
-          <h1>
-            Settlement {humanDate(batch.batchDate)} <span className="dash-ref-sub">{shortId(batch.id)}</span>
-          </h1>
+          <h1>Settlement {humanDate(batch.batchDate)}</h1>
           <p className="dash-muted dash-id-line">
-            <code title="Batch ID">{batch.id}</code>
+            <CopyId display={shortId(batch.id)} value={batch.id} label="Batch ID" />
           </p>
         </div>
         <span className={`dash-status dash-status-${batch.status}`}>{statusLabel(batch.status)}</span>

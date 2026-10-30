@@ -1878,3 +1878,38 @@ h1 .dash-ref-sub {
   margin: 0.6rem 0 0;
   text-align: center;
 }
+
+/* Short id chip with a copy button (CopyId). The full id lives in the
+   title and the clipboard, never as raw on-screen text. */
+.dash-id-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  padding: 0.1rem 0.15rem 0.1rem 0.5rem;
+  border: 1px solid var(--fp-border);
+  border-radius: 999px;
+  background: var(--fp-surface-2);
+  font-size: 0.78rem;
+  vertical-align: middle;
+}
+.dash-id-chip code {
+  font-family: var(--fp-mono);
+  color: var(--fp-text);
+  white-space: nowrap;
+}
+.dash-id-copy {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  background: transparent;
+  color: var(--fp-accent-hover);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.dash-id-copy:hover,
+.dash-id-copy:focus-visible {
+  background: var(--fp-accent-soft);
+}

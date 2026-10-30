@@ -76,6 +76,26 @@ export function actorLabel(actorType: string): string {
   return ACTOR_LABELS[actorType] ?? statusLabel(actorType);
 }
 
+/** Who caused a timeline event as one labelled line: `Dashboard user ·
+ *  #97BA2AB3`, `API key · #1C0FFEE2`, or `System` (system events never show
+ *  an id). An id is never shown bare without its actor kind. */
+export function actorDisplay(actorType: string, actorId: string | null | undefined): string {
+  const label = actorLabel(actorType);
+  if (actorType === "system" || !actorId) return label;
+  return `${label} · ${shortId(actorId)}`;
+}
+
+/** A long opaque reference (`acq_<uuid>`) shortened in the middle for display:
+ *  the prefix up to and including the first `_`, an ellipsis, and the last
+ *  `tail` characters (`acq_…3a8cf0d`). Short values come back unchanged. The
+ *  full value must stay available (title / copy) wherever this is used. */
+export function truncateMiddle(value: string, tail = 7): string {
+  const underscore = value.indexOf("_");
+  const prefix = underscore >= 0 && underscore < 12 ? value.slice(0, underscore + 1) : value.slice(0, 4);
+  if (value.length <= prefix.length + tail + 1) return value;
+  return `${prefix}…${value.slice(-tail)}`;
+}
+
 /** Sets the browser tab title for a dashboard or checkout page. */
 export function pageTitle(name: string): string {
   return `${name} · FilsPay`;
