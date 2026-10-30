@@ -79,6 +79,16 @@ export async function voidTransaction(pool: Pool, input: VoidInput): Promise<Voi
       txn.id,
     ]);
 
+    // A payment link finalized to this transaction whose capture never
+    // completed (it threw: outcome unknown) stays 'paid' until the merchant
+    // captures or voids. Voided, nothing was charged: hand the link back, as
+    // pay.ts does when its own capture fails, instead of leaving it 'paid'.
+    await client.query(
+      `UPDATE payment_links SET status = 'active', paid_at = NULL, transaction_id = NULL
+        WHERE transaction_id = $1 AND status = 'paid'`,
+      [txn.id],
+    );
+
     await recordTransactionEvent(client, {
       transactionId: txn.id,
       eventType: "voided",
