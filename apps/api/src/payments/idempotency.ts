@@ -26,7 +26,7 @@ export type IdempotencyOutcome =
   | "retry_after_failure" // a prior attempt failed transiently — proceed, attemptCount incremented
   | "replay" // a prior attempt completed — caller replays row.responseBody verbatim
   | "conflict_hash_mismatch" // same key, different request body — reject, never proceed
-  | "conflict_in_progress"; // an orphaned in_progress row (crashed process) — reject, never proceed
+  | "conflict_in_progress"; // a committed in_progress row (refunds only: in flight, or left by a dead process) — reject; processRefund may take over a stale one
 
 /** row is always the persisted idempotency_keys row as of the claim; for "replay" it carries the stored response. */
 export interface IdempotencyClaim {
@@ -198,14 +198,17 @@ export async function claimIdempotencyKey(
     return { outcome: "retry_after_failure", row: toRow(updated) };
   }
 
-  // MK: processRefund commits the claim before the acquirer call, so in_progress can
-  // legitimately be seen there. 409 is correct, client just retries later
-  // YA: Claude suggested a stale-claim sweeper (in_progress older than 5 min -> failed)
-  // — ignore, sweeper already exists in scripts/sweep_idempotency.ts
-  // existing.status === 'in_progress'. Given the blocking behavior above,
-  // this is only reachable if a previous process claimed the key and then
-  // crashed without ever reaching a COMMIT/ROLLBACK Postgres could detect —
-  // an orphaned row. Treated as a hard conflict, not silently retried.
+  // existing.status === 'in_progress'. authorize, capture and the admin
+  // actions claim, act and record the outcome in ONE transaction, so their
+  // in_progress row is never committed: a concurrent request blocks on the
+  // INSERT above instead, and a crash rolls the claim back. Only
+  // refunds.create commits its claim before the acquirer call
+  // (processRefund): a same-key request lands here while that attempt is in
+  // flight, and for good if its process died. There is no sweeper
+  // (scripts/sweep_idempotency.ts never existed); processRefund takes over a
+  // stale attempt itself and resends its acquirer key. Marking such a row
+  // 'failed' instead is NOT safe: the retry would run as a new attempt, with
+  // a new acquirer key, and could charge or refund the card a second time.
   return { outcome: "conflict_in_progress", row: toRow(existing) };
 }
 

@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 import { toFils } from "@filspay/money";
-import { authorizeTransaction } from "../payments/authorize.js";
+import { authorizeTransaction, type AuthorizeResult } from "../payments/authorize.js";
 import { captureTransaction } from "../payments/capture.js";
 import { voidTransaction } from "../payments/void.js";
 import type { AcquirerSimulator, SimulatedCardInput } from "../acquirer/types.js";
@@ -120,17 +120,32 @@ export async function payPaymentLink(
   // Step 2 — authorize.
   // am: keys include link.id so two links can never collide on idempotency. good
   const authorizeKey = `paylink:${link.id}:${input.idempotencyKey}:authorize`;
-  const authResult = await authorizeTransaction(pool, acquirer, {
-    merchantId: link.merchantId,
-    amountFils: link.amountFils,
-    card: input.card,
-    reference: link.reference ?? undefined,
-    idempotencyKey: authorizeKey,
-    // No merchant session/API key initiated this — a customer did, via
-    // the public link.
-    actor: { type: "system" },
-    cardFingerprintKey: config.cardFingerprintKey,
-  });
+  let authResult: AuthorizeResult;
+  try {
+    authResult = await authorizeTransaction(pool, acquirer, {
+      merchantId: link.merchantId,
+      amountFils: link.amountFils,
+      card: input.card,
+      reference: link.reference ?? undefined,
+      idempotencyKey: authorizeKey,
+      // No merchant session/API key initiated this — a customer did, via
+      // the public link.
+      actor: { type: "system" },
+      cardFingerprintKey: config.cardFingerprintKey,
+    });
+  } catch (err) {
+    // authorize threw (an acquirer timeout or socket error, an idempotency
+    // conflict, a DB fault). Hand the link back now instead of leaving it
+    // 'reserved', and unpayable, for the whole lease. Nothing was captured:
+    // money only moves after the finalize below, which this attempt never
+    // reached. The acquirer may still have authorized. A same-key retry
+    // resends the same acquirer key (acquirerIdempotencyKey) and gets that
+    // authorization back. Any other payer still has to win the finalize to
+    // capture, so such an authorization is never captured; it is the same
+    // leftover as when the lease runs out.
+    await releaseReservation(pool, link.id, leaseToken).catch(() => undefined);
+    throw err;
+  }
 
   if (authResult.statusCode !== 201) {
     await releaseReservation(pool, link.id, leaseToken);
@@ -279,7 +294,7 @@ export async function voidOtherLinkAuthorizations(
 }
 
 /**
- * Used by the authorize decline branch above. Guarded by the lease token
+ * Used when authorize declines or throws, above. Guarded by the lease token
  * for the same reason as the finalize UPDATE: this request only ever
  * releases the reservation it itself holds.
  */

@@ -368,7 +368,7 @@ Do a dry run before Saturday. Seed logins are in `db/seed/fixtures/merchants.ts`
 
 5. **Why reserve `refunded_fils` before calling the acquirer instead of holding the lock?** Holding a row lock across a network call blocks capture, void and other refunds for up to the acquirer latency. Reserving under a short lock serializes the decision, then releases the row. A decline or error releases the reservation.
 
-6. **What if the process crashes after reserving?** The idempotency key stays `in_progress`, and the reservation stays. The merchant can refund *less*, never twice. That is the safe direction for money, and it is visible.
+6. **What if the process crashes after reserving?** The idempotency key stays `in_progress`, and the reservation stays. The merchant can refund *less*, never twice. That is the safe direction for money, and it is visible. Since `7838645`, the key records the attempt's acquirer key and reserved amount. After 5 minutes, a same-key retry takes the attempt over and resends that same acquirer key, so the refund completes once. Before, the key answered 409 forever.
 
 7. **Why must the client send the Idempotency-Key?** Only the client knows that two requests are the same intent. A server-generated key makes every retry a new refund. The UI keeps one key per intent and rotates it only after a definitive answer.
 

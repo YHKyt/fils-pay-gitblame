@@ -182,7 +182,7 @@ code shows.
 | `db/migrations/0019_idempotency_keys.sql:33` | "request_hash covers the transaction id … (AI review)" | **FALSE.** | `df0e0db` |
 | `apps/api/src/routes/transactions.test.ts:218` | same-key/different-transaction "can't happen" | **FALSE.** | `df0e0db` |
 | `apps/api/src/payments/idempotency.ts:51` | `<` is locale dependent; use `localeCompare` | **FALSE.** The reply comment is right: `localeCompare` is the locale-dependent one. | Not obeyed |
-| `apps/api/src/payments/idempotency.ts:172-173` | suggested a stale-claim sweeper; reply: "sweeper already exists in scripts/sweep_idempotency.ts" | The reply is **FALSE**: no such file exists (`scripts/` at `8b58b0f` and HEAD). An orphaned `in_progress` claim answers 409 forever. | NEW lead for teammate B's idempotency lane. Impact not proven by a run. |
+| `apps/api/src/payments/idempotency.ts:172-173` | suggested a stale-claim sweeper; reply: "sweeper already exists in scripts/sweep_idempotency.ts" | The reply is **FALSE**: no such file exists (`scripts/` at `8b58b0f` and HEAD). An orphaned `in_progress` claim answers 409 forever. | **Fixed `7838645`.** Only refunds commit an `in_progress` claim. A same-key retry now takes over a stale attempt and resends its acquirer key. `processRefund.staleClaim.test.ts` gets 409 forever on the old code. See api-security-and-refunds.md R3. |
 | `apps/api/src/admin/adjustmentImport.ts:63` | nothing stops the same CSV being applied twice | **TRUE.** | adminmoney (`43ec7ac`) |
 | `apps/api/src/admin/creditApproval.test.ts:20` | same-id/different-name case passes "so ids are covered" | **FALSE** reasoning. Names were compared. | A6 (`dee2df4`) |
 

@@ -91,6 +91,13 @@ Every fix carries a regression test that fails before the change and passes afte
   - Reserve the amount in `refunded_fils` before the acquirer call. Release it on decline or error.
   - On success, only derive the status.
   - A crash in between leaves the key `in_progress` (never retried), so the error is in the safe direction.
+- **Update (`7838645`):** that `in_progress` key answered 409 `request_in_progress` forever, and the reservation was never resolved. The "sweeper" the code comment named (`scripts/sweep_idempotency.ts`) does not exist.
+  - Step 1 now also writes the attempt's acquirer key, its reserved amount and its claim time onto the claim row.
+  - A same-key retry that finds the attempt older than 5 minutes takes it over (`attempt_count + 1`, conditional) and resends the **same** acquirer key for the **same** reserved amount, with no new reservation. This is the same path as a retry after a thrown acquirer call (FX3), so the acquirer deduplicates.
+  - Step 3 records an outcome only while the attempt is still its own. An attempt that was only slow therefore cannot journal the refund a second time.
+  - A sweeper that marks the key `failed` was rejected. The retry would run as a new attempt, with a new acquirer key, and could refund twice. authorize, capture and the admin actions never commit an `in_progress` claim, so they need nothing.
+  - Keys left `in_progress` before this change carry no marker. They stay 409 and need a person to resolve them.
+  - Test: `processRefund.staleClaim.test.ts`. The old code answers 409. With the fix, there is one acquirer refund under one key, one refund row, and the late original attempt is refused. With the step-3 ownership check removed, the test fails with a second journal.
 - **Test:** three concurrent full refunds → exactly one succeeds, total refunded = captured. A declined refund leaves the full amount refundable.
 
 ## R4. Refund could exceed what was charged — High
@@ -188,6 +195,7 @@ Every fix carries a regression test that fails before the change and passes afte
   - If capture answers 502 (acquirer error), the link is also handed back to `active`, but the authorization is **not** voided, so a retry with the same Idempotency-Key replays it and can finish the capture (the capture key was marked failed, so it is retryable). Limit: the link is open to any payer meanwhile. If someone else pays it first, or the customer never retries, that first authorization is left holding funds on the card; nothing voids it later.
   - If capture throws, its database transaction rolls back (the capture idempotency claim too), and the link is put back to `reserved` with a fresh `reserved_at` that no request holds, so it is not shown as `paid`. The authorization is **not** voided. The link is unpayable (409 `payment_link_processing`) until the reservation timeout passes, after which any payer can claim it; a same-key retry then replays the authorization and captures. The code does not check whether the acquirer captured before the throw.
   - Release only matches the holder's own lease.
+  - **Authorize throws (`6a907bc`):** an exception from authorize (acquirer timeout, idempotency conflict, DB fault) used to leave the link `reserved` for the whole lease, so the customer's immediate retry got 409 `payment_link_processing`. The holder now releases its own reservation and rethrows. Releasing cannot cause a second charge: nothing was finalized, and only the finalize winner captures. If the acquirer did authorize, a same-key retry resends the same acquirer key and gets that authorization back. Another payer's attempt never captures it, the same leftover as after a lease timeout. Test: `pay.authorizeThrow.test.ts` (409 before; after, 200 with one acquirer authorization and one capture).
   - Residual risk: a process crash between finalize and capture leaves a paid link with an `authorized` transaction. That is under-collection, which is visible and capturable, instead of a second charge. The 502 and throw paths above can likewise leave an uncaptured authorization holding the customer's funds.
 - **Test:**
   - A second claim lands during authorize → the first attempt's transaction is voided with 0 captured.
