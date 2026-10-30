@@ -1,6 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { requireMerchantAuth } from "../auth/requireMerchantAuth.js";
-import { runTransactionsReport, type TransactionReportFilter } from "../reporting/transactionsReportQuery.js";
+import {
+  decodeReportCursor,
+  runTransactionsReportPage,
+  type TransactionReportFilter,
+} from "../reporting/transactionsReportQuery.js";
 import { resolveReportMerchantId } from "../reporting/scope.js";
 import { createSavedFilter, listSavedFilters } from "../reporting/savedFilters.js";
 import { BadRequestError } from "../lib/errors.js";
@@ -8,6 +12,8 @@ import { isUuid } from "../lib/requestParams.js";
 
 interface ReportQuery {
   filter?: string;
+  /** From the previous page's X-Next-Cursor header. */
+  cursor?: string;
 }
 
 interface SaveFilterBody {
@@ -48,7 +54,7 @@ export async function reportingRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Querystring: ReportQuery }>(
     "/transactions",
     { preHandler: requireMerchantAuth },
-    async (request) => {
+    async (request, reply) => {
       let parsed: Partial<TransactionReportFilter> = {};
       if (request.query.filter) {
         try {
@@ -65,12 +71,21 @@ export async function reportingRoutes(app: FastifyInstance): Promise<void> {
         parsed.merchantId,
       );
 
-      return runTransactionsReport(app.db, {
-        merchantId,
-        status: parsed.status,
-        from: parsed.from,
-        to: parsed.to,
-      });
+      const cursor = request.query.cursor ? decodeReportCursor(request.query.cursor) : null;
+      if (request.query.cursor && !cursor) {
+        throw new BadRequestError("invalid_cursor", "cursor is not a value this endpoint issued");
+      }
+
+      // The body stays a plain array; a merchant with more than one page of
+      // rows is told so in headers instead of getting a silently cut report.
+      const page = await runTransactionsReportPage(
+        app.db,
+        { merchantId, status: parsed.status, from: parsed.from, to: parsed.to },
+        cursor,
+      );
+      reply.header("x-truncated", page.nextCursor ? "true" : "false");
+      if (page.nextCursor) reply.header("x-next-cursor", page.nextCursor);
+      return page.rows;
     },
   );
 
