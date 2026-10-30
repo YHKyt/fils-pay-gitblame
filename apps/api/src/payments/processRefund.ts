@@ -7,7 +7,7 @@ import type { AcquirerSimulator } from "../acquirer/types.js";
 import { claimIdempotencyKey, completeIdempotencyKey, failIdempotencyKey, hashRequest } from "./idempotency.js";
 import { recordTransactionEvent } from "../transactions/events.js";
 import { nextStatusAfterRefund } from "./refundState.js";
-import { validateRefundRequest } from "./refundValidation.js";
+import { validateRefundRequest, type RefundValidation } from "./refundValidation.js";
 import { ConflictError, UnprocessableEntityError } from "../lib/errors.js";
 
 const ENDPOINT = "refunds.create";
@@ -50,6 +50,23 @@ function unknownOutcomeMarker(body: unknown): UnknownOutcomeMarker | null {
   if (b.acquirerOutcome !== "unknown" || typeof b.acquirerIdempotencyKey !== "string") return null;
   if (typeof b.reservedFils !== "number" || !Number.isSafeInteger(b.reservedFils) || b.reservedFils <= 0) return null;
   return b as UnknownOutcomeMarker;
+}
+
+const REFUND_ERROR_MESSAGES = {
+  transaction_not_refundable: "this transaction cannot be refunded in its current status",
+  refund_amount_invalid: "the refund amount must be a positive number of fils",
+  refund_exceeds_refundable: "the refund amount is more than the transaction has left to refund",
+} as const;
+
+/**
+ * The HTTP body for a refused refund: the API's uniform `{ error, message }`
+ * shape (lib/errors.ts), plus the detail field the refusal carries. The
+ * validation result itself (`{ ok, code }`) was sent before, so a client or
+ * the dashboard reading `body.error` got nothing.
+ */
+function refundErrorBody(validation: Exclude<RefundValidation, { ok: true }>): Record<string, unknown> {
+  const { ok: _ok, code, ...details } = validation;
+  return { error: code, message: REFUND_ERROR_MESSAGES[code], ...details };
 }
 
 /** Refund business logic: validate, call the acquirer, then journal the reversal. */
@@ -149,8 +166,9 @@ export async function processRefund(
 
     if (!validation.ok) {
       const statusCode = validation.code === "transaction_not_refundable" ? 409 : 422;
-      await completeIdempotencyKey(client, claim.row.id, { statusCode, body: validation });
-      return { kind: "settled" as const, result: { statusCode, body: validation } };
+      const body = refundErrorBody(validation);
+      await completeIdempotencyKey(client, claim.row.id, { statusCode, body });
+      return { kind: "settled" as const, result: { statusCode, body } };
     }
 
     // Reserve the amount before the lock is released and the acquirer is

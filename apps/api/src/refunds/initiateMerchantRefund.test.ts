@@ -196,7 +196,10 @@ test("an invalid refund amount is refused by the validator", async () => {
     actor: merchant.actor,
   });
   assert.equal(result.statusCode, 422);
-  assert.deepEqual(result.body, { ok: false, code: "refund_amount_invalid" });
+  // Uniform { error, message } shape (apihygiene, judgeprep JP4); this used to
+  // assert the raw validation result { ok: false, code }, which no client reads.
+  assert.equal((result.body as { error: string }).error, "refund_amount_invalid");
+  assert.equal(typeof (result.body as { message: unknown }).message, "string");
 
   const refunds = await pool.query<{ c: number }>(
     `SELECT COUNT(*)::int AS c FROM refunds WHERE transaction_id = $1`,

@@ -428,7 +428,11 @@ test("a refund against a voided transaction is refused by the validator", async 
     actor,
   });
   assert.equal(result.statusCode, 409);
-  assert.deepEqual(result.body, { ok: false, code: "transaction_not_refundable", status: "voided" });
+  // Uniform { error, message } shape plus the status detail (apihygiene, judgeprep JP4).
+  const body = result.body as { error: string; message: unknown; status: string };
+  assert.equal(body.error, "transaction_not_refundable");
+  assert.equal(typeof body.message, "string");
+  assert.equal(body.status, "voided");
 
   const refunds = await pool.query<{ c: number }>(
     `SELECT COUNT(*)::int AS c FROM refunds WHERE transaction_id = $1`,
@@ -527,7 +531,7 @@ test("a refund is capped at the captured amount, not the authorized amount", asy
     actor,
   });
   assert.equal(over.statusCode, 422, JSON.stringify(over.body));
-  assert.equal((over.body as { code: string }).code, "refund_exceeds_refundable");
+  assert.equal((over.body as { error: string }).error, "refund_exceeds_refundable");
 });
 
 // Regression: a declined refund must release its reservation.
