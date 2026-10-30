@@ -251,17 +251,21 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       throw new UnauthorizedError("no_pending_session");
     }
 
-    const existing = await app.db.query<{ id: string; created_at: Date; attempt_count: number }>(
-      `SELECT id, created_at, attempt_count FROM otp_challenges WHERE id = $1`,
-      [pending.otpChallengeId],
-    );
-    const existingChallenge = existing.rows[0];
-    if (existingChallenge && Date.now() - existingChallenge.created_at.getTime() < 30_000) {
-      throw new TooManyRequestsError("resend_too_soon");
-    }
-
     const { code, expiresAt } = await withTransaction(app.db, async (client) => {
+      // Read the current challenge under a row lock, inside the transaction.
+      // Read outside it, parallel resends all passed the 30 s throttle, and
+      // the attempt_count carried over below could miss guesses made in
+      // between, handing back part of the guess budget. A resend that loses
+      // the race finds the challenge already replaced and is throttled.
+      const existing = await client.query<{ id: string; created_at: Date; attempt_count: number; consumed_at: Date | null }>(
+        `SELECT id, created_at, attempt_count, consumed_at FROM otp_challenges WHERE id = $1 FOR UPDATE`,
+        [pending.otpChallengeId],
+      );
+      const existingChallenge = existing.rows[0];
       if (existingChallenge) {
+        if (existingChallenge.consumed_at !== null || Date.now() - existingChallenge.created_at.getTime() < 30_000) {
+          throw new TooManyRequestsError("resend_too_soon");
+        }
         await client.query(`UPDATE otp_challenges SET consumed_at = now() WHERE id = $1`, [
           existingChallenge.id,
         ]);
