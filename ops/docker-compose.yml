@@ -96,6 +96,9 @@ services:
       DATABASE_URL: postgres://filspay:filspay_dev_password@postgres:5432/filspay?sslmode=disable
       # TODO(YA, Jan): give the api its own role before anything is hosted.
       SETTLEMENT_INTERNAL_URL: http://settlement:8091
+      # Public origin of the `web` service below; every payment link's `url`
+      # is built from it. Unset, links pointed at http://localhost:5173.
+      CHECKOUT_BASE_URL: ${CHECKOUT_BASE_URL:-http://localhost:8080}
     depends_on:
       postgres:
         condition: service_healthy
