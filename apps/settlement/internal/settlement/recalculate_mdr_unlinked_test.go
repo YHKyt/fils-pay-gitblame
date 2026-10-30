@@ -9,11 +9,12 @@ import (
 
 // Regression: RecalculateMDR re-rates a batch from the transaction_events
 // that carry its id. A closed batch written without linking its events (as
-// db/seed writes the Alpha, Beta, Gamma and Delta Wholesale 2026-08-31
-// fixture batches) re-rated to a fee of 0, so a run with no rate change
-// refunded the whole fee: on the seed, Alpha Retail's 183.174 BD. It must
-// refuse such a batch instead, and leave it, the ledger and the outbox as
-// they were.
+// db/seed used to write the Alpha, Beta, Gamma and Delta Wholesale
+// 2026-08-31 fixture batches; it now links every settled capture event to
+// its batch) re-rated to a fee of 0, so a run with no rate change refunded
+// the whole fee: on that seed, Alpha Retail's 183.174 BD. It must refuse
+// such a batch instead, and leave it, the ledger and the outbox as they
+// were.
 func TestRecalculateMDR_RefusesBatchWhoseEventsDoNotAddUp(t *testing.T) {
 	pool := mustPool(t)
 	ctx := context.Background()
@@ -23,7 +24,7 @@ func TestRecalculateMDR_RefusesBatchWhoseEventsDoNotAddUp(t *testing.T) {
 	businessDate := time.Date(2026, 4, 26, 0, 0, 0, 0, time.UTC)
 	start, _ := BusinessDayWindow(businessDate)
 	// The capture happened, but the batch below was written directly with
-	// its figures and never linked to the event, as the seed does.
+	// its figures and never linked to the event, as the old seed did.
 	insertCaptureEvent(t, pool, merchantID, 250, 1_000_000, start.Add(time.Hour))
 	var batchID string
 	if err := pool.QueryRow(ctx, `
