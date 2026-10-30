@@ -28,6 +28,13 @@ CREATE INDEX idx_outbox_events_xact_id_id ON outbox_events (xact_id, id);
 -- a real xact_id, by id. When the new consumer first moves the cursor off
 -- '0', it keeps that id watermark here; without it, a row the old worker
 -- already applied could sort after the new position and be applied twice.
+--
+-- rebuilt_snapshot: set by the admin "Rebuild analytics" action, which
+-- recomputes the rollups from source tables in one snapshot. Events of
+-- transactions visible in that snapshot are already counted, so the
+-- consumer skips them. NULL when no such rebuild happened since the last
+-- full replay.
 ALTER TABLE reporting_outbox_cursor
   ADD COLUMN last_processed_xact_id xid8 NOT NULL DEFAULT '0',
-  ADD COLUMN id_floor BIGINT NOT NULL DEFAULT 0;
+  ADD COLUMN id_floor BIGINT NOT NULL DEFAULT 0,
+  ADD COLUMN rebuilt_snapshot pg_snapshot;

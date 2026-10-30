@@ -16,6 +16,10 @@ export interface ConsumerCursor extends CursorPosition {
   /** Rows with an id at or below this were applied by the id-only consumer
    *  and are never applied again, whatever their xact_id. */
   idFloor: bigint;
+  /** Set by the admin "Rebuild analytics" action (apps/api
+   *  admin/reportingRebuild.ts): events of transactions visible in this
+   *  snapshot are already counted in the rollups and are skipped. */
+  rebuiltSnapshot: string | null;
 }
 
 /**
@@ -25,6 +29,7 @@ interface CursorRow {
   last_processed_xact_id: string | number;
   last_processed_id: string | number;
   id_floor: string | number;
+  rebuilt_snapshot: string | null;
 }
 
 /**
@@ -52,7 +57,8 @@ export async function lockCursor(client: QueryableClient, consumerName: string):
 
   const result = (await client.query(
     `SELECT last_processed_xact_id, last_processed_id,
-            CASE WHEN last_processed_xact_id = '0' THEN last_processed_id ELSE id_floor END AS id_floor
+            CASE WHEN last_processed_xact_id = '0' THEN last_processed_id ELSE id_floor END AS id_floor,
+            rebuilt_snapshot::text AS rebuilt_snapshot
        FROM reporting_outbox_cursor
       WHERE consumer_name = $1
       FOR UPDATE`,
@@ -64,6 +70,7 @@ export async function lockCursor(client: QueryableClient, consumerName: string):
     lastProcessedXactId: row ? BigInt(row.last_processed_xact_id) : 0n,
     lastProcessedId: row ? BigInt(row.last_processed_id) : 0n,
     idFloor: row ? BigInt(row.id_floor) : 0n,
+    rebuiltSnapshot: row?.rebuilt_snapshot ?? null,
   };
 }
 
@@ -95,7 +102,8 @@ export async function resetCursor(client: QueryableClient, consumerName: string)
     `INSERT INTO reporting_outbox_cursor (consumer_name, last_processed_id, updated_at)
      VALUES ($1, 0, now())
      ON CONFLICT (consumer_name) DO UPDATE
-       SET last_processed_xact_id = '0', last_processed_id = 0, id_floor = 0, updated_at = now()`,
+       SET last_processed_xact_id = '0', last_processed_id = 0, id_floor = 0,
+           rebuilt_snapshot = NULL, updated_at = now()`,
     [consumerName],
   );
 }

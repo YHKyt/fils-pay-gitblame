@@ -66,6 +66,7 @@ export async function runConsumerPass(
           AND id > $3::bigint
           AND xact_id < pg_snapshot_xmin(pg_current_snapshot())
           AND event_type = ANY($4::text[])
+          AND ($6::pg_snapshot IS NULL OR NOT pg_visible_in_snapshot(xact_id, $6::pg_snapshot))
         ORDER BY xact_id ASC, id ASC
         LIMIT $5`,
       [
@@ -74,6 +75,7 @@ export async function runConsumerPass(
         cursor.idFloor.toString(),
         REPORTING_EVENT_TYPES,
         config.consumerBatchLimit,
+        cursor.rebuiltSnapshot,
       ],
     );
 
