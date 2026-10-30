@@ -27,6 +27,23 @@ interface ReconciliationQuery {
   to?: string;
 }
 
+/** Both business dates present and real calendar dates (2026-02-30 and
+ *  "garbage" used to reach the queries: a 500, or a window rolled over into
+ *  March). */
+function requireBusinessDates(query: ReconciliationQuery): { from: string; to: string } {
+  const { from, to } = query;
+  if (!from || !to) {
+    throw new BadRequestError("invalid_request", "from and to (YYYY-MM-DD) are required");
+  }
+  for (const value of [from, to]) {
+    const parsed = new Date(`${value}T00:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+      throw new BadRequestError("invalid_request", "from and to must be valid YYYY-MM-DD dates");
+    }
+  }
+  return { from, to };
+}
+
 /**
  * Read-only settlement report/reconciliation endpoints, registered with
  * prefix '/v1/settlement'. All routes use `requireMerchantAuth` (session or
@@ -60,10 +77,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     "/reconciliation",
     { preHandler: [requireMerchantAuth, requireMerchantRole("owner", "finance")] },
     async (request) => {
-      const { from, to } = request.query;
-      if (!from || !to) {
-        throw new BadRequestError("invalid_request", "from and to (YYYY-MM-DD) are required");
-      }
+      const { from, to } = requireBusinessDates(request.query);
 
       return getReconciliationReport(app.db, {
         merchantId: request.merchantAuth!.merchantId,
@@ -78,10 +92,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     "/summary",
     { preHandler: [requireMerchantAuth, requireMerchantRole("owner", "finance")] },
     async (request) => {
-      const { from, to } = request.query;
-      if (!from || !to) {
-        throw new BadRequestError("invalid_request", "from and to (YYYY-MM-DD) are required");
-      }
+      const { from, to } = requireBusinessDates(request.query);
 
       return getSettlementSummary(app.db, {
         merchantId: request.merchantAuth!.merchantId,

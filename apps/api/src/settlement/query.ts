@@ -112,7 +112,9 @@ export async function listSettlementBatches(
   pool: Pool,
   filters: ListSettlementBatchesFilters,
 ): Promise<ListSettlementBatchesResult> {
-  const limit = Math.min(MAX_LIMIT, Math.max(1, filters.limit ?? DEFAULT_LIMIT));
+  // parseInt("abc") is NaN, which Math.min/max pass through to LIMIT (a 500).
+  const requested = filters.limit !== undefined && Number.isFinite(filters.limit) ? filters.limit : DEFAULT_LIMIT;
+  const limit = Math.min(MAX_LIMIT, Math.max(1, requested));
   const statusArray = filters.status && filters.status.length > 0 ? filters.status : null;
   const decodedCursor = decodeCursor(filters.cursor);
 
@@ -294,10 +296,19 @@ export async function getReconciliationReport(
       [input.merchantId, windowStart, windowEnd],
     ),
     pool.query<{ total: string }>(
-      `SELECT COALESCE(SUM(net_payout_fils), 0) AS total
-         FROM settlement_batches
-        WHERE merchant_id = $1 AND batch_date >= $2 AND batch_date < $3
-          AND status IN ('closed', 'paid')`,
+      // A batch's net includes any negative shortfall it took over from an
+      // earlier batch (carried_forward_to_batch_id, 0090). That shortfall is
+      // the earlier batch's ledger activity, already counted in that batch's
+      // own net, so take it back out: each batch contributes only its own day.
+      `SELECT COALESCE(SUM(sb.net_payout_fils - COALESCE(carried.fils, 0)), 0) AS total
+         FROM settlement_batches sb
+         LEFT JOIN LATERAL (
+           SELECT SUM(src.net_payout_fils) AS fils
+             FROM settlement_batches src
+            WHERE src.carried_forward_to_batch_id = sb.id
+         ) carried ON true
+        WHERE sb.merchant_id = $1 AND sb.batch_date >= $2 AND sb.batch_date < $3
+          AND sb.status IN ('closed', 'paid')`,
       [input.merchantId, input.from, input.to],
     ),
     pool.query<{ amount_fils: string | number; fee_fils: string | null; discount_applied: boolean }>(
@@ -321,7 +332,14 @@ export async function getReconciliationReport(
          FROM transaction_events te
          JOIN transactions t ON t.id = te.transaction_id
         WHERE t.merchant_id = $1 AND te.event_type IN ('refunded', 'refund_partial')
-          AND te.settlement_batch_id IS NULL
+          -- CloseBatch claims a refund on the refunds row and leaves its
+          -- timeline event unstamped, so te.settlement_batch_id is always
+          -- NULL here: a settled refund has to be recognised by its row.
+          AND NOT EXISTS (
+            SELECT 1 FROM refunds r
+             WHERE r.id = (te.metadata->>'refundId')::uuid
+               AND r.settlement_batch_id IS NOT NULL
+          )
           AND te.occurred_at >= $2 AND te.occurred_at < $3`,
       [input.merchantId, windowStart, windowEnd],
     ),

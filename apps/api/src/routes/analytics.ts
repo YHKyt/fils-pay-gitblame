@@ -20,9 +20,12 @@ interface TopLinksQuery extends DateRangeQuery {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Strict YYYY-MM-DD that also round-trips through Date (rejects 2026-02-30). */
+/** Strict YYYY-MM-DD that also round-trips through Date (rejects 2026-02-30).
+ *  Date.parse alone accepts 2026-02-30 and rolls it over to 2 March. */
 function isValidDateString(value: string): boolean {
-  return DATE_RE.test(value) && !Number.isNaN(Date.parse(value));
+  if (!DATE_RE.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 function pad2(n: number): string {
