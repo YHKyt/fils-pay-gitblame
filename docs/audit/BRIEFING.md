@@ -38,18 +38,18 @@ Counted from every write-up in `docs/audit/`, using the per-file numbers in the 
 | Area (write-up) | Critical | High | Medium | Low | Total |
 |---|---|---|---|---|---|
 | Money, settlement, balances, boot (`money-and-settlement.md`, M1-M17) | 3 | 8 | 5 | 1 | 17 |
-| API security, refunds, webhooks, payment links, hosting (`api-security-and-refunds.md`, S/R/W/P/H/T) | 6 | 10 | 4 | 1 | 21 |
-| Admin plane sweep (A1-A8) | 0 | 5 | 0 | 3 | 8 |
+| API security, refunds, webhooks, payment links, hosting (`api-security-and-refunds.md`, S/R/W/P/H/T, incl. S9) | 6 | 11 | 4 | 1 | 22 |
+| Admin plane sweep (A1-A9) | 0 | 6 | 0 | 3 | 9 |
 | Merchant plane sweep (table "M1-M13" in the API write-up) | 1 | 2 | 7 | 3 | 13 |
 | Round 2 board items (B1-B6) | 0 | 10 | 9 | 1 | 20 |
 | FP-300 second pass (`fp300hunt.md`, F1-F5) | 2 | 3 | 0 | 0 | 5 |
 | Reporting consumer (`reporting.md`, RP1-RP5) | 0 | 2 | 3 | 0 | 5 |
 | Large export / upload (`large-export-upload.md`, E1-E2) | 0 | 1 | 0 | 1 | 2 |
 | Settlement run guards (`settleguards.md`, G1-G3) | 0 | 1 | 2 | 0 | 3 |
-| Recalculate MDR (`settlemdr.md`, R1-R4) | 0 | 1 | 3 | 0 | 4 |
+| Recalculate MDR (`settlemdr.md`, R1-R5) | 0 | 1 | 3 | 1 | 5 |
 | Batch close and payout (`settlebatch.md`) | 1 | 2 | 1 | 0 | 4 |
 | Daily run and nightly refresh (`settlerun.md`) | 0 | 1 | 1 | 0 | 2 |
-| SQL layer (`sqlhunt.md`, Q1) | 0 | 0 | 0 | 1 | 1 |
+| SQL layer (`sqlhunt.md`, Q1 and the rebuild-analytics item) | 0 | 0 | 1 | 1 | 2 |
 | Ledger integrity (`ledgerint.md`) | 0 | 1 | 3 | 1 | 5 |
 | Admin money actions (`adminmoney.md`) | 0 | 1 | 1 | 0 | 2 |
 | Money package (`moneyhunt.md`, N1-N2) | 0 | 0 | 0 | 2 | 2 |
@@ -59,9 +59,17 @@ Counted from every write-up in `docs/audit/`, using the per-file numbers in the 
 | Hosting and operations (`opsfix.md`, O1-O8 without O7) | 0 | 3 | 0 | 4 | 7 |
 | Settlement follow-ups (`settlefix2.md`) | 0 | 2 | 0 | 1 | 3 |
 | Transactions API (`apitxn.md`, TX1-TX4) | 0 | 1 | 1 | 2 | 4 |
-| Outbox events (`eventsbus.md`, EV1) | 0 | 0 | 1 | 0 | 1 |
+| Outbox events (`eventsbus.md`, EV1 and two fixed follow-ups) | 0 | 0 | 2 | 1 | 3 |
 | Settlement CLI and daemon (`gosettle2.md`, GS1-GS4) | 0 | 0 | 3 | 1 | 4 |
-| **Total** | **14** | **57** | **49** | **29** | **149** |
+| ADR and architecture drift (`adrdrift.md`, AD1) | 0 | 1 | 0 | 0 | 1 |
+| Concurrency fuzzing (`concfuzz.md`, CF1-CF3 and two fixed idempotency items) | 1 | 2 | 2 | 0 | 5 |
+| Fix pack 1 (`fixpack1.md`, FX1-FX11) | 0 | 3 | 4 | 4 | 11 |
+| Judge preparation (`judgeprep.md`, JP1-JP2) | 0 | 1 | 1 | 0 | 2 |
+| Performance under load (`perfload.md`, PL1-PL3) | 0 | 1 | 2 | 0 | 3 |
+| Seed realism (`seeddemo.md`, SD1-SD5) | 0 | 2 | 3 | 0 | 5 |
+| **Total** | **15** | **69** | **63** | **35** | **182** |
+
+Duplicates are counted once: JP3 is SD5, JP5 is the zero-net payout item in `eventsbus.md`, the out-of-order consumer item in `sqlhunt.md` is RP1, and the one-merchant-stops-the-run item in `settleguards.md` is `settlerun.md`. Not counted: R1 (the feature), S8 (a review with no change), items with no severity or still open (see the README), and unrated "fixed in" notes inside reported-only sections.
 
 Admin-plane A4 is counted as Low: the `revoke_after` check is real, but nothing writes that column today. Four fixes are defensive, to code with no live caller, and should be presented that way: A7 (`cfe4348`), R6 (`db30619`), A8 (`733a032`) and N1 (`d7e3e66`).
 
@@ -426,8 +434,8 @@ Do a dry run before Saturday. Seed logins are in `db/seed/fixtures/merchants.ts`
 
 | Time | Who | What to say or show |
 |---|---|---|
-| 0:00-1:00 | Y | Team "git blame". "We audited, fixed 149 written-up findings plus 9 smaller fixes, built refunds, solved the mystery. Almost every fix has a test that fails before and passes after, and we list the ones that don't." |
-| 1:00-2:30 | A | The scoreboard table (2.1): 14 Critical, 57 High. Then the case-file table (2.2): every memo, incident and handwritten item maps to a commit. Name the honest gaps (settlebal not merged under the nightly refresh, F4 retry risk). |
+| 0:00-1:00 | Y | Team "git blame". "We audited, fixed 182 written-up findings plus 9 smaller fixes, built refunds, solved the mystery. Almost every fix has a test that fails before and passes after, and we list the ones that don't." |
+| 1:00-2:30 | A | The scoreboard table (2.1): 15 Critical, 69 High. Then the case-file table (2.2): every memo, incident and handwritten item maps to a commit. Name the honest gaps (settlebal not merged under the nightly refresh, F4 retry risk). |
 | 2:30-6:30 | A | **FP-300 live** (4.2, steps 2-9): capture 10,001 fils → partial refund 3,333 → replay with the same key → over-refund 422 → concurrent race gives one success → ledger rows net to zero → timeline → `refund.succeeded` outbox row. |
 | 6:30-9:00 | Y | **Money bugs**: CSV 10× (show the two-line parser cause), float32 payout (one-line fix), split largest remainder (1001 → 1002 before), 135K → 7K Rebuild (wrong source), scheme "always over" (rounded vs truncated). Run one test live, e.g. `cd apps/settlement && go test ./internal/settlement/ -run TestNetPayableFils_ExactForLargeBatches -v`. |
 | 9:00-10:30 | A | **Security bugs**: OTP bypass (one predicate), link charged twice (finalize before capture, gated-acquirer test), unsigned callbacks (raw-body HMAC, 300 s window). |
