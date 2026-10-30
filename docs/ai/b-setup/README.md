@@ -1,4 +1,4 @@
-# AI setup: aalbalushi (`aalbalushi`)
+# AI setup: second team member (`aalbalushi`)
 
 This folder documents how the second team member ran Claude Code on the
 FilsPay handover. The team-wide rules are in [`../README.md`](../README.md)
