@@ -91,16 +91,19 @@ func RebuildAllBalances(ctx context.Context, db *pgxpool.Pool) (map[uuid.UUID]Re
 	// concurrent cache move is never clobbered.
 	diffs := make(map[uuid.UUID]RebuildDiff, len(merchantIDs))
 
+	// One short transaction per merchant: each rebuild only needs its own
+	// merchant to be atomic. A single transaction kept every walked row locked
+	// until the end, so live captures and refunds for those merchants waited
+	// (holding pool connections) for the whole run.
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("ledger: RebuildAllBalances: commit merchant list: %w", err)
+	}
 	for _, merchantID := range merchantIDs {
-		diff, err := rebuildInTx(ctx, tx, merchantID)
+		diff, err := RebuildOneBalance(ctx, db, merchantID)
 		if err != nil {
 			return nil, fmt.Errorf("ledger: RebuildAllBalances: %w", err)
 		}
 		diffs[merchantID] = diff
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("ledger: RebuildAllBalances: commit: %w", err)
 	}
 
 	return diffs, nil
