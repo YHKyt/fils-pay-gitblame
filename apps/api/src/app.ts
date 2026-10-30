@@ -5,6 +5,7 @@ import { createAcquirerSimulator } from "./acquirer/simulator.js";
 import { cookiesPlugin } from "./plugins/cookies.js";
 import { multipartPlugin } from "./plugins/multipart.js";
 import { errorHandler } from "./plugins/errorHandler.js";
+import { requestLogSerializer } from "./lib/requestLogging.js";
 import { healthRoutes } from "./routes/health.js";
 import { authRoutes } from "./routes/auth.js";
 import { businessProfileRoutes } from "./routes/businessProfile.js";
@@ -30,6 +31,8 @@ export interface BuildAppOptions {
    *  the dispatcher runs on; index.ts passes its own instance in so one
    *  process has exactly one transport. Tests inject a stub. */
   webhookTransport?: WebhookTransport;
+  /** Test seam: where the request log is written. Defaults to stdout. */
+  logStream?: { write(line: string): void };
 }
 
 /**
@@ -39,7 +42,14 @@ export interface BuildAppOptions {
  * tests use `app.inject(...)` against this — no real socket needed.
  */
 export function buildApp(config: Config, pool: Pool, options: BuildAppOptions = {}): FastifyInstance {
-  const app = Fastify({ logger: true });
+  // Payment-link tokens are bearer secrets: the request serializer keeps
+  // them (and secret-looking query values) out of the log.
+  const app = Fastify({
+    logger: {
+      serializers: { req: requestLogSerializer },
+      ...(options.logStream ? { stream: options.logStream } : {}),
+    },
+  });
 
   app.decorate("db", pool);
   app.decorate("config", config);
