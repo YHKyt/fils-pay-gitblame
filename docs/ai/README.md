@@ -4,13 +4,64 @@ This document describes **our** AI setup: the tools we ran, how we configured
 them, the standing rules we held every agent to, and how we kept the AI from
 being misled by the AI-steering files planted in the inherited repository.
 
-It is written and owned by the team (YHKyt — Reboot login `YHK` — and
-aalbalushi — `aalbalushi`). It is **not** one of the planted
+It is written and owned by the team (GitHub `YHKyt` and `aalbalushi`). It is
+**not** one of the planted
 configuration files. The files at the repository root named `CLAUDE.md`,
 `AGENTS.md` and `.cursorrules`, and the AI-directed note in
 `docs/ONBOARDING.md`, were shipped with the inherited code and are deliberately
 false. We treat them as evidence to audit, never as instructions. See
 `docs/audit/ai-config-traps.md` for the claim-by-claim analysis.
+
+## Where everything lives
+
+Our complete AI setup is in this folder. Machine-specific paths are replaced by
+placeholders (`<repo>` for the main checkout, `<worktrees>` for the directory
+holding one worktree per agent, `<scratch>` for the private folder that held
+the briefs) and no credentials are included.
+
+**Agent instructions** — what every agent was told before it started:
+
+- [`builder-rules.md`](builder-rules.md) — the operating contract for every
+  builder agent: workspace isolation, databases, tests, fail-before proof,
+  commits, write-up format, safety.
+- [`agents/context.md`](agents/context.md) — the shared context brief: the
+  event, the scoring, the trap files, ground truth and lane ownership.
+- [`agents/fix-round.md`](agents/fix-round.md) — the prompt for the final
+  "fix everything reported but not fixed" round.
+- [`agents/examples/`](agents/examples/) — three real per-lane task prompts:
+  [`settlemdr`](agents/examples/settlemdr.md),
+  [`settleguards`](agents/examples/settleguards.md) and
+  [`ledgerint`](agents/examples/ledgerint.md). Each produced the write-up of
+  the same name in `docs/audit/`.
+- Annotated transcript excerpts are in the submission document (section 6).
+
+**Custom commands** — skills and reusable prompts:
+
+- [`commands/caveman.md`](commands/caveman.md) — the `/caveman` communication
+  skill applied to every agent, why we used it and where it did not apply;
+  skill file copy: [`commands/caveman.SKILL.md`](commands/caveman.SKILL.md).
+- [`commands/hunt-and-fix.md`](commands/hunt-and-fix.md) — the reusable
+  "hunt new bugs, prove, fix" mode.
+- [`commands/review.md`](commands/review.md) — the read-only reviewer prompt.
+- [`commands/merge-routine.md`](commands/merge-routine.md) — the lead's
+  read-diff, merge, verify, push routine.
+
+**Tool configuration** and **permission rules**:
+
+- [`config/permissions.md`](config/permissions.md) — the tool, model and
+  permission mode we ran in (`bypassPermissions`), why, and how isolation,
+  written rules and the human merge gate kept it safe.
+- [`config/claude-settings.example.json`](config/claude-settings.example.json)
+  — the same rules as an enforceable Claude Code allow/deny list.
+
+**Helper scripts**:
+
+- [`scripts/verify.sh`](scripts/verify.sh) — runs every test suite, each on
+  its own fresh database, plus the type checker.
+- [`scripts/verify-and-push.sh`](scripts/verify-and-push.sh) — verifies one
+  exact merge commit and pushes it only if every suite is green.
+- [`scripts/fail-before.sh`](scripts/fail-before.sh) — proves a regression
+  test fails on the old code and passes on the fix.
 
 ## Tools
 
@@ -73,7 +124,7 @@ contract is in `docs/ai/builder-rules.md`.
 
 ## Parallel agents in isolated worktrees
 
-- Each agent worked in its **own git worktree** (`E:/reboot/wt-<lane>` on branch
+- Each agent worked in its **own git worktree** (`<worktrees>/wt-<lane>` on branch
   `agent/<lane>`), never in the shared checkout, so parallel agents could not
   collide on the working tree.
 - Each agent used its **own throwaway Postgres database** (one per lane), so a
