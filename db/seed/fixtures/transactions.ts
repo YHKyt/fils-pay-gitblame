@@ -201,10 +201,14 @@ const MARKETPLACE_ORDER_TOTALS_FILS: readonly number[] = [
 export interface GeneratedCaptureEvent {
   transactionId: string;
   amountFils: Fils;
-  /** The fee actually charged at capture time, i.e. the MDR fee less the
-   *  merchant's negotiated discount off it — the value capture.ts records
-   *  in `transaction_events.metadata.feeFils`. */
+  /** The fee actually charged at capture time, discount included: the MDR
+   *  on the amount less the merchant's negotiated discount — the value
+   *  capture.ts records in `transaction_events.metadata.feeFils`. */
   feeFils: Fils;
+  /** The discount `feeFils` already includes; capture.ts records it next to
+   *  `feeFils`, and CloseBatch / RecalculateMDR take the booked fee only from
+   *  an event that carries it. */
+  discountBps: number;
   occurredAt: Date;
 }
 
@@ -264,12 +268,14 @@ export function generateMarketplaceOrdersForMerchant(params: {
         occurredAt,
       });
 
-      // Capture-time fee: the MDR, then the merchant's negotiated discount
-      // off that fee — the exact pair of postings capture.ts and
-      // discountAdjustment.ts leave behind, folded into one balanced group
-      // the same way every other seeded capture is.
-      const feeBeforeDiscount = applyRateFils(amountFils, mdrBps);
-      const feeFils = subtractFils(feeBeforeDiscount, applyRateFils(feeBeforeDiscount, discountBps));
+      // Capture-time fee, exactly as capture.ts computes it (and the
+      // settlement service's ComputeSettlementFee): discount the amount
+      // first, then apply the MDR, each step rounded half-even. Taking the
+      // discount off the fee instead came out 1 fil higher on every order
+      // total here (14,100 fils: 340 vs 339), so a batch closed over these
+      // captures charged less than the ledger had journaled.
+      const discountedAmount = subtractFils(amountFils, applyRateFils(amountFils, discountBps));
+      const feeFils = applyRateFils(discountedAmount, mdrBps);
       const merchantNet = subtractFils(amountFils, feeFils);
 
       const legs: LedgerLeg[] = [
@@ -289,7 +295,7 @@ export function generateMarketplaceOrdersForMerchant(params: {
         legs,
       });
 
-      captureEvents.push({ transactionId: id, amountFils, feeFils, occurredAt });
+      captureEvents.push({ transactionId: id, amountFils, feeFils, discountBps, occurredAt });
     }
   }
 
@@ -345,6 +351,8 @@ export interface GeneratedTimelineEvent {
   /** NULL for 'authorized', which moves no money (migration 0018). */
   amountFils: Fils | null;
   feeFils: Fils | null;
+  /** Set with `feeFils` on a capture row (see GeneratedCaptureEvent). */
+  discountBps: number | null;
   occurredAt: Date;
 }
 
@@ -371,8 +379,11 @@ export function generateInstalmentCaptures(params: {
   mdrBps: number;
   /** The rate in force at a capture instant; defaults to `mdrBps`. */
   mdrBpsAt?: (at: Date) => number;
+  /** The merchant's negotiated discount; defaults to 0. */
+  discountBps?: number;
 }): GenerateMultiCaptureResult {
   const { merchantId, merchantKey, mdrBps } = params;
+  const discountBps = params.discountBps ?? 0;
   const mdrBpsAt = params.mdrBpsAt ?? (() => mdrBps);
 
   const transactions: GeneratedTransaction[] = [];
@@ -404,6 +415,7 @@ export function generateInstalmentCaptures(params: {
       eventType: "authorized",
       amountFils: null,
       feeFils: null,
+      discountBps: null,
       occurredAt: authorizedAt,
     });
 
@@ -412,7 +424,7 @@ export function generateInstalmentCaptures(params: {
       const capturedFils = toFils(instalment);
       // The fee is charged on the instalment actually captured, never on
       // the running total — the same per-call rule capture.ts applies.
-      const feeFils = applyRateFils(capturedFils, mdrBpsAt(occurredAt));
+      const feeFils = applyRateFils(subtractFils(capturedFils, applyRateFils(capturedFils, discountBps)), mdrBpsAt(occurredAt));
       const merchantNet = subtractFils(capturedFils, feeFils);
 
       const legs: LedgerLeg[] = [
@@ -440,6 +452,7 @@ export function generateInstalmentCaptures(params: {
         eventType: n === instalments.length - 1 ? "captured" : "partially_captured",
         amountFils: capturedFils,
         feeFils,
+        discountBps,
         occurredAt,
       });
     });

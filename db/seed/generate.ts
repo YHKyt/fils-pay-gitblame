@@ -412,13 +412,19 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
 
         // The capture timeline. actor_type 'system' (and therefore a NULL
         // actor_id) because a seeded capture has no session or API key
-        // behind it; metadata carries the same feeFils key
-        // recordTransactionEvent writes for a real capture.
+        // behind it; metadata carries the same feeFils and discountBps keys
+        // capture.ts records for a real capture. Without discountBps,
+        // CloseBatch and RecalculateMDR ignore the booked fee and recompute it.
         for (const event of captureEvents) {
           await client.query(
             `INSERT INTO transaction_events (transaction_id, event_type, amount_fils, actor_type, metadata, occurred_at)
              VALUES ($1, 'captured', $2, 'system', $3, $4)`,
-            [event.transactionId, event.amountFils, JSON.stringify({ feeFils: event.feeFils }), event.occurredAt],
+            [
+              event.transactionId,
+              event.amountFils,
+              JSON.stringify({ feeFils: event.feeFils, discountBps: event.discountBps }),
+              event.occurredAt,
+            ],
           );
           transactionEventCount += 1;
         }
@@ -455,6 +461,7 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
             merchantKey: fixture.key,
             mdrBps: fixture.mdrBps,
             mdrBpsAt: rateAt,
+            discountBps: fixture.negotiatedDiscountBps ?? 0,
           });
 
           for (const txn of multiCapture.transactions) {
@@ -788,7 +795,7 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
               event.transactionId,
               event.eventType,
               event.amountFils,
-              JSON.stringify(event.feeFils === null ? {} : { feeFils: event.feeFils }),
+              JSON.stringify(event.feeFils === null ? {} : { feeFils: event.feeFils, discountBps: event.discountBps }),
               event.occurredAt,
               settled ? (batchIdByTransaction.get(event.transactionId) ?? null) : null,
             ],

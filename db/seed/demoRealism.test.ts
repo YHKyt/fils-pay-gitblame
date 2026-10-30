@@ -189,3 +189,39 @@ test("a test-mode merchant has no settlement history", { skip }, async () => {
   );
   assert.deepEqual(batches.rows.map((b) => `${b.display_name}: ${b.batches} batch(es), gross ${b.gross}`), []);
 });
+
+test("every seeded capture event books its fee as capture.ts does, with discountBps", { skip, timeout: 300_000 }, async () => {
+  // capture.ts records { feeFils, discountBps }: the fee on the discounted
+  // amount at the rate in force. CloseBatch and RecalculateMDR take the
+  // booked fee only from an event that carries discountBps and recompute
+  // the rest with ComputeSettlementFee (discount the amount, then the MDR).
+  // The marketplace orders took the discount off the fee instead (1 fil
+  // higher on every order) and, like the instalment captures, carried no
+  // discountBps: a batch closed over them charged 2 fils less than the 5,360
+  // the ledger had journaled for 2026-08-31 and overpaid merchant_payable.
+  const events = await pool.query<{ display_name: string; amount: string; fee: string | null; has_discount: boolean; discount: number; rate: number }>(
+    `SELECT m.display_name, te.amount_fils::text AS amount, te.metadata->>'feeFils' AS fee,
+            te.metadata ? 'discountBps' AS has_discount, m.negotiated_discount_bps AS discount,
+            ${RATE_IN_FORCE_SQL.replaceAll("le.occurred_at", "te.occurred_at")} AS rate
+       FROM transaction_events te
+       JOIN transactions t ON t.id = te.transaction_id
+       JOIN merchants m ON m.id = t.merchant_id
+      WHERE te.event_type IN ('captured', 'partially_captured') AND te.metadata ? 'feeFils'`,
+  );
+  assert.ok(events.rows.length > 1000, `expected the seeded capture events, got ${events.rows.length}`);
+  const missing = events.rows.filter((e) => !e.has_discount);
+  assert.deepEqual(
+    [...new Set(missing.map((e) => e.display_name))].map((name) => `${name}: ${missing.filter((e) => e.display_name === name).length} without discountBps`),
+    [],
+  );
+  const wrong = events.rows.filter((e) => {
+    const amount = toFils(Number(e.amount));
+    const discounted = toFils(amount - applyRateFils(amount, e.discount));
+    return Number(e.fee) !== applyRateFils(discounted, e.rate);
+  });
+  assert.deepEqual(
+    wrong.slice(0, 3).map((e) => `${e.display_name}: amount ${e.amount} fee ${e.fee}, ${e.rate} bps less ${e.discount} bps discount`),
+    [],
+    `${wrong.length} capture event(s) booked a fee capture.ts would not charge`,
+  );
+});
