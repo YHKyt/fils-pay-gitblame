@@ -58,3 +58,14 @@ regression test that fails on the old code and passes on the fix.
 - **Breaks:** The checkout shows a payable form whose every Pay answers "a payment is already being processed"; the customer can never get the true answer (expired).
 - **Fix:** A lapsed reservation on an expired link reads `expired` and pay answers `410 payment_link_expired`. A reservation still inside its timeout keeps `processing`, since that attempt may still finish.
 - **Test:** One DB test, one unit test.
+
+## FX6 A malformed card on the public pay route answers 500 — LOW-MEDIUM
+
+**Where:** `apps/api/src/routes/paymentLinks.ts` (`POST /v1/payment-links/:token/pay`).
+**Evidence:** `routes/paymentLinks.test.ts` "pay with a malformed card is a 400 invalid_card": old code answers 500 for `{}`, a string card, an array, a numeric or null pan, and a 4-digit pan.
+
+- **What:** The route only checked `if (!card)`. The acquirer calls `card.pan.endsWith(...)`, which throws a TypeError for a non-string pan.
+- **Why:** The same gap apitxn closed on `POST /v1/transactions` (6344efb) also exists on the public, unauthenticated checkout route, which anyone can hit.
+- **Breaks:** 500s on a public endpoint, and the thrown authorize leaves the link `reserved` until the reservation timeout, blocking real payers for 60 s per malformed request.
+- **Fix:** The same 12-19 digit string check as authorize, answering `400 invalid_card` before the link is claimed.
+- **Test:** Six malformed cards give 400 and the link stays `active` and payable.
