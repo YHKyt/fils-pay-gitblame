@@ -56,10 +56,24 @@ export function expiryReferenceTime(_submittedAt?: string): Date {
  */
 function capturedAttemptExists(link: string, exceptKeyParam?: string): string {
   const exceptOwn = exceptKeyParam ? ` AND k.key <> 'paylink:' || ${link}.id || ':' || ${exceptKeyParam} || ':authorize'` : "";
+  // The matched keys all start with the prefix 'paylink:<link id>:'. The link
+  // id is a column, so the prefix is only known at run time; Postgres will not
+  // turn a column-built `LIKE 'prefix%'` into an index range, and the
+  // idx_idempotency_keys_paylink_like (text_pattern_ops) index goes unused —
+  // the planner sequentially scans idempotency_keys on every pay. An explicit
+  // half-open range on `key` written with the pattern operators (~>=~ / ~<~)
+  // *is* index-usable even for a run-time prefix, so the planner serves it from
+  // that index. ';' is ':' + 1, so every key beginning 'paylink:<id>:' sorts at
+  // or above the lower bound and strictly below the upper bound — the range
+  // covers exactly the same keys the old `LIKE 'paylink:<id>:%'` prefix did.
+  // The original LIKE is kept as a residual filter so the ':authorize' suffix
+  // still discriminates and the rows matched are identical to before.
   return `EXISTS (
     SELECT 1 FROM idempotency_keys k JOIN transactions t ON t.id = k.resource_id
      WHERE k.merchant_id = ${link}.merchant_id
        AND k.endpoint = 'transactions.authorize'
+       AND k.key ~>=~ ('paylink:' || ${link}.id || ':')
+       AND k.key ~<~ ('paylink:' || ${link}.id || ';')
        AND k.key LIKE 'paylink:' || ${link}.id || ':%:authorize'
        AND t.captured_fils > 0${exceptOwn})`;
 }
@@ -281,11 +295,23 @@ export async function voidOtherLinkAuthorizations(
   link: { id: string; merchantId: string },
   keepTxnId: string | null,
 ): Promise<void> {
+  // Same index-usability fix as capturedAttemptExists: a `LIKE $prefix%` whose
+  // prefix is a bound parameter is not reliably turned into an index range
+  // (under a generic plan the planner sequentially scans idempotency_keys),
+  // so query an explicit half-open range on `key` with the pattern operators
+  // (~>=~ / ~<~), which the idx_idempotency_keys_paylink_like text_pattern_ops
+  // index serves. keyPrefixUpper is keyPrefix with its final ':' byte bumped to
+  // ';' (':' + 1), so [keyPrefix, keyPrefixUpper) is exactly the set of keys
+  // beginning 'paylink:<link id>:'. The full LIKE stays as a residual filter so
+  // the ':authorize' suffix still discriminates and the rows are identical.
+  const keyPrefix = `paylink:${link.id}:`;
+  const keyPrefixUpper = `${keyPrefix.slice(0, -1)};`;
   const result = await pool.query<{ resource_id: string }>(
     `SELECT resource_id FROM idempotency_keys
-      WHERE merchant_id = $1 AND endpoint = 'transactions.authorize' AND key LIKE $2
-        AND resource_id IS NOT NULL AND resource_id IS DISTINCT FROM $3::uuid`,
-    [link.merchantId, `paylink:${link.id}:%:authorize`, keepTxnId],
+      WHERE merchant_id = $1 AND endpoint = 'transactions.authorize'
+        AND key ~>=~ $2 AND key ~<~ $3 AND key LIKE $4
+        AND resource_id IS NOT NULL AND resource_id IS DISTINCT FROM $5::uuid`,
+    [link.merchantId, keyPrefix, keyPrefixUpper, `paylink:${link.id}:%:authorize`, keepTxnId],
   );
   for (const row of result.rows) {
     await voidTransaction(pool, {
