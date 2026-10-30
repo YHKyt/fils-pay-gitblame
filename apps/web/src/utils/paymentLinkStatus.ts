@@ -19,10 +19,17 @@ export function paymentLinkDisplayStatus(
   return link.status;
 }
 
-/** Cancel is offered only for a link that can still be paid. */
+/**
+ * Cancel is offered only for a link that can still be paid. That includes an
+ * unexpired 'reserved' link: its reservation may have lapsed (the payer's
+ * attempt died), in which case it is payable again and the API cancels it;
+ * while a payment is genuinely in flight the API answers 409 not_cancelable.
+ */
 export function canCancelPaymentLink(
   link: { status: PaymentLinkStatus; expiresAt: string },
   now: Date = new Date(),
 ): boolean {
-  return paymentLinkDisplayStatus(link, now) === "active";
+  const status = paymentLinkDisplayStatus(link, now);
+  if (status === "active") return true;
+  return status === "reserved" && new Date(link.expiresAt).getTime() > now.getTime();
 }

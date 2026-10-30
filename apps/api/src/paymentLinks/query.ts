@@ -63,7 +63,9 @@ export async function listPaymentLinks(
   filters: ListPaymentLinksFilters,
 ): Promise<ListPaymentLinksResult> {
   // am: limit=0 -> 1? fine
-  const limit = Math.min(MAX_LIMIT, Math.max(1, filters.limit ?? DEFAULT_LIMIT));
+  // parseInt("abc") is NaN, which Math.min/max pass through to LIMIT (a 500).
+  const requested = filters.limit !== undefined && Number.isFinite(filters.limit) ? filters.limit : DEFAULT_LIMIT;
+  const limit = Math.min(MAX_LIMIT, Math.max(1, requested));
   const statusArray = filters.status && filters.status.length > 0 ? filters.status : null;
   const decodedCursor = decodeCursor(filters.cursor);
 

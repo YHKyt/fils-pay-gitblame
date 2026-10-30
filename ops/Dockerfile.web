@@ -1,0 +1,31 @@
+# Merchant dashboard: builds apps/web with Vite, then serves the static
+# bundle from nginx, which also proxies /v1 to the api (ops/nginx.web.conf)
+# so the browser only ever talks to one origin.
+FROM node:20-slim AS build
+
+WORKDIR /app
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false \
+    NPM_CONFIG_FUND=false
+
+# Every workspace manifest is needed for `npm ci` to accept the lockfile.
+COPY package.json package-lock.json tsconfig.base.json tsconfig.json ./
+COPY packages/money/package.json packages/money/
+COPY packages/events/package.json packages/events/
+COPY apps/api/package.json apps/api/
+COPY apps/reporting/package.json apps/reporting/
+COPY apps/web/package.json apps/web/
+COPY apps/admin/package.json apps/admin/
+
+# Only the web workspace's dependencies; --ignore-scripts skips native
+# builds (argon2) that the static bundle never uses.
+RUN npm ci --include=dev --no-audit --ignore-scripts -w @filspay/web \
+ && npm cache clean --force
+
+COPY packages/money ./packages/money
+COPY apps/web ./apps/web
+RUN npm run build -w @filspay/web
+
+FROM nginx:1.27-alpine
+COPY ops/nginx.web.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/apps/web/dist /usr/share/nginx/html
+EXPOSE 8080

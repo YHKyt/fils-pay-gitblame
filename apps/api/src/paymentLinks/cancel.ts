@@ -5,19 +5,28 @@ export type CancelPaymentLinkResult =
   | { outcome: "not_found" }
   | { outcome: "not_cancelable"; status: string };
 
-/** Cancels an active payment link by id. */
+/**
+ * Cancels an active payment link by id. A 'reserved' row whose reservation
+ * has lapsed (older than the reservation timeout) counts as active: the pay
+ * endpoint reclaims such a row and the public read already reports it as
+ * 'active', so refusing the merchant's cancel there left a link they could
+ * not stop but a customer could still pay. A live reservation (a payment in
+ * flight) stays non-cancelable.
+ */
 export async function cancelPaymentLink(
   pool: Pool,
-  input: { id: string; merchantId: string },
+  input: { id: string; merchantId: string; reservationTimeoutSeconds: number },
 ): Promise<CancelPaymentLinkResult> {
   // merchant_id predicate is the authz boundary: without it any merchant
   // could cancel another merchant's link by id (IDOR).
   const updateResult = await pool.query<{ id: string }>(
     `UPDATE payment_links
-        SET status = 'canceled', canceled_at = now()
-      WHERE id = $1 AND merchant_id = $2 AND status = 'active'
+        SET status = 'canceled', canceled_at = now(), reserved_at = NULL
+      WHERE id = $1 AND merchant_id = $2
+        AND (status = 'active'
+             OR (status = 'reserved' AND reserved_at < now() - ($3 || ' seconds')::interval))
       RETURNING id`,
-    [input.id, input.merchantId],
+    [input.id, input.merchantId, input.reservationTimeoutSeconds],
   );
   if (updateResult.rows[0]) {
     return { outcome: "canceled" };

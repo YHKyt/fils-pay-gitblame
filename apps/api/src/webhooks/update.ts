@@ -38,6 +38,10 @@ export async function updateWebhookEndpoint(
   if (input.url !== undefined) {
     validateWebhookUrl(input.url, config);
   }
+  // Anything else reached the webhook_endpoint_status enum cast and failed as a 500.
+  if (input.status !== undefined && input.status !== "active" && input.status !== "disabled") {
+    throw new BadRequestError("invalid_request", "status must be 'active' or 'disabled'");
+  }
 
   const result = await pool.query<WebhookEndpointRow>(
     `UPDATE webhook_endpoints

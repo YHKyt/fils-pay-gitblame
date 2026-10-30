@@ -16,6 +16,11 @@ import { isBlockedHostname } from "./urlPolicy.js";
  * refused at send time by the transport.
  */
 export function validateWebhookUrl(rawUrl: string, config: Pick<Config, "nodeEnv">): URL {
+  // JSON bodies are not schema-checked: `new URL(["https://x"])` stringifies
+  // the array and parses, and pg then stored the array literal {"https://x"}.
+  if (typeof rawUrl !== "string") {
+    throw new BadRequestError("invalid_url");
+  }
   let parsed: URL;
   try {
     parsed = new URL(rawUrl);

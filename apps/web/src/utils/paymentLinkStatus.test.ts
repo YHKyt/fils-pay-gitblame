@@ -28,3 +28,8 @@ test("terminal and reserved statuses are shown as stored", () => {
   assert.equal(paymentLinkDisplayStatus({ status: "reserved", expiresAt: past }, NOW), "reserved");
   assert.equal(canCancelPaymentLink({ status: "paid", expiresAt: past }, NOW), false);
 });
+
+test("WF2: an unexpired reserved link offers Cancel (the API decides if the reservation lapsed)", () => {
+  assert.equal(canCancelPaymentLink({ status: "reserved", expiresAt: "2026-10-30T09:00:00.000Z" }, NOW), true);
+  assert.equal(canCancelPaymentLink({ status: "reserved", expiresAt: "2026-10-29T08:00:00.000Z" }, NOW), false);
+});

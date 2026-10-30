@@ -44,7 +44,16 @@ export async function createPaymentLink(
     throw new BadRequestError("invalid_amount", "amountFils must be a positive integer number of fils");
   }
 
-  const expiresAtDate = new Date(input.expiresAt);
+  // JSON bodies are not schema-checked: an array or object here was stored
+  // as a Postgres array literal / JSON text and shown as the link's reference.
+  for (const field of ["reference", "description"] as const) {
+    const value: unknown = input[field];
+    if (value !== undefined && value !== null && typeof value !== "string") {
+      throw new BadRequestError("invalid_request", `${field} must be a string`);
+    }
+  }
+  // new Date(["2027-01-01"]) parses too; only an ISO 8601 string is accepted.
+  const expiresAtDate = new Date(typeof input.expiresAt === "string" ? input.expiresAt : Number.NaN);
   if (Number.isNaN(expiresAtDate.getTime()) || expiresAtDate.getTime() <= Date.now()) {
     throw new BadRequestError("invalid_expiry", "expiresAt must be a valid ISO 8601 date strictly in the future");
   }

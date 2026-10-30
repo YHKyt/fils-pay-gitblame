@@ -91,6 +91,11 @@ const PATCHABLE_COLUMNS: Record<keyof BusinessProfilePatch, string> = {
   postalCode: "postal_code",
 };
 
+const NULLABLE_FIELDS = new Set<keyof BusinessProfilePatch>(["addressLine2", "postalCode"]);
+
+/** Mirrors the CHECK on merchant_business_profiles.business_type (0014). */
+const BUSINESS_TYPES = new Set<string>(["sole_proprietorship", "llc", "partnership", "public_company", "other"]);
+
 /** Partial update of the editable business-profile fields (all except
  *  merchant_id). Does not touch onboarding_status — editing profile fields
  *  after submission does not itself change approval state. */
@@ -115,6 +120,31 @@ export async function updateBusinessProfile(
   const entries = Object.entries(patch).filter(([, value]) => value !== undefined) as Array<
     [keyof BusinessProfilePatch, string | null]
   >;
+
+  // Values are not schema-checked either: null on a NOT NULL column, an
+  // unknown businessType or a 3-letter country hit a constraint (500), and a
+  // number was silently stored as text.
+  for (const [key, value] of entries) {
+    if (value === null) {
+      if (!NULLABLE_FIELDS.has(key)) {
+        throw new BadRequestError("invalid_request", `${key} cannot be null`);
+      }
+      continue;
+    }
+    if (typeof value !== "string") {
+      throw new BadRequestError("invalid_request", `${key} must be a string`);
+    }
+    // Signup requires these fields; an edit must not blank them either.
+    if (!NULLABLE_FIELDS.has(key) && value.trim() === "") {
+      throw new BadRequestError("invalid_request", `${key} cannot be empty`);
+    }
+  }
+  if (patch.businessType !== undefined && !BUSINESS_TYPES.has(patch.businessType)) {
+    throw new BadRequestError("invalid_request", `businessType must be one of: ${[...BUSINESS_TYPES].join(", ")}`);
+  }
+  if (patch.country !== undefined && !/^[A-Z]{2}$/.test(patch.country)) {
+    throw new BadRequestError("invalid_request", "country must be a two-letter ISO 3166 code, e.g. BH");
+  }
 
   if (entries.length === 0) {
     return getBusinessProfile(pool, merchantId);
