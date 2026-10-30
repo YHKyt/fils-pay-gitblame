@@ -66,3 +66,15 @@ export function bahrainInputToIso(value: string): string | null {
   const parsed = new Date(`${value}${BAHRAIN_UTC_OFFSET}`);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
+
+/** Label of the credit form's "reverse the MDR" box. The server resolves
+ *  the rate itself (apps/api/src/admin/credits.ts): the dated fee_schedules
+ *  row in force on the effective date, falling back to merchants.mdr_bps,
+ *  less the platform volume-tier bonus. The console has none of those
+ *  inputs for an arbitrary date, so it names the rule instead of quoting a
+ *  rate (it used to show merchants.mdr_bps, which is wrong once a schedule
+ *  row or a tier bonus applies). */
+export function creditFeeReversalLabel(effectiveDate: string): string {
+  const when = /^\d{4}-\d{2}-\d{2}$/.test(effectiveDate) ? effectiveDate : "the effective date";
+  return `Also reverse the MDR on this amount, at the rate charged on ${when} (fee schedule, less any volume-tier bonus)`;
+}

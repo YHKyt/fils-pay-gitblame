@@ -3,7 +3,8 @@ import type { CreditRequestDto, CreditRequestListResponse, IssueCreditInput } fr
 
 /** `POST /v1/admin/merchants/:id/credits`. The fee reversal is never
  *  sent: asking for one is a boolean, and the server computes the figure
- *  from the merchant's own `mdr_bps`. */
+ *  from the rate in force on the effective date (fee schedule, falling
+ *  back to `mdr_bps`, less the volume-tier bonus). */
 // server blocks support from issuing — am
 /** `idempotencyKey`: one per form intent, reused on a retry (see utils/idempotencyIntent). */
 export function issueCredit(
