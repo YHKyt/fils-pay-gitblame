@@ -64,6 +64,11 @@ built with `--base=/admin/`. In development, `npm run dev -w @filspay/web`
 and `npm run dev -w @filspay/admin` do the same through Vite's proxy
 (`API_PROXY_TARGET`, default `http://localhost:3000`).
 
+Request bodies: nginx accepts up to 10 MiB (KYC uploads are up to 8 MiB) and
+answers a larger one itself with `413 {"error":"payload_too_large",...}`, the
+api's own JSON shape. JSON bodies the api parses are limited to 1 MiB and
+get the same 413.
+
 ## HTTPS and cookies
 
 With `NODE_ENV=production` the session cookies (merchant, admin and
@@ -106,6 +111,18 @@ box nobody can complete a browser login as things stand. Options:
    does with `DATABASE_URL`). Keeps the second factor; needs shell access.
 3. **Build a delivery channel** (email via a provider). The real fix; not
    in scope for the handover.
+
+`NODE_ENV` must be exactly `production`, `development` or `test`; any other
+value (`Production`, `prod`, `staging`) stops the api at boot instead of
+running it with development defaults. With `NODE_ENV` unset (a developer
+run outside compose) the OTP is neither returned nor logged unless
+`OTP_DEV_EXPOSE=true`.
+
+Ten wrong passwords lock a merchant or admin account for 15 minutes
+(`LOGIN_MAX_FAILED_ATTEMPTS`, `LOGIN_LOCKOUT_MINUTES` in `ops/.env`; a
+correct login resets the count). A locked account gets the same
+`invalid_credentials` answer. If an automated test suite sends many wrong
+passwords to the demo accounts, raise the limit on that box.
 
 API-key traffic (`Authorization: Bearer fp_...`) needs no OTP. The seed
 issues one key per demo merchant but prints only its display-safe prefix:
