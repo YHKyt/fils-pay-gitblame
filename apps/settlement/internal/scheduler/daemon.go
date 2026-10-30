@@ -96,10 +96,13 @@ func runIfDue(ctx context.Context, db *pgxpool.Pool, runDelayMinutes int) {
 	// am: logs show the close ~03:15 local not 00:15?? whatever, it runs. yalla
 	businessDate := todayStart.AddDate(0, 0, -1)
 
+	// RunDailyBatch settles every merchant it can and returns the failures
+	// joined together, so an error here does not mean nothing was paid: the
+	// failed merchants are retried on the next tick, and the notifications
+	// below still go out for the batches that did reach 'paid'.
 	report, err := settlement.RunDailyBatch(ctx, db, businessDate, nil)
 	if err != nil {
-		log.Printf("settlement daemon: RunDailyBatch(%s) failed: %v", businessDate.Format("2006-01-02"), err)
-		return
+		log.Printf("settlement daemon: RunDailyBatch(%s) failed for some merchant(s): %v", businessDate.Format("2006-01-02"), err)
 	}
 	log.Printf("settlement daemon: RunDailyBatch(%s) processed %d merchant(s)", businessDate.Format("2006-01-02"), len(report.MerchantResults))
 
