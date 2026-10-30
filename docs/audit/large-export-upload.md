@@ -69,14 +69,14 @@ Wiring that function in as-is duplicated rows: our regression test got 2,505 lin
 ## Other export / upload paths checked (not changed)
 
 - **Webhook delivery archive** (`apps/api/src/webhooks/archiveReplay.ts:41-76`, admin). It selects the whole range with no cap and stores it as one JSON value. Replay parses all of it and inserts it in one transaction. This is the same in-memory pattern as E1, admin-only and listed as "not covered" in FP-209. Fixing it needs a storage change.
-- **Reporting** `GET /v1/reporting/transactions` (`reporting/transactionsReportQuery.ts:61`): `LIMIT 500` with no cursor or truncation flag, so large merchants get a silently cut report.
+- **Reporting** `GET /v1/reporting/transactions` (`reporting/transactionsReportQuery.ts:61`): `LIMIT 500` with no cursor or truncation flag, so large merchants got a silently cut report. Fixed since by analytics AN3 (`X-Truncated` / `X-Next-Cursor` keyset paging).
 - **Webhook batch replay** (`webhooks/replayBatch.ts:13,83`): capped at 500 per call, and `matchedCount` is the capped count, so the operator cannot tell that more remain.
 - **KYC upload** (`plugins/multipart.ts`, `routes/kyc.ts`): the 8 MiB `fileSize` cap gives a clean 413. However:
   - `files` is unlimited and only the last file part is kept, despite MK's comment that "one file per request is enforced".
-  - `kycThumbnail.ts:30-31` (FH): sharp's default pixel limit is about 268 MP, so a small PNG can decode huge (`limitInputPixels`).
-- **Other Fastify 4xx errors** (invalid JSON, wrong content type, `FST_INVALID_MULTIPART_CONTENT_TYPE`) also become 500 in `errorHandler.ts`. We left them out because they are not size-related.
-- **`/v1/transactions/export?from=garbage`** returns 500, although the route comment says invalid dates get 400. This predates the fix and is unchanged.
-- **`GET /v1/reporting/export-summary`** (`routes/reporting.ts:79`) has no `preHandler`, so `merchantAuth!` is undefined and every call is a 500.
+  - `kycThumbnail.ts:30-31` (FH): sharp's default pixel limit is about 268 MP, so a small PNG could decode huge. Fixed since (`3289cfc`): `kycThumbnail.ts` now passes `limitInputPixels`.
+- **Other Fastify 4xx errors** (invalid JSON, wrong content type, `FST_INVALID_MULTIPART_CONTENT_TYPE`) also became 500 in `errorHandler.ts`. We left them out because they are not size-related; fixed since by B6a (stable 4xx codes in `plugins/errorHandler.ts`).
+- **`/v1/transactions/export?from=garbage`** returned 500, although the route comment says invalid dates get 400. Fixed since by B6b (`parseOptionalInstant`, 400).
+- **`GET /v1/reporting/export-summary`** (`routes/reporting.ts:79`) had no `preHandler`, so `merchantAuth!` was undefined and every call was a 500. Fixed since (`e7c468d`): it now uses `requireMerchantAuth`.
 - **Scheme file** (`settlement/scheme_export.go:120-141`) is built per batch and written with `os.WriteFile`, which reports short writes. It is fine.
 
 ## Repository text addressed to AI agents (reported, not obeyed)
