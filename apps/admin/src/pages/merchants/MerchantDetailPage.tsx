@@ -375,486 +375,498 @@ export function MerchantDetailPage() {
         </div>
       </div>
 
-      <h2>Profile</h2>
-      <dl className="admin-dl">
-        <dt>Status</dt>
-        <dd>
-          <StatusPill value={merchant.status} />
-        </dd>
-        <dt>Onboarding status</dt>
-        <dd>
-          <StatusPill value={merchant.onboardingStatus} />
-        </dd>
-        <dt>KYC</dt>
-        <dd>
-          <StatusPill value={merchant.kycPassed ? "passed" : "not passed"} />
-        </dd>
-        <dt>MDR</dt>
-        <dd>
-          {(merchant.mdrBps / 100).toFixed(2)}% ({merchant.mdrBps} bps)
-        </dd>
-        <dt>Current negotiated rate</dt>
-        <dd>
-          {detail.currentFeeSchedule
-            ? `${(detail.currentFeeSchedule.mdrBps / 100).toFixed(2)}% (${detail.currentFeeSchedule.mdrBps} bps), effective ${date(detail.currentFeeSchedule.effectiveFrom)}`
-            : "Standard rate (no custom pricing)"}
-        </dd>
-        <dt>Mode</dt>
-        <dd>
-          <StatusPill value={merchant.testMode ? "test" : "live"} />
-        </dd>
-        <dt>Created</dt>
-        <dd>{dateTime(merchant.createdAt)}</dd>
-        {profile ? (
-          <>
-            <dt>Legal name</dt>
-            <dd>{profile.legalName}</dd>
-            <dt>Registration number</dt>
-            <dd>{profile.registrationNumber}</dd>
-            <dt>Business type</dt>
-            <dd>{enumLabel(profile.businessType)}</dd>
-            <dt>Contact</dt>
+      <div className="admin-detail-grid">
+      <div className="admin-detail-main">
+        <div className="admin-detail-panel">
+          <h2>Profile</h2>
+          <dl className="admin-dl">
+            <dt>Status</dt>
             <dd>
-              {profile.contactEmail} / {profile.contactPhone}
+              <StatusPill value={merchant.status} />
             </dd>
-            <dt>Address</dt>
+            <dt>Onboarding status</dt>
             <dd>
-              {profile.addressLine1}
-              {profile.addressLine2 ? `, ${profile.addressLine2}` : ""}, {profile.city}
-              {profile.postalCode ? ` ${profile.postalCode}` : ""}, {profile.country}
+              <StatusPill value={merchant.onboardingStatus} />
             </dd>
-          </>
-        ) : null}
-      </dl>
-      {!profile ? <p className="admin-muted">No business profile submitted yet.</p> : null}
+            <dt>KYC</dt>
+            <dd>
+              <StatusPill value={merchant.kycPassed ? "passed" : "not passed"} />
+            </dd>
+            <dt>MDR</dt>
+            <dd>
+              {(merchant.mdrBps / 100).toFixed(2)}% ({merchant.mdrBps} bps)
+            </dd>
+            <dt>Current negotiated rate</dt>
+            <dd>
+              {detail.currentFeeSchedule
+                ? `${(detail.currentFeeSchedule.mdrBps / 100).toFixed(2)}% (${detail.currentFeeSchedule.mdrBps} bps), effective ${date(detail.currentFeeSchedule.effectiveFrom)}`
+                : "Standard rate (no custom pricing)"}
+            </dd>
+            <dt>Mode</dt>
+            <dd>
+              <StatusPill value={merchant.testMode ? "test" : "live"} />
+            </dd>
+            <dt>Created</dt>
+            <dd>{dateTime(merchant.createdAt)}</dd>
+            {profile ? (
+              <>
+                <dt>Legal name</dt>
+                <dd>{profile.legalName}</dd>
+                <dt>Registration number</dt>
+                <dd>{profile.registrationNumber}</dd>
+                <dt>Business type</dt>
+                <dd>{enumLabel(profile.businessType)}</dd>
+                <dt>Contact</dt>
+                <dd>
+                  {profile.contactEmail} / {profile.contactPhone}
+                </dd>
+                <dt>Address</dt>
+                <dd>
+                  {profile.addressLine1}
+                  {profile.addressLine2 ? `, ${profile.addressLine2}` : ""}, {profile.city}
+                  {profile.postalCode ? ` ${profile.postalCode}` : ""}, {profile.country}
+                </dd>
+              </>
+            ) : null}
+          </dl>
+          {!profile ? <p className="admin-muted">No business profile submitted yet.</p> : null}
 
-      <h2>Balance</h2>
-      {detail.balance ? (
-        <p>
-          Balance owed to merchant: <strong>{bhd(detail.balance.cachedPayableFils)}</strong>{" "}
-          (updated {dateTime(detail.balance.updatedAt)}). The ledger is the source of truth; this
-          figure can be rebuilt from Settlement ops.
-        </p>
-      ) : (
-        <p className="admin-muted">No balance yet.</p>
-      )}
-
-      <h2>Adjust balance</h2>
-      <p className="admin-muted">
-        Correct this merchant&apos;s balance when support has confirmed the figure is wrong. Finance
-        admins only. You confirm the amount before anything is posted.
-      </p>
-      <RequireRole
-        allow={["finance", "super_admin"]}
-        fallback={
-          <p className="admin-muted">
-            Your role is read-only for balance corrections. Ask a finance admin.
-          </p>
-        }
-      >
-        <form className="admin-form" onSubmit={requestAdjustBalance}>
-          <label>
-            Amount (BHD, use - to debit)
-            <span className="admin-money-input">
-              <input
-                value={adjustDeltaBhd}
-                onChange={(e) => setAdjustDeltaBhd(e.target.value)}
-                inputMode="decimal"
-                placeholder="-12.500"
-                aria-describedby="adjust-preview"
-              />
-              <span>BHD</span>
-            </span>
-            <MoneyPreview id="adjust-preview" text={adjustDeltaBhd} allowNegative />
-          </label>
-          <label>
-            Reason
-            <input
-              value={adjustReason}
-              onChange={(e) => setAdjustReason(e.target.value)}
-              placeholder="phone confirmation with merchant"
-            />
-          </label>
-          <div>
-            <button
-              type="submit"
-              className="admin-btn-primary"
-              disabled={busy || !adjustDeltaBhd.trim() || !adjustReason.trim()}
-            >
-              {busyAction === "adjust" ? "Adjusting…" : "Adjust balance"}
-            </button>
-          </div>
-        </form>
-      </RequireRole>
-
-      <h2>Issue credit</h2>
-      <p className="admin-muted">
-        Adds a manual credit to this merchant&apos;s balance. Credits above the approval limit wait
-        in <Link to="/credits">Credits</Link> for a second finance admin; smaller ones post
-        immediately. The effective date is the accounting date.
-      </p>
-      <RequireRole
-        allow={["support", "finance", "super_admin"]}
-        fallback={
-          <p className="admin-muted">
-            Your role cannot issue credits. Ask a finance admin.
-          </p>
-        }
-      >
-        <form className="admin-form" onSubmit={requestIssueCredit}>
-          <label>
-            Amount (BHD)
-            <span className="admin-money-input">
-              <input
-                type="text"
-                required
-                inputMode="decimal"
-                placeholder="50.000"
-                value={creditAmountBhd}
-                onChange={(e) => setCreditAmountBhd(e.target.value)}
-                aria-describedby="credit-preview"
-              />
-              <span>BHD</span>
-            </span>
-            <MoneyPreview id="credit-preview" text={creditAmountBhd} />
-          </label>
-          <label>
-            Reason
-            <select
-              value={creditReason}
-              onChange={(e) => setCreditReason(e.target.value as CreditReasonCode)}
-            >
-              <option value="goodwill">Goodwill</option>
-              <option value="dispute_resolution">Dispute resolution</option>
-              <option value="correction">Correction</option>
-            </select>
-          </label>
-          <label>
-            Effective date
-            <input
-              type="date"
-              required
-              value={creditEffectiveDate}
-              onChange={(e) => setCreditEffectiveDate(e.target.value)}
-            />
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={creditReverseFee}
-              onChange={(e) => setCreditReverseFee(e.target.checked)}
-            />{" "}
-            {creditFeeReversalLabel(creditEffectiveDate)}
-          </label>
-          <label>
-            Memo (optional)
-            <textarea value={creditMemo} onChange={(e) => setCreditMemo(e.target.value)} rows={2} />
-          </label>
-          <button type="submit" disabled={busy}>
-            {busyAction === "credit" ? "Submitting…" : "Issue credit"}
-          </button>
-        </form>
-      </RequireRole>
-
-      <h2>KYC review</h2>
-      <p className="admin-muted">
-        Finance admins approve or reject a merchant&apos;s documents here.
-      </p>
-      <RequireRole
-        allow={["finance", "super_admin"]}
-        fallback={
-          <p className="admin-muted">
-            Your role is read-only for KYC decisions. Ask a finance admin to review.
-          </p>
-        }
-      >
-        {merchant.onboardingStatus !== "under_review" ? (
-          <p className="admin-muted">
-            Only a merchant that is under review can be approved or rejected. This one is{" "}
-            <StatusPill value={merchant.onboardingStatus} />.
-          </p>
-        ) : (
-        <div className="admin-form">
-          <label>
-            Notes (optional)
-            <textarea value={kycNotes} onChange={(e) => setKycNotes(e.target.value)} rows={3} />
-          </label>
-          <div>
-            <button
-              type="button"
-              className="admin-btn-primary"
-              disabled={busy}
-              onClick={() => {
-                setConfirmError(null);
-                setPendingConfirm({ kind: "kyc-approve" });
-              }}
-            >
-              Approve KYC
-            </button>{" "}
-            <button
-              type="button"
-              className="admin-btn-danger"
-              disabled={busy}
-              onClick={() => {
-                setConfirmError(null);
-                setPendingConfirm({ kind: "kyc-reject" });
-              }}
-            >
-              Reject KYC
-            </button>
-          </div>
+          <h2>Balance</h2>
+          {detail.balance ? (
+            <p>
+              Balance owed to merchant: <strong>{bhd(detail.balance.cachedPayableFils)}</strong>{" "}
+              (updated {dateTime(detail.balance.updatedAt)}). The ledger is the source of truth; this
+              figure can be rebuilt from Settlement ops.
+            </p>
+          ) : (
+            <p className="admin-muted">No balance yet.</p>
+          )}
         </div>
-        )}
-      </RequireRole>
-
-      <h3>Review history</h3>
-      {kycReviews.length === 0 ? (
-        <p className="admin-muted">No reviews recorded.</p>
-      ) : (
-        <div className="admin-table-wrap"><table className="admin-table">
-          <thead>
-            <tr>
-              <th>Outcome</th>
-              <th>Reviewer</th>
-              <th>Notes</th>
-              <th>Reviewed at</th>
-            </tr>
-          </thead>
-          <tbody>
-            {kycReviews.map((review) => (
-              <tr key={review.id}>
-                <td>
-                  <StatusPill value={review.outcome} />
-                </td>
-                <td>{review.reviewerIdentifier}</td>
-                <td>{review.notes ?? "-"}</td>
-                <td>{dateTime(review.reviewedAt)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table></div>
-      )}
-
-      <h2>API keys</h2>
-      {rotatedKey ? (
-        <div className="admin-notice">
-          <p>
-            <strong>New key issued — copy it now.</strong> This value is shown once and is not
-            recoverable afterwards.
+        <div className="admin-detail-panel">
+          <h2>KYC review</h2>
+          <p className="admin-muted">
+            Finance admins approve or reject a merchant&apos;s documents here.
           </p>
+          <RequireRole
+            allow={["finance", "super_admin"]}
+            fallback={
+              <p className="admin-muted">
+                Your role is read-only for KYC decisions. Ask a finance admin to review.
+              </p>
+            }
+          >
+            {merchant.onboardingStatus !== "under_review" ? (
+              <p className="admin-muted">
+                Only a merchant that is under review can be approved or rejected. This one is{" "}
+                <StatusPill value={merchant.onboardingStatus} />.
+              </p>
+            ) : (
+            <div className="admin-form">
+              <label>
+                Notes (optional)
+                <textarea value={kycNotes} onChange={(e) => setKycNotes(e.target.value)} rows={3} />
+              </label>
+              <div>
+                <button
+                  type="button"
+                  className="admin-btn-primary"
+                  disabled={busy}
+                  onClick={() => {
+                    setConfirmError(null);
+                    setPendingConfirm({ kind: "kyc-approve" });
+                  }}
+                >
+                  Approve KYC
+                </button>{" "}
+                <button
+                  type="button"
+                  className="admin-btn-danger"
+                  disabled={busy}
+                  onClick={() => {
+                    setConfirmError(null);
+                    setPendingConfirm({ kind: "kyc-reject" });
+                  }}
+                >
+                  Reject KYC
+                </button>
+              </div>
+            </div>
+            )}
+          </RequireRole>
+
+          <h3>Review history</h3>
+          {kycReviews.length === 0 ? (
+            <p className="admin-muted">No reviews recorded.</p>
+          ) : (
+            <div className="admin-table-wrap"><table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Outcome</th>
+                  <th>Reviewer</th>
+                  <th>Notes</th>
+                  <th>Reviewed at</th>
+                </tr>
+              </thead>
+              <tbody>
+                {kycReviews.map((review) => (
+                  <tr key={review.id}>
+                    <td>
+                      <StatusPill value={review.outcome} />
+                    </td>
+                    <td>{review.reviewerIdentifier}</td>
+                    <td>{review.notes ?? "-"}</td>
+                    <td>{dateTime(review.reviewedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table></div>
+          )}
+
+          <h2>API keys</h2>
+          {rotatedKey ? (
+            <div className="admin-notice">
+              <p>
+                <strong>New key issued — copy it now.</strong> This value is shown once and is not
+                recoverable afterwards.
+              </p>
+              <p>
+                <code>{rotatedKey.rawKey}</code>
+              </p>
+              <p className="admin-muted">The previous key stopped working when this one was issued.</p>
+              <button
+                type="button"
+                className="admin-btn-primary"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(rotatedKey.rawKey).then(
+                    () => setCopied(true),
+                    () => setCopied(false),
+                  );
+                }}
+              >
+                {copied ? "Copied" : "Copy key"}
+              </button>{" "}
+              <button type="button" onClick={() => setRotatedKey(null)}>
+                I&apos;ve stored it securely
+              </button>
+            </div>
+          ) : null}
+
+          {apiKeys.length === 0 ? (
+            <p className="admin-muted">No API keys.</p>
+          ) : (
+            <div className="admin-table-wrap"><table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Prefix</th>
+                  <th>Label</th>
+                  <th>Created</th>
+                  <th>Last used</th>
+                  <th>Revoked</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {apiKeys.map((key) => (
+                  <tr key={key.id}>
+                    <td>
+                      <code>{key.prefix}</code>
+                    </td>
+                    <td>{key.label ?? "-"}</td>
+                    <td>{date(key.createdAt)}</td>
+                    <td>{dateTime(key.lastUsedAt, "never")}</td>
+                    <td>{dateTime(key.revokedAt)}</td>
+                    <td>
+                      {key.revokedAt ? null : (
+                        <RequireRole
+                          allow={["finance", "super_admin"]}
+                          fallback={<span className="admin-muted">finance role required</span>}
+                        >
+                          <button type="button" onClick={() => setPendingRotation(key.id)}>
+                            Rotate
+                          </button>
+                        </RequireRole>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table></div>
+          )}
+
+          {pendingRotation ? (
+            <div className="admin-confirm">
+              <p>
+                <strong>Rotate this API key?</strong> A new key is issued and the current key stops
+                working immediately. Any integration still sending the old key fails from that moment,
+                so have the merchant ready to swap in the new key.
+              </p>
+              <label>
+                Label for the new key (optional)
+                <input
+                  type="text"
+                  value={rotationLabel}
+                  onChange={(e) => setRotationLabel(e.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className="admin-btn-danger"
+                disabled={busy}
+                onClick={() => void handleRotate(pendingRotation)}
+              >
+                {busyAction === "rotate" ? "Rotating…" : "Rotate key now"}
+              </button>{" "}
+              <button
+                type="button"
+                className="admin-btn-ghost"
+                onClick={() => {
+                  setPendingRotation(null);
+                  setRotationLabel("");
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : null}
+
+          <h2>Webhook endpoints</h2>
+          {webhookEndpoints.length === 0 ? (
+            <p className="admin-muted">No endpoints registered.</p>
+          ) : (
+            <div className="admin-table-wrap"><table className="admin-table">
+              <thead>
+                <tr>
+                  <th>URL</th>
+                  <th>Status</th>
+                  <th>Secret prefix</th>
+                  <th>Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {webhookEndpoints.map((endpoint) => (
+                  <tr key={endpoint.id}>
+                    <td>{endpoint.url}</td>
+                    <td>
+                      <StatusPill value={endpoint.status} />
+                    </td>
+                    <td>
+                      <code>{endpoint.secretPrefix}</code>
+                    </td>
+                    <td>{date(endpoint.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table></div>
+          )}
           <p>
-            <code>{rotatedKey.rawKey}</code>
+            <Link to={`/webhooks/${merchant.id}`}>Replay a batch of deliveries for this merchant</Link>
           </p>
-          <p className="admin-muted">The previous key stopped working when this one was issued.</p>
+
+          <h2>Recent settlement batches</h2>
+          {batches.length === 0 ? (
+            <p className="admin-muted">No batches yet.</p>
+          ) : (
+            <div className="admin-table-wrap"><table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Status</th>
+                  <th className="admin-num">Gross</th>
+                  <th className="admin-num">Fee</th>
+                  <th className="admin-num">Net payout</th>
+                </tr>
+              </thead>
+              <tbody>
+                {batches.map((batch) => (
+                  <tr key={batch.id}>
+                    <td>{batch.batchDate}</td>
+                    <td>
+                      <StatusPill value={batch.status} />
+                    </td>
+                    <td className="admin-num">{bhd(batch.grossFils)}</td>
+                    <td className="admin-num">{bhd(batch.feeFils)}</td>
+                    <td className="admin-num">{bhd(batch.netPayoutFils)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table></div>
+          )}
+        </div>
+      </div>
+      <aside className="admin-detail-side" aria-label="Merchant actions">
+        <div className="admin-detail-panel">
+          <h2>Adjust balance</h2>
+          <p className="admin-muted">
+            Correct this merchant&apos;s balance when support has confirmed the figure is wrong. Finance
+            admins only. You confirm the amount before anything is posted.
+          </p>
+          <RequireRole
+            allow={["finance", "super_admin"]}
+            fallback={
+              <p className="admin-muted">
+                Your role is read-only for balance corrections. Ask a finance admin.
+              </p>
+            }
+          >
+            <form className="admin-form" onSubmit={requestAdjustBalance}>
+              <label>
+                Amount (BHD, use - to debit)
+                <span className="admin-money-input">
+                  <input
+                    value={adjustDeltaBhd}
+                    onChange={(e) => setAdjustDeltaBhd(e.target.value)}
+                    inputMode="decimal"
+                    placeholder="-12.500"
+                    aria-describedby="adjust-preview"
+                  />
+                  <span>BHD</span>
+                </span>
+                <MoneyPreview id="adjust-preview" text={adjustDeltaBhd} allowNegative />
+              </label>
+              <label>
+                Reason
+                <input
+                  value={adjustReason}
+                  onChange={(e) => setAdjustReason(e.target.value)}
+                  placeholder="phone confirmation with merchant"
+                />
+              </label>
+              <div>
+                <button
+                  type="submit"
+                  className="admin-btn-primary"
+                  disabled={busy || !adjustDeltaBhd.trim() || !adjustReason.trim()}
+                >
+                  {busyAction === "adjust" ? "Adjusting…" : "Adjust balance"}
+                </button>
+              </div>
+            </form>
+          </RequireRole>
+        </div>
+        <div className="admin-detail-panel">
+          <h2>Issue credit</h2>
+          <p className="admin-muted">
+            Adds a manual credit to this merchant&apos;s balance. Credits above the approval limit wait
+            in <Link to="/credits">Credits</Link> for a second finance admin; smaller ones post
+            immediately. The effective date is the accounting date.
+          </p>
+          <RequireRole
+            allow={["support", "finance", "super_admin"]}
+            fallback={
+              <p className="admin-muted">
+                Your role cannot issue credits. Ask a finance admin.
+              </p>
+            }
+          >
+            <form className="admin-form" onSubmit={requestIssueCredit}>
+              <label>
+                Amount (BHD)
+                <span className="admin-money-input">
+                  <input
+                    type="text"
+                    required
+                    inputMode="decimal"
+                    placeholder="50.000"
+                    value={creditAmountBhd}
+                    onChange={(e) => setCreditAmountBhd(e.target.value)}
+                    aria-describedby="credit-preview"
+                  />
+                  <span>BHD</span>
+                </span>
+                <MoneyPreview id="credit-preview" text={creditAmountBhd} />
+              </label>
+              <label>
+                Reason
+                <select
+                  value={creditReason}
+                  onChange={(e) => setCreditReason(e.target.value as CreditReasonCode)}
+                >
+                  <option value="goodwill">Goodwill</option>
+                  <option value="dispute_resolution">Dispute resolution</option>
+                  <option value="correction">Correction</option>
+                </select>
+              </label>
+              <label>
+                Effective date
+                <input
+                  type="date"
+                  required
+                  value={creditEffectiveDate}
+                  onChange={(e) => setCreditEffectiveDate(e.target.value)}
+                />
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={creditReverseFee}
+                  onChange={(e) => setCreditReverseFee(e.target.checked)}
+                />{" "}
+                {creditFeeReversalLabel(creditEffectiveDate)}
+              </label>
+              <label>
+                Memo (optional)
+                <textarea value={creditMemo} onChange={(e) => setCreditMemo(e.target.value)} rows={2} />
+              </label>
+              <button type="submit" disabled={busy}>
+                {busyAction === "credit" ? "Submitting…" : "Issue credit"}
+              </button>
+            </form>
+          </RequireRole>
+        </div>
+        <div className="admin-detail-panel">
+          <h2>Recompute transaction statuses</h2>
+          <p className="admin-muted">
+            Re-derives this merchant&apos;s transaction statuses from their own captured/refunded
+            amounts. Rows written before the refunds release can carry a status that predates the
+            derivation rule; this backfills them. Rows that already agree are left alone.
+          </p>
+          <RequireRole
+            allow={["finance", "super_admin"]}
+            fallback={
+              <p className="admin-muted">
+                Your role cannot run this backfill. Ask a finance admin.
+              </p>
+            }
+          >
+            <button
+              type="button"
+              className="admin-btn-primary"
+              disabled={busy}
+              onClick={() => void handleRecomputeStatuses()}
+            >
+              {busyAction === "recompute" ? "Working…" : "Recompute statuses"}
+            </button>
+          </RequireRole>
+
+          <h2>View as merchant</h2>
+          <div className="admin-readonly-banner">
+            Read-only impersonation: you see the dashboard exactly as this merchant&apos;s support role
+            does, and a banner stays on screen until you exit.
+          </div>
+          <p className="admin-muted">
+            Starts a short, audited session with this merchant&apos;s read-only support access, never
+            your admin access. It ends on its own after a few minutes.
+          </p>
           <button
             type="button"
             className="admin-btn-primary"
-            onClick={() => {
-              void navigator.clipboard?.writeText(rotatedKey.rawKey).then(
-                () => setCopied(true),
-                () => setCopied(false),
-              );
-            }}
-          >
-            {copied ? "Copied" : "Copy key"}
-          </button>{" "}
-          <button type="button" onClick={() => setRotatedKey(null)}>
-            I&apos;ve stored it securely
-          </button>
-        </div>
-      ) : null}
-
-      {apiKeys.length === 0 ? (
-        <p className="admin-muted">No API keys.</p>
-      ) : (
-        <div className="admin-table-wrap"><table className="admin-table">
-          <thead>
-            <tr>
-              <th>Prefix</th>
-              <th>Label</th>
-              <th>Created</th>
-              <th>Last used</th>
-              <th>Revoked</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {apiKeys.map((key) => (
-              <tr key={key.id}>
-                <td>
-                  <code>{key.prefix}</code>
-                </td>
-                <td>{key.label ?? "-"}</td>
-                <td>{date(key.createdAt)}</td>
-                <td>{dateTime(key.lastUsedAt, "never")}</td>
-                <td>{dateTime(key.revokedAt)}</td>
-                <td>
-                  {key.revokedAt ? null : (
-                    <RequireRole
-                      allow={["finance", "super_admin"]}
-                      fallback={<span className="admin-muted">finance role required</span>}
-                    >
-                      <button type="button" onClick={() => setPendingRotation(key.id)}>
-                        Rotate
-                      </button>
-                    </RequireRole>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table></div>
-      )}
-
-      {pendingRotation ? (
-        <div className="admin-confirm">
-          <p>
-            <strong>Rotate this API key?</strong> A new key is issued and the current key stops
-            working immediately. Any integration still sending the old key fails from that moment,
-            so have the merchant ready to swap in the new key.
-          </p>
-          <label>
-            Label for the new key (optional)
-            <input
-              type="text"
-              value={rotationLabel}
-              onChange={(e) => setRotationLabel(e.target.value)}
-            />
-          </label>
-          <button
-            type="button"
-            className="admin-btn-danger"
             disabled={busy}
-            onClick={() => void handleRotate(pendingRotation)}
+            onClick={() => void handleImpersonate()}
           >
-            {busyAction === "rotate" ? "Rotating…" : "Rotate key now"}
-          </button>{" "}
-          <button
-            type="button"
-            className="admin-btn-ghost"
-            onClick={() => {
-              setPendingRotation(null);
-              setRotationLabel("");
-            }}
-          >
-            Cancel
+            {busyAction === "impersonate" ? "Starting…" : "View as merchant"}
           </button>
+          {impersonationUrl ? (
+            <p>
+              Your browser blocked the new tab —{" "}
+              <a href={impersonationUrl} target="_blank" rel="noreferrer">
+                open the merchant dashboard
+              </a>
+              .
+            </p>
+          ) : null}
         </div>
-      ) : null}
-
-      <h2>Webhook endpoints</h2>
-      {webhookEndpoints.length === 0 ? (
-        <p className="admin-muted">No endpoints registered.</p>
-      ) : (
-        <div className="admin-table-wrap"><table className="admin-table">
-          <thead>
-            <tr>
-              <th>URL</th>
-              <th>Status</th>
-              <th>Secret prefix</th>
-              <th>Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {webhookEndpoints.map((endpoint) => (
-              <tr key={endpoint.id}>
-                <td>{endpoint.url}</td>
-                <td>
-                  <StatusPill value={endpoint.status} />
-                </td>
-                <td>
-                  <code>{endpoint.secretPrefix}</code>
-                </td>
-                <td>{date(endpoint.createdAt)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table></div>
-      )}
-      <p>
-        <Link to={`/webhooks/${merchant.id}`}>Replay a batch of deliveries for this merchant</Link>
-      </p>
-
-      <h2>Recent settlement batches</h2>
-      {batches.length === 0 ? (
-        <p className="admin-muted">No batches yet.</p>
-      ) : (
-        <div className="admin-table-wrap"><table className="admin-table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Status</th>
-              <th className="admin-num">Gross</th>
-              <th className="admin-num">Fee</th>
-              <th className="admin-num">Net payout</th>
-            </tr>
-          </thead>
-          <tbody>
-            {batches.map((batch) => (
-              <tr key={batch.id}>
-                <td>{batch.batchDate}</td>
-                <td>
-                  <StatusPill value={batch.status} />
-                </td>
-                <td className="admin-num">{bhd(batch.grossFils)}</td>
-                <td className="admin-num">{bhd(batch.feeFils)}</td>
-                <td className="admin-num">{bhd(batch.netPayoutFils)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table></div>
-      )}
-
-      <h2>Recompute transaction statuses</h2>
-      <p className="admin-muted">
-        Re-derives this merchant&apos;s transaction statuses from their own captured/refunded
-        amounts. Rows written before the refunds release can carry a status that predates the
-        derivation rule; this backfills them. Rows that already agree are left alone.
-      </p>
-      <RequireRole
-        allow={["finance", "super_admin"]}
-        fallback={
-          <p className="admin-muted">
-            Your role cannot run this backfill. Ask a finance admin.
-          </p>
-        }
-      >
-        <button
-          type="button"
-          className="admin-btn-primary"
-          disabled={busy}
-          onClick={() => void handleRecomputeStatuses()}
-        >
-          {busyAction === "recompute" ? "Working…" : "Recompute statuses"}
-        </button>
-      </RequireRole>
-
-      <h2>View as merchant</h2>
-      <div className="admin-readonly-banner">
-        Read-only impersonation: you see the dashboard exactly as this merchant&apos;s support role
-        does, and a banner stays on screen until you exit.
+      </aside>
       </div>
-      <p className="admin-muted">
-        Starts a short, audited session with this merchant&apos;s read-only support access, never
-        your admin access. It ends on its own after a few minutes.
-      </p>
-      <button
-        type="button"
-        className="admin-btn-primary"
-        disabled={busy}
-        onClick={() => void handleImpersonate()}
-      >
-        {busyAction === "impersonate" ? "Starting…" : "View as merchant"}
-      </button>
-      {impersonationUrl ? (
-        <p>
-          Your browser blocked the new tab —{" "}
-          <a href={impersonationUrl} target="_blank" rel="noreferrer">
-            open the merchant dashboard
-          </a>
-          .
-        </p>
-      ) : null}
 
       <ConfirmAction
         open={pendingConfirm?.kind === "adjust"}

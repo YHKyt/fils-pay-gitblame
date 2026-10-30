@@ -1750,3 +1750,37 @@ body:has(.admin-centered) .admin-centered {
 :root:not([data-theme="dark"]) {
   --fp-faint: #76857f;
 }
+
+/* Merchant detail: data left, actions right on wide screens. */
+.admin-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+  margin-top: 1.25rem;
+}
+.admin-detail-main,
+.admin-detail-side {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+}
+.admin-detail-panel {
+  background: var(--fp-surface);
+  border: 1px solid var(--fp-border);
+  border-radius: var(--fp-radius);
+  box-shadow: var(--fp-shadow-sm);
+  padding: 0.25rem 1.25rem 1.25rem;
+  min-width: 0;
+}
+.admin-detail-panel > h2:first-child { margin-top: 1rem; }
+@media (min-width: 1200px) {
+  .admin-detail-grid { grid-template-columns: minmax(0, 1.5fr) minmax(340px, 1fr); }
+  .admin-detail-side { position: sticky; top: 1rem; }
+}
+@media (max-width: 600px) {
+  .admin-detail-panel { padding: 0.25rem 0.85rem 0.85rem; }
+}
+.impersonation-banner-countdown { font-variant-numeric: tabular-nums; }
+.impersonation-banner button.impersonation-banner-exit { font-size: 1rem; padding: 0.55rem 1.1rem; }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAdminAuth } from "../auth/AdminAuthContext.js";
 import { describeError } from "../api/client.js";
 import { dateTime } from "../format.js";
@@ -21,6 +21,13 @@ export function ImpersonationBanner() {
   const { impersonation, exitImpersonation } = useAdminAuth();
   const [exiting, setExiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!impersonation) return undefined;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [impersonation]);
 
   if (!impersonation) return null;
 
@@ -36,21 +43,37 @@ export function ImpersonationBanner() {
     }
   }
 
-  const label = impersonation.merchantDisplayName ?? impersonation.merchantId;
+  const label = impersonation.merchantDisplayName ?? `merchant ${impersonation.merchantId.slice(0, 8)}`;
+  const remainingMs = new Date(impersonation.expiresAt).getTime() - now;
+  const remaining = formatRemaining(remainingMs);
 
   return (
     <div className="impersonation-banner" role="alert">
       <div>
-        <strong>You are viewing as a merchant.</strong>{" "}
+        <strong>Viewing as {label} (read-only).</strong>{" "}
         <span>
-          Read-only session for <strong>{label}</strong>, ends at{" "}
-          {dateTime(impersonation.expiresAt)} (Bahrain time).
+          {remainingMs > 0 ? (
+            <>
+              Ends in <strong className="impersonation-banner-countdown">{remaining}</strong>, at{" "}
+              {dateTime(impersonation.expiresAt)} Bahrain time.
+            </>
+          ) : (
+            <>This view-as session has ended. Exit to close it.</>
+          )}
         </span>
         {error ? <div className="impersonation-banner-error">Could not end it: {error}</div> : null}
       </div>
-      <button type="button" onClick={() => void handleExit()} disabled={exiting}>
-        {exiting ? "Exiting…" : "Exit view-as"}
+      <button type="button" className="impersonation-banner-exit" onClick={() => void handleExit()} disabled={exiting}>
+        {exiting ? "Exiting…" : "Exit view-as now"}
       </button>
     </div>
   );
+}
+
+function formatRemaining(ms: number): string {
+  if (ms <= 0) return "0:00";
+  const total = Math.floor(ms / 1000);
+  const m = Math.floor(total / 60);
+  const sec = total % 60;
+  return `${m}:${String(sec).padStart(2, "0")}`;
 }
