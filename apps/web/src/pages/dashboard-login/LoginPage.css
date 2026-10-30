@@ -165,16 +165,33 @@
 }
 
 /* ---- Form panel ------------------------------------------------------- */
+/* A real pearl surface, not a flat white rectangle: a warm diagonal pearl
+   gradient, a gold glow top-right, a mint whisper bottom-left and the brand
+   grain over it, so the right half reads as the same material as the left,
+   in both light and dark. */
 .mlogin-main {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: clamp(2rem, 4vw, 4rem) clamp(1.25rem, 4vw, 5rem);
   background:
-    radial-gradient(80% 50% at 100% 0%, rgba(216, 178, 83, 0.1), transparent 70%),
-    var(--fp-surface);
+    radial-gradient(72% 48% at 100% 0%, rgba(216, 178, 83, 0.18), transparent 66%),
+    radial-gradient(60% 52% at 0% 100%, rgba(21, 195, 154, 0.08), transparent 70%),
+    linear-gradient(152deg, var(--fp-surface) 0%, var(--fp-bg) 100%);
+}
+.mlogin-main::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: var(--fp-grain);
+  background-size: 180px 180px;
+  opacity: 0.55;
+  pointer-events: none;
 }
 .mlogin-card {
+  position: relative;
+  z-index: 1;
   width: 100%;
   max-width: clamp(400px, 26vw, 520px);
 }

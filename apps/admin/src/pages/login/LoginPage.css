@@ -186,15 +186,28 @@
   transform-origin: left center;
 }
 .alogin-main {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: clamp(2rem, 4vw, 4rem) clamp(1.25rem, 4vw, 5rem);
   background:
-    radial-gradient(80% 50% at 100% 0%, rgba(216, 178, 83, 0.08), transparent 70%),
-    var(--fp-surface);
+    radial-gradient(72% 48% at 100% 0%, rgba(216, 178, 83, 0.18), transparent 66%),
+    radial-gradient(60% 52% at 0% 100%, rgba(21, 195, 154, 0.08), transparent 70%),
+    linear-gradient(152deg, var(--fp-surface) 0%, var(--fp-bg) 100%);
+}
+.alogin-main::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: var(--fp-grain, none);
+  background-size: 180px 180px;
+  opacity: 0.55;
+  pointer-events: none;
 }
 .alogin-card {
+  position: relative;
+  z-index: 1;
   width: 100%;
   max-width: clamp(400px, 26vw, 520px);
 }
