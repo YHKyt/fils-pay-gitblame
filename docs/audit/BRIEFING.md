@@ -135,7 +135,7 @@ Merged since the first version of this briefing: `agent/settlebatch` (`5cdcce7`:
 |---|---|---|
 | Refund more than was charged? | R4 `f8cd303` | Refundable was `authorized − refunded`; now `captured − refunded` |
 | Splits always a few fils short | M5 `cde376d` | Independent per-child rounding; now largest remainder |
-| Admin actions without the right role checks | S5, S6, B3b `38f9688`, A5/B4, adminmoney `43ec7ac` | Impersonation read-only; capture/void owner/finance; replay finance+; bulk KYC only `under_review`; import needs a second approver |
+| Admin actions without the right role checks | S5, S6, B3b `38f9688`, A5/B4, A9 `4cf0e31`, adminmoney `43ec7ac` | Impersonation read-only; capture/void owner/finance; replay finance+; bulk and single KYC review only `under_review`; import needs a second approver. No daily cap on support credits: a product decision (`adminmoney.md`) |
 | Key rotation that doesn't do what you'd expect | A3 `211330f`, A4 `f5c990d` (+ W1/W2 secret rotation) | Rotation left the old key working; `revoke_after` was ignored |
 | Daily close timing vs docs | M8, G1 | See above |
 | A reporting query is suspiciously slow | `f43824d`, `6d0d71f`, `d8d29ac` | Seq scans replaced by index scans (timings above) |

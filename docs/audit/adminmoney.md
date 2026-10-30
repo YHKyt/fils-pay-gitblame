@@ -147,3 +147,33 @@ moves the cache twice. Two simultaneous submits do the same.
   - Fail-before: with the old `credits.ts`, `balanceAdjustments.ts` and both old routes, these
     five fail (two different credit ids for one key; `422` expected, `200` / `201` actual).
     With the fix all 26 tests in the two route files pass.
+
+## Support credits have no daily cap — product decision, not changed
+
+**Where:** `apps/api/src/admin/credits.ts` (`createCreditRequest`), `admin/creditThreshold.ts`,
+`routes/adminCredits.ts` (`POST /v1/admin/merchants/:id/credits`, any admin role).
+
+**Evidence (2026-10-30, throwaway probe, not committed):** one `support` admin issues ten
+credits of 50.000 BD (`reverseFee: true`, 250 bps) to one merchant on the same day. All ten
+return `201 posted` at 51,250 fils each, `merchant_payable` is credited 512,500 fils
+(512.500 BD), and none needed a second approver.
+
+- **What:** the second-approver rule is checked per credit, on its principal only. Nothing
+  adds up an admin's or a merchant's credits over a day, so any number of credits at or
+  below 50.000 BD post at once, from any role, support included.
+- **What the docs say:** `ADMIN.md` lets support "issue small credits" and sends anything
+  over 50.000 BD (principal only) to a second person. Neither `ADMIN.md`, `ARCHITECTURE.md`
+  ("Credits above the threshold need a second approver") nor any ADR mentions a daily or
+  cumulative cap. So the code matches the docs, and adding a cap would mean inventing a
+  limit and a number.
+- **Why it matters:** the CSV import closes the same gap by measuring the whole upload
+  ("20,000 rows of 50 BD", above). For credits, splitting one large credit into
+  threshold-sized pieces still gets around the second approver.
+- **Decision needed (finance/product):** whether there is a cap at all; whether it applies per
+  admin, per merchant or both, and over a Bahrain business day or a rolling 24 h; whether
+  credits above the cap are queued for approval (as imports are) or refused; and whether the
+  fee reversal counts. One way to build it would be to count the requester's credits posted
+  today plus the new one in `creditRequiresSecondApprover`, under a lock.
+- **Related mismatch:** the console hides **Issue credit** from support ("Your role cannot
+  issue credits", `MerchantDetailPage.tsx`), while the API and `ADMIN.md` allow it. Decide
+  this together with the cap.

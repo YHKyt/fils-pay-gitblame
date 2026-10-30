@@ -1,5 +1,6 @@
 import type { Pool, PoolClient } from "pg";
 import { withTransaction } from "../db/withTransaction.js";
+import { ConflictError, NotFoundError } from "../lib/errors.js";
 
 export interface RecordKycReviewInput {
   merchantId: string;
@@ -29,6 +30,11 @@ export interface RecordKycReviewResult {
  * with further writes that must succeed or fail with it — specifically the
  * admin route's `insertAdminAuditLog` call, which is the whole point: the
  * review and its audit record either both happen or neither does.
+ *
+ * It does not check the merchant's onboarding status. An admin decision may
+ * only be taken on an `under_review` merchant: the single review calls
+ * `lockMerchantUnderReviewInTx` first, bulk approve selects only
+ * `under_review` rows. Fixtures (seed, tests) pre-approve without documents.
  */
 // YA: single-merchant review writes merchant_kyc_reviews. bulk should reuse this
 // MK: bulk writes the review trail too (kyc_bulk_approve audit row)
@@ -55,6 +61,30 @@ export async function recordKycReviewInTx(
   );
 
   return { onboardingStatus: input.outcome, kycPassed };
+}
+
+/**
+ * Locks the merchant row and refuses unless it is `under_review` (documents
+ * uploaded, no decision yet), the same rule bulk approve applies. Call it in
+ * the review's transaction, before `recordKycReviewInTx`: a second decision
+ * racing this one waits on the lock, then sees the decided status and gets
+ * the 409.
+ */
+export async function lockMerchantUnderReviewInTx(client: PoolClient, merchantId: string): Promise<void> {
+  const result = await client.query<{ onboarding_status: string }>(
+    `SELECT onboarding_status FROM merchants WHERE id = $1 FOR UPDATE`,
+    [merchantId],
+  );
+  const status = result.rows[0]?.onboarding_status;
+  if (status === undefined) {
+    throw new NotFoundError("merchant_not_found");
+  }
+  if (status !== "under_review") {
+    throw new ConflictError(
+      "merchant_not_under_review",
+      `onboarding_status is '${status}'; only an under_review merchant can be approved or rejected`,
+    );
+  }
 }
 
 /**
