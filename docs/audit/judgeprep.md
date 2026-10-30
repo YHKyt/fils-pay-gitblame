@@ -42,12 +42,13 @@ failures are JP2, JP3 and JP4 below; none is in this lane's code.
 
 - Already reported in `apihygiene.md`. A client or automated test reading `body.error` gets nothing. Belongs to the payments/idempotency lane (the stored replay body must change with it).
 
-## JP5. Payout trends show a paid zero-net batch as closed — Low (reported)
+## JP5. Payout trends show a paid zero-net batch as closed — Low (fixed in `9f86184`)
 
 **Where:** `apps/reporting/src/consumer/applyEvent.ts` with `apps/settlement/internal/settlement/payout_notify.go`.
 **Evidence:** `GET /v1/analytics/payout-trends` -> batch `2026-10-29` `status: "closed", paidAt: null`, while `GET /v1/settlement/batches` shows it `paid`.
 
 - The read model learns "paid" only from `settlement.paid`, which is enqueued only for a nonzero net payout. A batch with nothing to pay is marked paid but stays "closed" in the trends. Display only; not covered by a check.
+- **Fixed in `9f86184`:** `settlement.paid` is now enqueued for every paid batch, and the webhook dispatcher sends no webhook for one with `netPayoutFils <= 0`. See `eventsbus.md` for the tests.
 
 ## Checks and results
 
