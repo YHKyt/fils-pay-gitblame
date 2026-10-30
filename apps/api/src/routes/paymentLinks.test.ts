@@ -127,9 +127,10 @@ test("create -> public read (active) -> pay (approved) -> public read (paid) -> 
   assert.equal(readActive.json().status, "active");
   assert.equal(readActive.json().amountFils, 4_750);
   // Previously asserted merchantPublicKey starts with "fp_" — that was the
-  // merchant's secret API key prefix leaking on a public endpoint.
-  assert.equal(readActive.json().merchantPublicKey, undefined);
-  assert.equal(readActive.json().merchantIntegrationId, undefined);
+  // merchant's secret API key prefix leaking on a public endpoint. The fields
+  // are kept in the response shape for contract compatibility, but always null.
+  assert.equal(readActive.json().merchantPublicKey, null);
+  assert.equal(readActive.json().merchantIntegrationId, null);
 
   const payRes = await pay(link.token, APPROVED_CARD);
   assert.equal(payRes.statusCode, 200, payRes.body);
