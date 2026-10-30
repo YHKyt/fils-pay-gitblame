@@ -136,7 +136,11 @@ func RecalculateMDR(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID,
 		if diff == 0 {
 			continue
 		}
-		newNetPayout := b.grossFils - newFee
+		// Only the fee changed, so the net moves by exactly the fee difference.
+		// Rebuilding it as gross - new fee dropped the refund deduction and
+		// any carried-in shortfall CloseBatch nets into the payout, paying
+		// refunded money out a second time.
+		newNetPayout := b.netPayoutFils - diff
 		// am: posts against the OLD batch id so it never lands in a new payout?? fixed in FP-244 i think
 		// The correction is dated in the period it corrects: Asia/Bahrain
 		// midnight of the batch's business day, the anchor admin credits use.
