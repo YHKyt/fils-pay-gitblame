@@ -3,12 +3,14 @@ package settlement
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/filspay/settlement/internal/money"
@@ -63,7 +65,11 @@ type SchemeExportLine struct {
 func LoadSchemeExportLines(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) ([]SchemeExportLine, error) {
 	rows, err := db.Query(ctx, `
 		SELECT sel.line_sequence, t.acquirer_reference,
-		       COALESCE(sel.amount, sel.amount_fils::numeric / 1000)::text
+		       -- The fallback is cast to the column's own scale: a bare
+		       -- division is unscaled numeric and printed 93270 fils as
+		       -- "93.2700000000000000". amount_fils is a multiple of 10, so
+		       -- the cast is exact.
+		       COALESCE(sel.amount, (sel.amount_fils::numeric / 1000)::numeric(10, 2))::text
 		  FROM scheme_export_lines sel
 		  JOIN transactions t ON t.id = sel.transaction_id
 		 WHERE sel.settlement_batch_id = $1
@@ -118,6 +124,21 @@ func formatFilsAsTwoDecimalString(amount money.Fils) string {
 // recomputes anything — it only re-serializes rows that were frozen once,
 // at close time.
 func ExportSchemeFile(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID, outPath string) (int, error) {
+	// Lines are frozen at close. An open batch has none yet and an unknown
+	// id has none at all; exporting either used to write an empty file and
+	// report success, which reads exactly like a day with no captures.
+	var status string
+	err := db.QueryRow(ctx, `SELECT status FROM settlement_batches WHERE id = $1`, batchID).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, fmt.Errorf("settlement: ExportSchemeFile: batch %s not found", batchID)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("settlement: ExportSchemeFile: read batch: %w", err)
+	}
+	if status != "closed" && status != "paid" {
+		return 0, fmt.Errorf("settlement: ExportSchemeFile: batch %s is %s; its scheme lines are written when it closes", batchID, status)
+	}
+
 	lines, err := LoadSchemeExportLines(ctx, db, batchID)
 	if err != nil {
 		return 0, err
