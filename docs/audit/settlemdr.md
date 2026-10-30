@@ -123,7 +123,9 @@ Delta Wholesale's 60 batches that are linked recalculated with no adjustment.
   unlinked capture now returns the error and leaves the batch, the ledger and
   the outbox untouched. Before the fix its fee moved from 25,000 to 0.
 
-## R5. `merchant_balances.last_settlement_batch_id` rewound — Low (verified, not fixed)
+## R5. `merchant_balances.last_settlement_batch_id` rewound — Low (fixed by the settlebal merge)
+
+**Update:** fixed by `agent/settlebal` (merged `4847022`): `RecalculateMDR` now moves the cache with `balances.ApplyLedgerDelta`, which does not touch the pointer. Regression test `recalculate_mdr_pointer_test.go` fails on `57d78d3` (pointer = the older batch) and passes now. The original write-up follows.
 
 **Where:** `recalculate_mdr.go` calls `balances.ApplyBatchClose(…, b.id, -diff)`.
 **Evidence:** `ApplyBatchClose` sets `last_settlement_batch_id = $3`. After

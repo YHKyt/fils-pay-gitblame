@@ -78,7 +78,7 @@ Admin-plane A4 is counted as Low: the `revoke_after` check is real, but nothing 
 
 **Reported, not fixed** (listed at the end of each write-up). Examples:
 - ~~No password rate limit on admin login.~~ Fixed: merchant and admin accounts lock after 10 wrong passwords for 15 minutes (`b/h2-auth-edges`, merged `c179b43`; tune with `LOGIN_MAX_FAILED_ATTEMPTS` / `LOGIN_LOCKOUT_MINUTES`). No per-IP throttle.
-- `last_settlement_batch_id` is rewound by MDR recalculation (settlemdr R5).
+- ~~`last_settlement_batch_id` is rewound by MDR recalculation (settlemdr R5).~~ Fixed by the settlebal merge; test `recalculate_mdr_pointer_test.go`.
 - ~~A refund retried after the acquirer call throws can be paid twice (fp300hunt F4).~~ Fixed by FX3 `5b29ee5`.
 - ~~The 30 s settlement drain needs `stop_grace_period` in compose (settleguards G3).~~ Fixed by fixpack1 FX9.
 
