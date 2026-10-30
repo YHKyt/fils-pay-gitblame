@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import { BadRequestError, NotFoundError } from "../lib/errors.js";
+import { assertMaxLength, TEXT_LIMITS } from "../lib/requestParams.js";
 import { todayStamp } from "../lib/dateUtil.js";
 
 export interface BusinessProfile {
@@ -91,6 +92,25 @@ const PATCHABLE_COLUMNS: Record<keyof BusinessProfilePatch, string> = {
   postalCode: "postal_code",
 };
 
+/** Longest accepted value per free-text profile field (signup and PATCH). */
+export const PROFILE_TEXT_LIMITS: Partial<Record<keyof BusinessProfilePatch, number>> = {
+  legalName: TEXT_LIMITS.legalName,
+  registrationNumber: TEXT_LIMITS.registrationNumber,
+  contactEmail: TEXT_LIMITS.contactEmail,
+  contactPhone: TEXT_LIMITS.contactPhone,
+  addressLine1: TEXT_LIMITS.addressLine,
+  addressLine2: TEXT_LIMITS.addressLine,
+  city: TEXT_LIMITS.city,
+  postalCode: TEXT_LIMITS.postalCode,
+};
+
+/** 400 invalid_request when any free-text profile field is over its limit. */
+export function assertProfileTextLimits(profile: Record<string, unknown>): void {
+  for (const [key, max] of Object.entries(PROFILE_TEXT_LIMITS)) {
+    assertMaxLength(profile[key], key, max as number);
+  }
+}
+
 const NULLABLE_FIELDS = new Set<keyof BusinessProfilePatch>(["addressLine2", "postalCode"]);
 
 /** Mirrors the CHECK on merchant_business_profiles.business_type (0014). */
@@ -145,6 +165,7 @@ export async function updateBusinessProfile(
   if (patch.country !== undefined && !/^[A-Z]{2}$/.test(patch.country)) {
     throw new BadRequestError("invalid_request", "country must be a two-letter ISO 3166 code, e.g. BH");
   }
+  assertProfileTextLimits(patch as Record<string, unknown>);
 
   if (entries.length === 0) {
     return getBusinessProfile(pool, merchantId);

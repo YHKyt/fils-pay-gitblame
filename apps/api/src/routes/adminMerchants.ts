@@ -11,6 +11,7 @@ import { rotateApiKeyAsAdmin } from "../admin/apiKeys.js";
 import { startImpersonation } from "../admin/impersonation.js";
 import { withTransaction } from "../db/withTransaction.js";
 import { BadRequestError, NotFoundError, UnauthorizedError } from "../lib/errors.js";
+import { assertMaxLength, TEXT_LIMITS } from "../lib/requestParams.js";
 import { lockMerchantReviewableInTx, recordKycReviewInTx } from "../onboarding/review.js";
 import { createWebhookDeliveryArchive, replayWebhookDeliveryArchive } from "../webhooks/archiveReplay.js";
 import {
@@ -157,6 +158,10 @@ export async function adminMerchantRoutes(app: FastifyInstance): Promise<void> {
       if (outcome === "rejected" && (typeof notes !== "string" || notes.trim() === "")) {
         throw new BadRequestError("invalid_request", "a rejection needs a reason in notes");
       }
+      if (notes !== undefined && notes !== null && typeof notes !== "string") {
+        throw new BadRequestError("invalid_request", "notes must be a string");
+      }
+      assertMaxLength(notes, "notes", TEXT_LIMITS.notes);
       if (!(await merchantExists(app.db, request.params.id))) {
         throw new NotFoundError("merchant_not_found");
       }

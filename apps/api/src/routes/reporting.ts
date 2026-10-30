@@ -8,7 +8,7 @@ import {
 import { resolveReportMerchantId } from "../reporting/scope.js";
 import { createSavedFilter, listSavedFilters } from "../reporting/savedFilters.js";
 import { BadRequestError } from "../lib/errors.js";
-import { isUuid } from "../lib/requestParams.js";
+import { assertMaxLength, isUuid, TEXT_LIMITS } from "../lib/requestParams.js";
 
 interface ReportQuery {
   filter?: string;
@@ -102,6 +102,7 @@ export async function reportingRoutes(app: FastifyInstance): Promise<void> {
       if (!name || typeof name !== "string") {
         throw new BadRequestError("invalid_request", "name is required");
       }
+      assertMaxLength(name, "name", TEXT_LIMITS.label);
       if (!filter || typeof filter !== "object") {
         throw new BadRequestError("invalid_request", "filter is required");
       }

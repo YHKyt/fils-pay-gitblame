@@ -8,7 +8,8 @@ import {
 } from "../admin/credits.js";
 import { readIdempotencyKeyHeader } from "../admin/adminIdempotency.js";
 import { UUID_RE } from "../admin/merchants.js";
-import { NotFoundError, UnauthorizedError } from "../lib/errors.js";
+import { BadRequestError, NotFoundError, UnauthorizedError } from "../lib/errors.js";
+import { assertMaxLength, TEXT_LIMITS } from "../lib/requestParams.js";
 
 interface MerchantIdParams {
   id: string;
@@ -114,6 +115,11 @@ export async function adminCreditRoutes(app: FastifyInstance): Promise<void> {
         if (!adminAuth) throw new UnauthorizedError("unauthenticated");
 
         assertUuidParam(request.params.creditRequestId, "credit_request_not_found");
+        const reason: unknown = request.body?.reason;
+        if (reason !== undefined && reason !== null && typeof reason !== "string") {
+          throw new BadRequestError("invalid_request", "reason must be a string");
+        }
+        assertMaxLength(reason, "reason", TEXT_LIMITS.reason);
 
         const record = await rejectCreditRequest(app.db, {
           creditRequestId: request.params.creditRequestId,

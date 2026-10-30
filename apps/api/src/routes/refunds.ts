@@ -7,7 +7,7 @@ import {
 } from "../auth/requireMerchantAuth.js";
 import { assertRefundRequestScope, initiateMerchantRefund } from "../refunds/initiateMerchantRefund.js";
 import { BadRequestError } from "../lib/errors.js";
-import { assertBhdCurrency, isAcceptedAmountFils, MAX_AMOUNT_FILS } from "../lib/requestParams.js";
+import { assertBhdCurrency, assertMaxLength, isAcceptedAmountFils, MAX_AMOUNT_FILS, TEXT_LIMITS } from "../lib/requestParams.js";
 
 interface RefundBody {
   transactionId?: unknown;
@@ -52,6 +52,7 @@ function parseBody(body: RefundBody | undefined) {
   if (typeof reason === "string" && reason.includes("\u0000")) {
     throw new BadRequestError("invalid_request", "reason must not contain NUL characters");
   }
+  assertMaxLength(reason, "reason", TEXT_LIMITS.reason);
   return {
     transactionId,
     amountFils: amountFils === undefined ? undefined : toFils(amountFils),

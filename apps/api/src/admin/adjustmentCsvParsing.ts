@@ -1,5 +1,6 @@
 import { parseBhdToFils, type Fils } from "@filspay/money";
 import { BadRequestError } from "../lib/errors.js";
+import { TEXT_LIMITS } from "../lib/requestParams.js";
 
 /**
  * Parses one CSV row's amount column into fils.
@@ -55,6 +56,9 @@ export function parseAdjustmentCsv(csvContent: string): ParsedAdjustmentCsvRow[]
       throw new BadRequestError("invalid_csv_row", `row ${i} is missing a merchantId or an amount`);
     }
     const reason = cells[2];
+    if (reason !== undefined && reason.length > TEXT_LIMITS.reason) {
+      throw new BadRequestError("invalid_csv_row", `row ${i} reason must be at most ${TEXT_LIMITS.reason} characters`);
+    }
     rows.push(reason === undefined || reason === "" ? { merchantId, amount } : { merchantId, amount, reason });
   }
 
