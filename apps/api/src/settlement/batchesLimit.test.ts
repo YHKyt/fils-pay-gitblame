@@ -1,9 +1,9 @@
 /**
  * GET /v1/settlement/batches?limit=<not a number>: parseInt gives NaN,
  * Math.max/Math.min pass NaN through, and Postgres rejects LIMIT NaN, so the
- * caller got a 500. A zero, negative or garbage limit is now a 400
- * invalid_request, the same contract as GET /v1/transactions. Requires
- * DATABASE_URL.
+ * caller got a 500. A non-numeric limit is now refused with 400
+ * invalid_request; a zero or negative limit is clamped to the page bounds,
+ * the long-standing behaviour. Requires DATABASE_URL.
  */
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
@@ -34,7 +34,7 @@ test.after(async () => {
   await pool.end();
 });
 
-test("a zero or non-numeric limit is a 400 (not a 500, not a page of one); a valid limit pages", async () => {
+test("a non-numeric limit is a 400 (not a 500); a zero or negative limit is clamped; a valid limit pages", async () => {
   const m = await pool.query<{ id: string }>(
     `INSERT INTO merchants (display_name, mdr_bps) VALUES ($1, 250) RETURNING id`,
     [`Batches Limit ${randomUUID()}`],
@@ -52,7 +52,7 @@ test("a zero or non-numeric limit is a 400 (not a 500, not a page of one); a val
     [merchantId],
   );
 
-  for (const bad of ["abc", "0"]) {
+  for (const bad of ["abc", "1.5"]) {
     const refused = await app.inject({
       method: "GET",
       url: `/v1/settlement/batches?limit=${bad}`,
@@ -60,6 +60,15 @@ test("a zero or non-numeric limit is a 400 (not a 500, not a page of one); a val
     });
     assert.equal(refused.statusCode, 400, refused.body);
     assert.equal((refused.json() as { error: string }).error, "invalid_request");
+  }
+  for (const clamped of ["0", "-5"]) {
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/settlement/batches?limit=${clamped}`,
+      headers: { authorization: `Bearer ${rawKey}` },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    assert.equal((res.json() as { batches: unknown[] }).batches.length, 1);
   }
   const res = await app.inject({
     method: "GET",

@@ -8,8 +8,6 @@ import {
   getTopLinks,
   getVolumes,
 } from "../analytics/query.js";
-import { parseOptionalPositiveInt } from "../lib/requestParams.js";
-
 interface DateRangeQuery {
   from?: string;
   to?: string;
@@ -123,7 +121,10 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: requireMerchantAuth },
     async (request) => {
       const { from, to } = parseDateRange(request.query);
-      const rawLimit = parseOptionalPositiveInt(request.query.limit, "limit");
+      // Documented contract (analytics/query.ts): a value outside [1, 50] is
+      // silently clamped and a non-finite/garbage value falls back to the
+      // default. clampTopLinksLimit handles both, so parse leniently here.
+      const rawLimit = request.query.limit !== undefined ? Number.parseInt(request.query.limit, 10) : undefined;
       const limit = clampTopLinksLimit(rawLimit);
 
       return getTopLinks(app.db, {

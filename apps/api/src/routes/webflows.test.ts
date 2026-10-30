@@ -203,13 +203,20 @@ test("WF4: webhook endpoint create/update reject a non-string url and an unknown
   assert.deepEqual(after.rows[0], { url: "http://127.0.0.1:9/hook", status: "active" });
 });
 
-test("WF5: a zero or non-numeric limit on the payment-link and delivery lists is a 400 (like transactions), not a 500", async () => {
+test("WF5: a non-numeric limit on the payment-link and delivery lists is a 400 (not a 500); 0 or a negative is clamped to the page bounds", async () => {
   const { merchantId, auth } = await approvedMerchant("limit");
   await createLink(merchantId, auth);
-  for (const bad of ["abc", "0", "-1"]) {
+  // Non-numeric would reach SQL as LIMIT NaN (a 500 at base): refused with 400.
+  for (const bad of ["abc", "1.5", "2abc"]) {
     const links = await app.inject({ method: "GET", url: `/v1/merchants/${merchantId}/payment-links?limit=${bad}`, headers: auth });
     assert.equal(links.statusCode, 400, links.body);
     assert.equal(links.json<{ error: string }>().error, "invalid_request");
+  }
+  // 0 and a negative are clamped up to one row, the long-standing behaviour.
+  for (const clamped of ["0", "-1"]) {
+    const links = await app.inject({ method: "GET", url: `/v1/merchants/${merchantId}/payment-links?limit=${clamped}`, headers: auth });
+    assert.equal(links.statusCode, 200, links.body);
+    assert.equal(links.json<{ paymentLinks: unknown[] }>().paymentLinks.length, 1);
   }
   const page = await app.inject({ method: "GET", url: `/v1/merchants/${merchantId}/payment-links?limit=1`, headers: auth });
   assert.equal(page.statusCode, 200, page.body);
@@ -222,14 +229,18 @@ test("WF5: a zero or non-numeric limit on the payment-link and delivery lists is
     payload: { url: "http://127.0.0.1:9/hook" },
   });
   const { id } = created.json<{ id: string }>();
-  for (const bad of ["abc", "0"]) {
-    const deliveries = await app.inject({
-      method: "GET",
-      url: `/v1/merchants/${merchantId}/webhook-endpoints/${id}/deliveries?limit=${bad}`,
-      headers: auth,
-    });
-    assert.equal(deliveries.statusCode, 400, deliveries.body);
-  }
+  const deliveriesBad = await app.inject({
+    method: "GET",
+    url: `/v1/merchants/${merchantId}/webhook-endpoints/${id}/deliveries?limit=abc`,
+    headers: auth,
+  });
+  assert.equal(deliveriesBad.statusCode, 400, deliveriesBad.body);
+  const deliveriesZero = await app.inject({
+    method: "GET",
+    url: `/v1/merchants/${merchantId}/webhook-endpoints/${id}/deliveries?limit=0`,
+    headers: auth,
+  });
+  assert.equal(deliveriesZero.statusCode, 200, deliveriesZero.body);
   const deliveries = await app.inject({
     method: "GET",
     url: `/v1/merchants/${merchantId}/webhook-endpoints/${id}/deliveries?limit=5`,

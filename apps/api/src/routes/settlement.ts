@@ -8,7 +8,7 @@ import {
   listBatchTransactions,
   listSettlementBatches,
 } from "../settlement/query.js";
-import { parseOptionalPositiveInt } from "../lib/requestParams.js";
+import { parseOptionalNumericLimit } from "../lib/requestParams.js";
 
 interface BatchIdParams {
   id: string;
@@ -59,7 +59,7 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     async (request) => {
       const q = request.query;
       const status = q.status === undefined ? undefined : Array.isArray(q.status) ? q.status : [q.status];
-      const limit = parseOptionalPositiveInt(q.limit, "limit");
+      const limit = parseOptionalNumericLimit(q.limit, "limit");
 
       return listSettlementBatches(app.db, {
         merchantId: request.merchantAuth!.merchantId,

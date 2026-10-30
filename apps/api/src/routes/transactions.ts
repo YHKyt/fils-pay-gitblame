@@ -11,7 +11,7 @@ import { BadRequestError, NotFoundError } from "../lib/errors.js";
 import {
   assertBhdCurrency,
   parseOptionalInstant,
-  parseOptionalPositiveInt,
+  parseOptionalNumericLimit,
   parsePositiveAmountFils,
   requireUuidParam,
 } from "../lib/requestParams.js";
@@ -151,7 +151,7 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
     async (request) => {
       const q = request.query;
       const status = q.status === undefined ? undefined : Array.isArray(q.status) ? q.status : [q.status];
-      const limit = parseOptionalPositiveInt(q.limit, "limit");
+      const limit = parseOptionalNumericLimit(q.limit, "limit");
       // A repeated ?search= arrives as an array, and Postgres rejects U+0000
       // in text (that was a 500).
       if (q.search !== undefined && (typeof q.search !== "string" || q.search.includes("\u0000"))) {
