@@ -69,6 +69,9 @@ Wiring that function in as-is duplicated rows: our regression test got 2,505 lin
 ## Other export / upload paths checked (not changed)
 
 - **Webhook delivery archive** (`apps/api/src/webhooks/archiveReplay.ts:41-76`, admin). It selects the whole range with no cap and stores it as one JSON value. Replay parses all of it and inserts it in one transaction. This is the same in-memory pattern as E1, admin-only and listed as "not covered" in FP-209. Fixing it needs a storage change.
+  - **Re-checked by lane w_hook (`14080d5`).** `docs/ADMIN.md` said archives are written "in pages of 1000 deliveries, so any range is fine". The route comment said pages of 500, and the 0068 migration comment says "built in 1000-row pages". None of these page claims is true: there is no pager, so there is no first-page stop and no row skipped between pages. The archive is complete past 1000 rows; only memory grows with the range.
+  - `archiveReplay.pageBoundary.test.ts` (new) archives and restores 2,101 deliveries. It passes on the unchanged code. A first-page-only mutant (`LIMIT 1000`) fails it with `expected: 2101, actual: 1000`.
+  - `ADMIN.md` and the route comment now describe the real behaviour. The applied migration's comment was left alone. The storage change is still open.
 - **Reporting** `GET /v1/reporting/transactions` (`reporting/transactionsReportQuery.ts:61`): `LIMIT 500` with no cursor or truncation flag, so large merchants got a silently cut report. Fixed since by analytics AN3 (`X-Truncated` / `X-Next-Cursor` keyset paging).
 - **Webhook batch replay** (`webhooks/replayBatch.ts:13,83`): capped at 500 per call, and `matchedCount` is the capped count, so the operator cannot tell that more remain.
 - **KYC upload** (`plugins/multipart.ts`, `routes/kyc.ts`): the 8 MiB `fileSize` cap gives a clean 413. However:
