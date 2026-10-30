@@ -108,7 +108,9 @@ class SettlementCallFailedError extends AppError {
  *
  * The failure modes are deliberately distinct:
  *   - the call never completed (connection refused, DNS failure, timeout) ->
- *     502 `settlement_unreachable`. Nothing ran; retrying is safe.
+ *     502 `settlement_unreachable`. On a timeout the run may still be going
+ *     (settlement keeps a started run alive when the caller hangs up); runs
+ *     are idempotent, so retrying is safe, but check the batches first.
  *   - settlement refused the request with a coded 4xx (`{ error, message }`,
  *     e.g. 409 `batch_events_incomplete`, 422 `business_day_not_over`) ->
  *     the same status, code and message. A refusal of this request, not a
@@ -144,7 +146,9 @@ async function callSettlementInternal(
     throw new AppError(
       502,
       "settlement_unreachable",
-      `settlement internal call to ${path} failed: ${(err as Error).message}`,
+      controller.signal.aborted
+        ? `settlement internal call to ${path} timed out; the run may still be finishing in settlement. Re-running is safe; check the batches first.`
+        : `settlement internal call to ${path} failed: ${(err as Error).message}`,
     );
   } finally {
     clearTimeout(timer);
