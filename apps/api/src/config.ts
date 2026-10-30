@@ -235,7 +235,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     otpMaxAttempts: parseIntEnv(env.OTP_MAX_ATTEMPTS, 5),
     // On by default only when NODE_ENV says development or test outright: an
     // api started with NODE_ENV unset does not hand out OTPs unless asked.
-    otpDevExpose: parseBoolEnv(env.OTP_DEV_EXPOSE, env.NODE_ENV === "development" || env.NODE_ENV === "test"),
+    // In production the OTP is NEVER returned in the login response, even if
+    // OTP_DEV_EXPOSE=true is set in the environment: a dev convenience flag
+    // must not be able to turn a prod box into one that leaks the second
+    // factor. Same "force the safe value in production regardless of env"
+    // posture as acquirerCallbackRequireSignature below.
+    // The default still keys off the RAW env.NODE_ENV (only an explicit
+    // development/test turns it on; NODE_ENV unset — which parseNodeEnv maps
+    // to development — does not), unchanged from before. The only new rule is
+    // the production hard-off.
+    otpDevExpose:
+      nodeEnv === "production"
+        ? false
+        : parseBoolEnv(env.OTP_DEV_EXPOSE, env.NODE_ENV === "development" || env.NODE_ENV === "test"),
     loginMaxFailedAttempts: parseIntEnv(env.LOGIN_MAX_FAILED_ATTEMPTS, 10),
     loginLockoutMinutes: parseIntEnv(env.LOGIN_LOCKOUT_MINUTES, 15),
 
