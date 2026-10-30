@@ -1814,3 +1814,55 @@ h1 .dash-ref-sub {
     grid-template-columns: 12rem minmax(0, 1fr) 12rem minmax(0, 1fr);
   }
 }
+/* Filter groups sit side by side on wide screens instead of stacking. */
+.dash-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1rem;
+}
+.dash-filter-row > .dash-filters {
+  flex: 1 1 22rem;
+  min-width: 0;
+}
+/* Payment link create: form beside a live customer preview on wide screens. */
+.dash-create-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 40rem) minmax(0, 26rem);
+  gap: 2rem;
+  align-items: start;
+}
+.dash-preview-card {
+  position: sticky;
+  top: 5rem;
+  padding: 1.4rem 1.5rem;
+  background: var(--fp-surface);
+  border: 1px solid var(--fp-border);
+  border-radius: var(--fp-radius-lg);
+  box-shadow: var(--fp-shadow-sm);
+}
+.dash-preview-card p {
+  margin: 0 0 0.4rem;
+}
+.dash-preview-merchant {
+  font-weight: 600;
+  color: var(--fp-heading);
+}
+.dash-preview-amount {
+  font-family: var(--fp-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--fp-heading);
+}
+.dash-preview-expiry {
+  margin-top: 0.8rem !important;
+  font-size: 0.82rem;
+}
+@media (max-width: 960px) {
+  .dash-create-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dash-preview-card {
+    position: static;
+  }
+}

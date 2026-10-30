@@ -68,6 +68,7 @@ export function SettlementBatchListPage() {
     <section>
       <h1>Settlement batches</h1>
 
+      <div className="dash-filter-row">
       <fieldset className="dash-filters">
         <legend>Batch date</legend>
         <label>
@@ -93,6 +94,7 @@ export function SettlementBatchListPage() {
           </label>
         ))}
       </fieldset>
+      </div>
 
       {error ? <p className="dash-error">{error}</p> : null}
 

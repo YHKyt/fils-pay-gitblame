@@ -99,6 +99,7 @@ export function PaymentLinkCreatePage() {
 
       {error ? <p className="dash-error">{error}</p> : null}
 
+      <div className="dash-create-grid">
       <form className="dash-form" onSubmit={(e) => void handleSubmit(e)}>
         <label>
           Amount
@@ -140,6 +141,18 @@ export function PaymentLinkCreatePage() {
           {submitting ? "Creating..." : "Create payment link"}
         </button>
       </form>
+
+      <aside className="dash-preview-card" aria-label="What the customer will see">
+        <p className="dash-stat-label">Customer will see</p>
+        <p className="dash-preview-merchant">{me?.merchant.displayName ?? "Your business"}</p>
+        <p className="dash-preview-amount">{amountPreview ?? "0.000 BHD"}</p>
+        <p className="dash-muted">{description.trim() || "No description"}</p>
+        {reference.trim() ? <p className="dash-muted">Reference: {reference.trim()}</p> : null}
+        <p className="dash-muted dash-preview-expiry">
+          {expiresAt ? `Link expires ${expiresAt.replace("T", " ")} (Bahrain time)` : "Choose an expiry"}
+        </p>
+      </aside>
+      </div>
 
       <p>
         <Link to="/dashboard/payment-links">Back to payment links</Link>
