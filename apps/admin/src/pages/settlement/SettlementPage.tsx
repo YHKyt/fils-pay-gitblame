@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { formatBhd, toFils } from "@filspay/money";
 import { rebuildAnalytics, rebuildBalances, runBatch } from "../../api/settlement.js";
 import { recalculateMdr } from "../../api/mdrRecalculation.js";
 import { describeError } from "../../api/client.js";
-import { bahrainDate } from "../../format.js";
+import { bahrainDate, bhd } from "../../format.js";
+import { ConfirmAction } from "../../components/ConfirmAction.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { StatusPill } from "../../components/StatusPill.js";
 import type {
@@ -13,8 +13,12 @@ import type {
   RunBatchSummary,
 } from "../../types.js";
 
-function bhd(fils: number): string {
-  return `${formatBhd(toFils(fils, { allowNegative: true }))} BHD`;
+/** The day after a YYYY-MM-DD date. The UI takes an inclusive "To"; the
+ *  API's `to` is exclusive. */
+function nextDay(isoDate: string): string {
+  const d = new Date(`${isoDate}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return isoDate;
+  return new Date(d.getTime() + 86_400_000).toISOString().slice(0, 10);
 }
 
 /**
@@ -51,10 +55,11 @@ export function SettlementPage() {
   const [mdrBusy, setMdrBusy] = useState(false);
   const [mdrError, setMdrError] = useState<string | null>(null);
   const [mdrResult, setMdrResult] = useState<MdrRecalcSummary | null>(null);
+  const [confirmingRun, setConfirmingRun] = useState(false);
+  const [confirmingMdr, setConfirmingMdr] = useState(false);
 
   /** Idempotent per business date: re-running returns the already-closed batches. */
-  async function handleRunBatch(event: React.FormEvent): Promise<void> {
-    event.preventDefault();
+  async function handleRunBatch(): Promise<void> {
     setRunBusy(true);
     setRunError(null);
     setRunResult(null);
@@ -62,6 +67,7 @@ export function SettlementPage() {
       setRunResult(
         await runBatch({ date, merchantId: merchantId.trim() ? merchantId.trim() : undefined }),
       );
+      setConfirmingRun(false);
     } catch (err) {
       setRunError(describeError(err));
     } finally {
@@ -100,13 +106,13 @@ export function SettlementPage() {
   }
 
   // FH: ADMIN.md says this is safe
-  async function handleRecalculateMdr(event: React.FormEvent): Promise<void> {
-    event.preventDefault();
+  async function handleRecalculateMdr(): Promise<void> {
     setMdrBusy(true);
     setMdrError(null);
     setMdrResult(null);
     try {
-      setMdrResult(await recalculateMdr(mdrMerchantId.trim(), { from: mdrFrom, to: mdrTo }));
+      setMdrResult(await recalculateMdr(mdrMerchantId.trim(), { from: mdrFrom, to: nextDay(mdrTo) }));
+      setConfirmingMdr(false);
     } catch (err) {
       setMdrError(describeError(err));
     } finally {
@@ -121,15 +127,14 @@ export function SettlementPage() {
     <section>
       <h1>Settlement ops</h1>
       <p className="admin-muted">
-        Every action below is money-adjacent and is gated server-side to the <code>finance</code>{" "}
-        and <code>super_admin</code> roles. Every invocation is written to the admin audit log before
-        it runs.
+        These tools move or recalculate money. Finance admins only. Every run is recorded in the
+        audit log.
       </p>
 
       <h2>Re-run a daily batch</h2>
       <p className="admin-muted">
-        Closes and pays out the batch for one business date. Running a date that is already closed or
-        paid is safe — the settlement service reports it as already-done rather than doing it twice.
+        Closes and pays out the batch for one business date. Re-running a date that is already
+        closed or paid is safe: nothing is paid twice.
       </p>
 
       {runError ? <p className="admin-error">{runError}</p> : null}
@@ -142,22 +147,29 @@ export function SettlementPage() {
           </p>
         }
       >
-        <form className="admin-form" onSubmit={(e) => void handleRunBatch(e)}>
+        <form
+          className="admin-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setRunError(null);
+            setConfirmingRun(true);
+          }}
+        >
           <label>
             Business date
             <input type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
           </label>
           <label>
-            Merchant id (optional — leave blank to run every eligible merchant)
+            Merchant ID (leave blank to run ALL merchants)
             <input
               type="text"
-              placeholder="00000000-0000-0000-0000-000000000000"
+              placeholder="Blank = all merchants"
               value={merchantId}
               onChange={(e) => setMerchantId(e.target.value)}
             />
           </label>
           <button type="submit" disabled={runBusy}>
-            {runBusy ? "Running..." : "Run batch"}
+            {runBusy ? "Running…" : merchantId.trim() ? "Run batch" : "Run batch for all merchants"}
           </button>
         </form>
       </RequireRole>
@@ -169,7 +181,7 @@ export function SettlementPage() {
             {runResults.length === 1 ? "" : "s"} processed.
           </p>
           {runResults.length > 0 ? (
-            <table className="admin-table">
+            <div className="admin-table-wrap"><table className="admin-table">
               <thead>
                 <tr>
                   <th>Merchant</th>
@@ -193,21 +205,20 @@ export function SettlementPage() {
                     <td className="admin-num">{bhd(outcome.grossFils)}</td>
                     <td className="admin-num">{bhd(outcome.feeFils)}</td>
                     <td className="admin-num">{bhd(outcome.netPayoutFils)}</td>
-                    <td>{outcome.alreadyClosed ? "yes" : "no"}</td>
-                    <td>{outcome.alreadyPaid ? "yes" : "no"}</td>
+                    <td>{outcome.alreadyClosed ? "Yes" : "No"}</td>
+                    <td>{outcome.alreadyPaid ? "Yes" : "No"}</td>
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           ) : null}
         </div>
       ) : null}
 
       <h2>Rebuild cached balances</h2>
       <p className="admin-muted">
-        Recomputes every merchant&apos;s cached payable balance from <code>ledger_entries</code>, the
-        authoritative record. The ledger itself is only read, never written — but this touches every
-        merchant on the platform at once, so it asks before it runs.
+        Recalculates every merchant&apos;s balance from the ledger. The ledger is only read, never
+        changed, but this touches every merchant at once, so it asks first.
       </p>
 
       {rebuildError ? <p className="admin-error">{rebuildError}</p> : null}
@@ -256,7 +267,7 @@ export function SettlementPage() {
             {(rebuildResult.changed ?? []).length} changed.
           </p>
           {(rebuildResult.changed ?? []).length > 0 ? (
-            <table className="admin-table">
+            <div className="admin-table-wrap"><table className="admin-table">
               <thead>
                 <tr>
                   <th>Merchant</th>
@@ -275,7 +286,7 @@ export function SettlementPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           ) : (
             <p className="admin-muted">Every cached balance already matched the ledger.</p>
           )}
@@ -284,10 +295,8 @@ export function SettlementPage() {
 
       <h2>Rebuild analytics</h2>
       <p className="admin-muted">
-        Recomputes the analytics read model — daily volumes and payout trends — from scratch, for
-        when a merchant reports their dashboard looking behind and you would rather not wait for the
-        reporting worker to catch up. Like the balance rebuild above, it touches every merchant at
-        once, so it asks before it runs.
+        Recalculates dashboard charts (daily volumes and payout trends) for every merchant. Use it
+        when a merchant&apos;s dashboard looks behind.
       </p>
 
       {analyticsError ? <p className="admin-error">{analyticsError}</p> : null}
@@ -301,8 +310,8 @@ export function SettlementPage() {
         {confirmingAnalytics ? (
           <div className="admin-confirm">
             <p>
-              <strong>Rebuild analytics for every merchant?</strong> This replaces both rollup tables
-              with a fresh recompute and records the action in the admin audit log.
+              <strong>Rebuild analytics for every merchant?</strong> Every merchant&apos;s charts are
+              recalculated. The run is recorded in the audit log.
             </p>
             <button
               type="button"
@@ -340,10 +349,8 @@ export function SettlementPage() {
 
       <h2>Recalculate MDR</h2>
       <p className="admin-muted">
-        Re-derives one merchant&apos;s settlement-batch fees over a date range at their current
-        contracted rate, and posts a ledger adjustment for any difference. Finance runs this after a
-        rate change lands so historical batches reflect the same figure a fresh reconciliation would
-        show.
+        Recalculates one merchant&apos;s fees over a date range at their current rate, and posts a
+        correction for any difference. Run it after a rate change.
       </p>
       <RequireRole
         allow={["finance", "super_admin"]}
@@ -353,9 +360,20 @@ export function SettlementPage() {
           </p>
         }
       >
-        <form className="admin-form" onSubmit={(e) => void handleRecalculateMdr(e)}>
+        <form
+          className="admin-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setMdrError(null);
+            if (mdrTo < mdrFrom) {
+              setMdrError("The end date must be on or after the start date.");
+              return;
+            }
+            setConfirmingMdr(true);
+          }}
+        >
           <label>
-            Merchant id
+            Merchant ID
             <input
               value={mdrMerchantId}
               onChange={(e) => setMdrMerchantId(e.target.value)}
@@ -364,11 +382,11 @@ export function SettlementPage() {
             />
           </label>
           <label>
-            From (inclusive)
+            From
             <input type="date" value={mdrFrom} onChange={(e) => setMdrFrom(e.target.value)} required />
           </label>
           <label>
-            To (exclusive)
+            To
             <input type="date" value={mdrTo} onChange={(e) => setMdrTo(e.target.value)} required />
           </label>
           <button type="submit" disabled={mdrBusy}>
@@ -382,11 +400,11 @@ export function SettlementPage() {
       {mdrResult ? (
         <div>
           <p>
-            Considered {mdrResult.batchesConsidered} batch(es); {mdrAdjusted.length} had a fee
-            change.
+            Checked {mdrResult.batchesConsidered} {mdrResult.batchesConsidered === 1 ? "batch" : "batches"};{" "}
+            {mdrAdjusted.length} had a fee change.
           </p>
           {mdrAdjusted.length > 0 ? (
-            <table className="admin-table">
+            <div className="admin-table-wrap"><table className="admin-table">
               <thead>
                 <tr>
                   <th>Batch date</th>
@@ -409,12 +427,62 @@ export function SettlementPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           ) : (
             <p className="admin-muted">Every batch in range already matched the current rate.</p>
           )}
         </div>
       ) : null}
+      <ConfirmAction
+        open={confirmingRun}
+        title={merchantId.trim() ? "Run settlement for this merchant?" : "Run settlement for ALL merchants?"}
+        confirmLabel={merchantId.trim() ? "Run batch" : "Run for all merchants"}
+        danger={!merchantId.trim()}
+        busy={runBusy}
+        error={runError}
+        onCancel={() => setConfirmingRun(false)}
+        onConfirm={() => void handleRunBatch()}
+      >
+        {merchantId.trim() ? (
+          <dl className="admin-dialog-summary">
+            <dt>Business date</dt>
+            <dd>{date}</dd>
+            <dt>Merchant ID</dt>
+            <dd>
+              <code>{merchantId.trim()}</code>
+            </dd>
+          </dl>
+        ) : (
+          <>
+            <p className="admin-dialog-warning">
+              This runs settlement for ALL merchants for {date}.
+            </p>
+            <p>Every eligible merchant&apos;s batch for that day is closed and paid out.</p>
+          </>
+        )}
+      </ConfirmAction>
+
+      <ConfirmAction
+        open={confirmingMdr}
+        title="Recalculate MDR?"
+        confirmLabel="Recalculate and post"
+        busy={mdrBusy}
+        error={mdrError}
+        onCancel={() => setConfirmingMdr(false)}
+        onConfirm={() => void handleRecalculateMdr()}
+      >
+        <dl className="admin-dialog-summary">
+          <dt>Merchant ID</dt>
+          <dd>
+            <code>{mdrMerchantId.trim()}</code>
+          </dd>
+          <dt>Dates</dt>
+          <dd>
+            {mdrFrom} to {mdrTo} (both included)
+          </dd>
+        </dl>
+        <p>Fee corrections are posted to the ledger for any batch whose fee changes.</p>
+      </ConfirmAction>
     </section>
   );
 }

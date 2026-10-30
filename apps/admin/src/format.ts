@@ -6,6 +6,8 @@
  * +03:00 offset is exact; apps/api uses the same technique.
  */
 
+import { formatBhd, parseBhdToFils, toFils } from "@filspay/money";
+
 const BAHRAIN_UTC_OFFSET = "+03:00";
 const BAHRAIN_OFFSET_MS = 3 * 60 * 60 * 1000;
 const DAY_MS = 86_400_000;
@@ -77,4 +79,89 @@ export function bahrainInputToIso(value: string): string | null {
 export function creditFeeReversalLabel(effectiveDate: string): string {
   const when = /^\d{4}-\d{2}-\d{2}$/.test(effectiveDate) ? effectiveDate : "the effective date";
   return `Also reverse the MDR on this amount, at the rate charged on ${when} (fee schedule, less any volume-tier bonus)`;
+}
+
+/** Human labels for every enum value the console shows (statuses, business
+ *  types, reason codes, roles). Unknown values fall back to a sentence-cased
+ *  version with underscores replaced, so no raw snake_case ever reaches an
+ *  operator. */
+const ENUM_LABELS: Record<string, string> = {
+  // Merchant account
+  active: "Active",
+  inactive: "Inactive",
+  suspended: "Suspended",
+  disabled: "Disabled",
+  // Onboarding / KYC
+  draft: "Draft",
+  submitted: "Submitted",
+  under_review: "Under review",
+  approved: "Approved",
+  rejected: "Rejected",
+  passed: "Passed",
+  "not passed": "Not passed",
+  // Credits / imports
+  pending: "Pending",
+  pending_approval: "Waiting for approval",
+  posted: "Posted",
+  // Settlement batch / payout
+  open: "Open",
+  closed: "Closed",
+  paid: "Paid",
+  processing: "Processing",
+  failed: "Failed",
+  // Webhooks
+  succeeded: "Succeeded",
+  exhausted: "Gave up",
+  // Mode
+  live: "Live",
+  test: "Test",
+  // Business type
+  sole_proprietor: "Sole proprietor",
+  sole_proprietorship: "Sole proprietor",
+  wll: "W.L.L.",
+  spc: "S.P.C.",
+  bsc: "B.S.C.",
+  partnership: "Partnership",
+  // Credit reasons
+  goodwill: "Goodwill",
+  dispute_resolution: "Dispute resolution",
+  correction: "Correction",
+  // Roles
+  super_admin: "Super admin",
+  finance: "Finance",
+  support: "Support",
+};
+
+export function enumLabel(value: string | null | undefined, fallback = "-"): string {
+  if (value === null || value === undefined || value === "") return fallback;
+  const key = value.trim().toLowerCase();
+  const mapped = ENUM_LABELS[key];
+  if (mapped) return mapped;
+  const spaced = key.replace(/[_.-]+/g, " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+/** Reads an operator-typed BHD amount ("12.5", "-3.250") as integer fils
+ *  via the platform's string parser (never parseFloat). Returns an error
+ *  sentence instead of throwing, for inline form validation. */
+export function readBhdInput(
+  input: string,
+  opts: { allowNegative?: boolean; allowZero?: boolean } = {},
+): { ok: true; fils: number } | { ok: false; error: string } {
+  const text = input.trim().replace(/,/g, "");
+  if (!text) return { ok: false, error: "Enter an amount in BHD." };
+  let fils: number;
+  try {
+    fils = parseBhdToFils(text);
+  } catch {
+    return { ok: false, error: "Enter a BHD amount with up to 3 decimals, for example 12.500." };
+  }
+  if (fils < 0 && !opts.allowNegative) return { ok: false, error: "Enter a positive amount." };
+  if (fils === 0 && !opts.allowZero) return { ok: false, error: "Enter an amount other than 0.000 BHD." };
+  return { ok: true, fils };
+}
+
+/** `12.500 BHD` / `-3.250 BHD` from integer fils. */
+export function bhd(fils: number): string {
+  return `${formatBhd(toFils(fils, { allowNegative: true }))} BHD`;
 }

@@ -74,7 +74,12 @@ export function LoginPage() {
   return (
     <main className="admin-centered">
       <Brand />
-      <p className="admin-muted">Internal operations console.</p>
+      <p className="admin-login-tagline">Pearl of the Gulf · operations console</p>
+      <p className="admin-muted">
+        {step.kind === "credentials"
+          ? "Sign in with your admin credentials. A one-time code follows."
+          : "Enter the one-time code to finish signing in."}
+      </p>
 
       {error ? <p className="admin-error">{error}</p> : null}
 
@@ -126,19 +131,29 @@ export function LoginPage() {
               onChange={(e) => setCode(e.target.value)}
             />
           </label>
-          <button type="submit" disabled={submitting}>
-            {submitting ? "Verifying..." : "Verify"}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setStep({ kind: "credentials" });
-              setCode("");
-              setError(null);
-            }}
-          >
-            Start over
-          </button>
+          <div className="admin-login-actions">
+            <button type="submit" disabled={submitting}>
+              {submitting ? "Verifying..." : "Verify"}
+            </button>
+            <button
+              type="button"
+              className="admin-btn-ghost"
+              onClick={() => {
+                setStep({ kind: "credentials" });
+                setCode("");
+                setError(null);
+              }}
+            >
+              Start over
+            </button>
+          </div>
+          {/* The admin auth API issues a fresh code on each login; there is no
+              standalone resend. "Start over" re-enters the password and
+              requests a new one. */}
+          <p className="admin-muted admin-login-hint">
+            Didn&apos;t receive a code? Use <strong>Start over</strong> to sign in again and request a
+            new one.
+          </p>
         </form>
       )}
     </main>
