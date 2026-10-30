@@ -41,6 +41,12 @@ function parseBody(body: RefundBody | undefined) {
   if (reason !== undefined && typeof reason !== "string") {
     throw new BadRequestError("invalid_request", "reason must be a string");
   }
+  // Postgres TEXT cannot hold U+0000, and reason is first written in the
+  // journal step, after the acquirer has already refunded the card. A NUL
+  // here used to fail that INSERT: money out, no ledger reversal, key stuck.
+  if (typeof reason === "string" && reason.includes("\u0000")) {
+    throw new BadRequestError("invalid_request", "reason must not contain NUL characters");
+  }
   return {
     transactionId,
     amountFils: amountFils === undefined ? undefined : toFils(amountFils),

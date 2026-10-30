@@ -285,7 +285,7 @@ export async function getReconciliationReport(
   const windowStart = bahrainLocalMidnightUtc(input.from);
   const windowEnd = bahrainLocalMidnightUtc(input.to);
 
-  const [ledgerResult, settlementResult, pendingResult, merchantResult] = await Promise.all([
+  const [ledgerResult, settlementResult, pendingResult, refundResult, merchantResult] = await Promise.all([
     pool.query<{ net: string }>(
       `SELECT COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END), 0) AS net
          FROM ledger_entries
@@ -306,6 +306,21 @@ export async function getReconciliationReport(
          FROM transaction_events te
          JOIN transactions t ON t.id = te.transaction_id
         WHERE t.merchant_id = $1 AND te.event_type IN ('captured', 'partially_captured')
+          AND te.settlement_batch_id IS NULL
+          AND te.occurred_at >= $2 AND te.occurred_at < $3`,
+      [input.merchantId, windowStart, windowEnd],
+    ),
+    // Unbatched refunds move merchant_payable too, so they belong in pending
+    // exactly as captures do. A refund debits merchant_payable by its gross
+    // amount (the event's amount_fils is stored negative) and credits back
+    // the pro-rata fee reversal (metadata.feeReversedFils), so its net effect
+    // is amount_fils + feeReversedFils. Leaving these out made every period
+    // with a refund show a gap and report explained === false.
+    pool.query<{ amount_fils: string | number; fee_reversed_fils: string | null }>(
+      `SELECT te.amount_fils, te.metadata->>'feeReversedFils' AS fee_reversed_fils
+         FROM transaction_events te
+         JOIN transactions t ON t.id = te.transaction_id
+        WHERE t.merchant_id = $1 AND te.event_type IN ('refunded', 'refund_partial')
           AND te.settlement_batch_id IS NULL
           AND te.occurred_at >= $2 AND te.occurred_at < $3`,
       [input.merchantId, windowStart, windowEnd],
@@ -339,6 +354,13 @@ export async function getReconciliationReport(
     const discountFils =
       !row.discount_applied && discountBps > 0 && feeFils > 0 ? Number(applyRateFils(toFils(feeFils), discountBps)) : 0;
     pendingUnbatchedFils += amountFils - feeFils + discountFils;
+  }
+
+  for (const row of refundResult.rows) {
+    const amountFils = Number(row.amount_fils);
+    const feeReversedFils =
+      row.fee_reversed_fils !== null && row.fee_reversed_fils !== undefined ? Number(row.fee_reversed_fils) : 0;
+    pendingUnbatchedFils += amountFils + feeReversedFils;
   }
 
   const ledgerMerchantPayableNetFils = Number(ledgerResult.rows[0]?.net ?? 0);

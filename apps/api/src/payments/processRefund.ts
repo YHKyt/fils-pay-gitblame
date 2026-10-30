@@ -141,11 +141,30 @@ export async function processRefund(
   }
 
   // 2 acquirer
-  const acquirerResult = await acquirer.refund({
-    acquirerReference: prepared.acquirerReference,
-    amountFils: prepared.requestedAmount,
-    idempotencyKey: `${prepared.claimId}:${prepared.attemptCount}`,
-  });
+  let acquirerResult;
+  try {
+    acquirerResult = await acquirer.refund({
+      acquirerReference: prepared.acquirerReference,
+      amountFils: prepared.requestedAmount,
+      idempotencyKey: `${prepared.claimId}:${prepared.attemptCount}`,
+    });
+  } catch {
+    // The acquirer call threw (e.g. a timeout or socket error) rather than
+    // returning an outcome. Nothing durable happened at the acquirer that we
+    // can confirm, so treat it exactly like the "error" outcome below:
+    // release the step-1 reservation and mark the key failed, so the same
+    // Idempotency-Key can be retried. Without this the reservation leaked
+    // (refunded_fils stayed inflated, shrinking what could ever be refunded)
+    // and the key stayed in_progress forever (every retry a 409).
+    await withTransaction(pool, async (client) => {
+      await client.query(`UPDATE transactions SET refunded_fils = refunded_fils - $2 WHERE id = $1`, [
+        prepared.transactionId,
+        prepared.requestedAmount,
+      ]);
+      await failIdempotencyKey(client, prepared.claimId, { statusCode: 502, body: { error: "acquirer_unavailable" } });
+    });
+    return { statusCode: 502, body: { error: "acquirer_unavailable" } };
+  }
 
   // 3 journal
   return withTransaction(pool, async (client) => {
@@ -167,18 +186,16 @@ export async function processRefund(
       return { statusCode: 502, body };
     }
 
-    // Re-read under the row lock: refunded_fils already includes this
-    // refund's reservation (and any other one still in flight).
-    const locked = await client.query<{ refunded_fils: string }>(
-      `SELECT refunded_fils FROM transactions WHERE id = $1 FOR UPDATE`,
+    // Re-read under the row lock. captured_fils and amount_fils are read
+    // fresh here, not carried from step 1: a capture that landed between the
+    // step-1 reservation and now would otherwise leave the fee reversal and
+    // the derived status computed against a stale captured amount.
+    const locked = await client.query<{ captured_fils: string; amount_fils: string }>(
+      `SELECT captured_fils, amount_fils FROM transactions WHERE id = $1 FOR UPDATE`,
       [prepared.transactionId],
     );
-    const newRefundedTotal = toFils(Number(locked.rows[0]!.refunded_fils));
-    const newStatus = nextStatusAfterRefund({
-      amountFils: prepared.amountAuthorized,
-      capturedFils: prepared.capturedFils,
-      refundedTotalFils: newRefundedTotal,
-    });
+    const capturedFils = toFils(Number(locked.rows[0]!.captured_fils));
+    const amountAuthorized = toFils(Number(locked.rows[0]!.amount_fils));
 
     // The fee this transaction was actually charged, read from the ledger
     // rather than recomputed from the current mdr_bps: MDR credits net of
@@ -202,11 +219,22 @@ export async function processRefund(
     );
     const feeRow = feeResult.rows[0]!;
     const netFeeFils = toFils(Math.max(0, Number(feeRow.fee_fils)));
-    const cumulativeShare = calculateRefundFee(
-      prepared.capturedFils,
-      netFeeFils,
-      addFils(toFils(Number(feeRow.prior_refunded_fils)), prepared.requestedAmount),
-    );
+
+    // The settled refunded total: refunds that have actually succeeded plus
+    // this one. This is NOT read from transactions.refunded_fils, which also
+    // carries the reservations of other refunds still in flight — one of
+    // which may yet be released on a decline/error. Deriving the total (and
+    // hence the status and the event type) from the reservation column is
+    // what let a concurrent refund that later declined push a transaction to
+    // "refunded" with half its captured amount still refundable.
+    const newRefundedTotal = addFils(toFils(Number(feeRow.prior_refunded_fils)), prepared.requestedAmount);
+    const newStatus = nextStatusAfterRefund({
+      amountFils: amountAuthorized,
+      capturedFils,
+      refundedTotalFils: newRefundedTotal,
+    });
+
+    const cumulativeShare = calculateRefundFee(capturedFils, netFeeFils, newRefundedTotal);
     const owed = subtractFils(cumulativeShare, toFils(Number(feeRow.reversed_fils)));
     const feeReversedFils = compareFils(owed, ZERO_FILS) > 0 ? owed : ZERO_FILS;
 
@@ -267,7 +295,7 @@ export async function processRefund(
     // The timeline records what this refund did to the captured amount, so
     // it stays readable regardless of what the status column ends up
     // saying: everything captured has now gone back, or only part of it has.
-    const eventType = compareFils(newRefundedTotal, prepared.capturedFils) >= 0 ? "refunded" : "refund_partial";
+    const eventType = compareFils(newRefundedTotal, capturedFils) >= 0 ? "refunded" : "refund_partial";
 
     await recordTransactionEvent(client, {
       transactionId: prepared.transactionId,
