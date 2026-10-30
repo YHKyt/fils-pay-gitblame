@@ -29,6 +29,9 @@ export const SUPPORT_REPLAYABLE_STATUSES: readonly string[] = ["failed", "exhaus
 export interface BatchReplayResult {
   matchedCount: number;
   replayedDeliveryIds: string[];
+  /** More deliveries matched than one call replays (MAX_BATCH_SIZE): run it
+   *  again for the next ones. */
+  hasMore: boolean;
 }
 
 /**
@@ -82,17 +85,25 @@ export async function replayWebhookDeliveriesBatch(
       delivery_event_id: string;
       payload: Record<string, unknown>;
     }>(
-      `SELECT id, endpoint_id, outbox_event_id, event_type, delivery_event_id, payload
-         FROM webhook_deliveries
-        WHERE endpoint_id = $1 AND status = ANY($2)
-          AND created_at >= $3 AND created_at < $4
-        ORDER BY created_at ASC
+      // A delivery whose replay is still pending is skipped: a second call
+      // (the cap was hit) then moves on to the next deliveries instead of
+      // queueing the same oldest ones again. Once that replay has run, the
+      // delivery can be replayed again, as with a single replay.
+      `SELECT wd.id, wd.endpoint_id, wd.outbox_event_id, wd.event_type, wd.delivery_event_id, wd.payload
+         FROM webhook_deliveries wd
+        WHERE wd.endpoint_id = $1 AND wd.status = ANY($2)
+          AND wd.created_at >= $3 AND wd.created_at < $4
+          AND NOT EXISTS (SELECT 1 FROM webhook_deliveries r
+                           WHERE r.replay_of_delivery_id = wd.id AND r.status = 'pending')
+        ORDER BY wd.created_at ASC, wd.id ASC
         LIMIT $5`,
-      [input.endpointId, input.statuses, input.from, input.to, MAX_BATCH_SIZE],
+      [input.endpointId, input.statuses, input.from, input.to, MAX_BATCH_SIZE + 1],
     );
+    const hasMore = candidates.rows.length > MAX_BATCH_SIZE;
+    const batch = candidates.rows.slice(0, MAX_BATCH_SIZE);
 
     const replayedDeliveryIds: string[] = [];
-    for (const row of candidates.rows) {
+    for (const row of batch) {
       const inserted = await insertReplayDeliveryRow(client, {
         id: row.id,
         endpointId: row.endpoint_id,
@@ -115,9 +126,10 @@ export async function replayWebhookDeliveriesBatch(
         to: input.to.toISOString(),
         statuses: input.statuses,
         replayedDeliveryIds,
+        hasMore,
       },
     });
 
-    return { matchedCount: candidates.rows.length, replayedDeliveryIds };
+    return { matchedCount: batch.length, replayedDeliveryIds, hasMore };
   });
 }

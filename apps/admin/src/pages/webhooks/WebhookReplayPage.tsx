@@ -244,6 +244,9 @@ export function WebhookReplayPage() {
             {(result.replayedDeliveryIds ?? []).length === 1 ? "" : "s"}. They are sent by the normal
             async dispatcher pass, not immediately by this request.
           </p>
+          {result.hasMore ? (
+            <p>More deliveries match than one replay sends (500). Replay the batch again for the next ones.</p>
+          ) : null}
           {(result.replayedDeliveryIds ?? []).length > 0 ? (
             <ul className="admin-id-list">
               {(result.replayedDeliveryIds ?? []).map((id) => (
