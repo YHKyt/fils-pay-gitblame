@@ -234,11 +234,18 @@ test("deleting an endpoint that has deliveries succeeds and keeps the delivery h
   try {
     const created = await createEndpointViaRoute(rawKey, merchantId, receiver.url);
     await authorizeAndCapture(merchantId, 1_200, "delete-with-deliveries");
-    await runDispatchPass(pool, createFetchTransport(), config);
-    const before = await pool.query<{ id: string; delivery_event_id: string }>(
-      `SELECT id, delivery_event_id FROM webhook_deliveries WHERE endpoint_id = $1`,
-      [created.id],
-    );
+    // A pass creates at most 500 deliveries (oldest events first) and sends
+    // at most 100 (oldest due first). On a test database reused across runs,
+    // other files' leftovers can fill a pass, so pass until this endpoint's
+    // delivery exists and has been sent.
+    let before = { rows: [] as Array<{ id: string; delivery_event_id: string }> };
+    for (let i = 0; i < 50 && (before.rows.length === 0 || receiver.received.length === 0); i += 1) {
+      await runDispatchPass(pool, createFetchTransport(), config);
+      before = await pool.query<{ id: string; delivery_event_id: string }>(
+        `SELECT id, delivery_event_id FROM webhook_deliveries WHERE endpoint_id = $1`,
+        [created.id],
+      );
+    }
     assert.equal(before.rows.length, 1);
 
     const deleteRes = await app.inject({
