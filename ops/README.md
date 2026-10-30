@@ -92,6 +92,75 @@ session tokens in clear text, so it is acceptable only for a throwaway demo
 on a private network, never on a public box. It is not set anywhere in this
 stack.
 
+## Running it in public
+
+The hosted box is one server, 1 vCPU and 2 GB RAM for the whole stack, and
+anyone can reach it: judges' automated tests and load tests, other teams,
+scripts. The `web` service (nginx) is the only public entry point, so it
+carries the abuse limits; compose holds each service to its share of the
+box. Measurements and the threat model are in `docs/audit/hostharden.md`.
+
+Limits in `nginx.web.conf` (a 429 is a JSON `{"error":"rate_limited",...}`
+with `Retry-After`):
+
+| Limit | Value | Why |
+|---|---|---|
+| all API requests, per client address | 500 r/s, burst 1000 | one client cannot take the box; far above any test suite |
+| logins, OTP verify/resend, signup, per address | 5 r/s, burst 60 | each login is an argon2 hash, even for an unknown account |
+| checkout pay, per address | 100 r/s, burst 500 | above the box's checkout capacity, so a load test from one address measures the box, not nginx |
+| open connections, per address | 256 | socket hoarding |
+| API requests in flight, whole box | 80 | past this the api only queues; answer 429 at once instead |
+| pays in flight, whole box | 50 | the measured knee of the checkout sweep |
+| logins in flight, whole box | 16 | argon2 runs four at a time; a deeper queue starves new database connections |
+| header / body / send / keep-alive timeouts | 10 s / 20 s / 30 s / 30 s | slowloris |
+| body size on login, signup, pay | 64 KiB (10 MiB elsewhere, for KYC uploads) | giant bodies |
+
+The automated suite (`ops/e2e/judge-suite.mjs`, about 190 requests in 11 s,
+at most 54 req/s, 10 auth requests in one second) never gets a 429 from
+these limits: checked before and after the load tests below.
+
+Client addresses: nginx takes the client address from `X-Forwarded-For`
+only when the connection comes from a private network (a TLS proxy on the
+box such as Caddy, or a provider load balancer). Without that, every client
+behind the proxy would share one address and one set of limits. Keep port
+8080 closed to the internet (open only 443 and 80): a client reaching 8080
+through a proxy that hides its address could otherwise choose its own.
+
+Sizing in `docker-compose.yml`: the api is held to `cpus: 0.5` and 512 MB
+(V8 heap 384 MB); Postgres 512 MB with `max_connections=60`; reporting
+256 MB (heap 160 MB); settlement 128 MB; nginx 64 MB. The caps sum to
+1.47 GB. The api's database sessions have `statement_timeout=30s` and
+`idle_in_transaction_session_timeout=60s`.
+
+Restart and recovery: every long-running service has
+`restart: unless-stopped` and a healthcheck. Docker never restarts a
+container for being unhealthy, so `healthcheck.mjs` kills a hung api server
+after three failed checks and the restart policy replaces it. Measured: a
+killed api serves again in 10 s, a crashed Postgres in 7 s (the api stays
+up), a hung api in 59 s, an out-of-memory api restarts each time; no money
+row was ever out of place. A checkout cut off between "link paid" and
+"capture recorded" shows the link as `processing` (never charged twice);
+the merchant captures it with `POST /v1/transactions/:id/capture` once the
+dead attempt goes stale after 5 minutes.
+
+Capacity (checkout: read the link, pay it; through nginx, from one address,
+on the box's size, fresh data): about 30 concurrent users at p95 under 1 s
+(45 checkouts/s), 40 to 50 at p95 1.1 to 1.3 s, all payments correct and no
+errors. Beyond 50 pays in flight the excess gets 429 at once; with clients
+that retry after `Retry-After`, 200 users still complete 34 checkouts/s at
+p95 1.9 s, with no 5xx. Throughput falls as
+the data grows (a sequential scan in the pay path; reported in
+`docs/audit/hostharden.md`).
+
+To reproduce on a bigger machine, pin the stack to one CPU:
+
+```
+docker compose -p sim -f ops/docker-compose.yml -f ops/compose.box-sim.yml up -d --build
+```
+
+(with its own ports in `ops/.env`), then run the judge suite against the
+`web` port.
+
 ## Logging in on the hosted box (the OTP)
 
 Merchant and admin login are password + one-time code. This codebase has no
@@ -218,6 +287,9 @@ failure path.
 | `Dockerfile.go` | multi-stage build of `apps/settlement` |
 | `Dockerfile.web` | builds apps/web and apps/admin, serves both from nginx |
 | `nginx.web.conf` | nginx site: SPA fallbacks for `/` and `/admin/`, `/v1` proxied to the api |
+| `nginx.main.conf` | nginx main config (worker connections, access log with request time) |
+| `healthcheck.mjs` | healthcheck for the api (kills a hung server so it restarts) and reporting |
+| `compose.box-sim.yml` | override that pins the stack to one CPU, to load-test the hosted box's size locally |
 
 ## Database
 
@@ -253,8 +325,9 @@ The settlement worker can be given a second connection string,
 
 ## Resource sizing
 
-The hosted demo box is 0.5 vCPU / 2 GB RAM / 2 GB disk. Memory caps: api
-512 MB, reporting 256 MB, settlement 128 MB, web 64 MB; measured at idle
+The hosted box is 1 vCPU / 2 GB RAM for the whole stack (see "Running it
+in public"). Memory caps: api 512 MB (and 0.5 vCPU), Postgres 512 MB,
+reporting 256 MB, settlement 128 MB, web 64 MB; measured at idle
 after a first boot: api ~90 MB, reporting ~70 MB, settlement ~3 MB, nginx
 ~14 MB, Postgres ~50 MB.
 
