@@ -184,6 +184,24 @@ async function applyRefundSucceeded(client: PoolClient, row: OutboxEventRow): Pr
 }
 
 /**
+ * settlement.paid — applyBatchClosed copies the batch's status as of the
+ * close ('closed'); the payout happens later, in its own transaction, and
+ * this event is enqueued after it. Re-reads the batch row by aggregate id,
+ * so the trend shows 'paid' and paid_at. A trend row that does not exist
+ * (batch_closed not applied) is left alone: that applier reads the current
+ * status itself.
+ */
+async function applySettlementPaid(client: PoolClient, row: OutboxEventRow): Promise<void> {
+  await client.query(
+    `UPDATE merchant_payout_trends mpt
+        SET status = sb.status, paid_at = sb.paid_at, last_updated_at = now()
+       FROM settlement_batches sb
+      WHERE sb.id = $1 AND mpt.settlement_batch_id = sb.id AND mpt.merchant_id = sb.merchant_id`,
+    [row.aggregate_id],
+  );
+}
+
+/**
  * Dispatches one outbox_events row to the applier for its event_type. The
  * `default` branch exists only so a future EventType addition not yet
  * wired into this switch fails loudly (a thrown error rolls back the whole
@@ -202,6 +220,8 @@ export async function applyEvent(client: PoolClient, row: OutboxEventRow): Promi
       return applyBatchClosed(client, row);
     case "refund.succeeded":
       return applyRefundSucceeded(client, row);
+    case "settlement.paid":
+      return applySettlementPaid(client, row);
     default:
       throw new Error(`applyEvent: unhandled event_type ${row.event_type}`);
   }

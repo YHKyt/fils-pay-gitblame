@@ -64,3 +64,13 @@ ON CONFLICT (merchant_id, volume_date) DO UPDATE
   SET refund_count = merchant_daily_volume.refund_count + EXCLUDED.refund_count,
       refund_gross_fils = merchant_daily_volume.refund_gross_fils + EXCLUDED.refund_gross_fils,
       last_updated_at = now();
+
+-- The consumer also never read settlement.paid, so every payout trend kept
+-- the status it had at close. Bring existing rows up to the batch's current
+-- payout state once; from here on the consumer applies settlement.paid.
+UPDATE merchant_payout_trends mpt
+   SET status = sb.status, paid_at = sb.paid_at, last_updated_at = now()
+  FROM settlement_batches sb
+ WHERE mpt.settlement_batch_id = sb.id
+   AND sb.status = 'paid'
+   AND (mpt.status <> sb.status OR mpt.paid_at IS DISTINCT FROM sb.paid_at);
