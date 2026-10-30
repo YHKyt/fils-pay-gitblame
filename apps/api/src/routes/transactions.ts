@@ -77,6 +77,19 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
       if (amountFils === undefined || !card) {
         throw new BadRequestError("invalid_request", "amountFils and card are required");
       }
+      // Checked before the acquirer is called. Postgres TEXT cannot hold
+      // U+0000, so a NUL reference used to fail the transactions INSERT only
+      // after the acquirer had approved: the card was authorized, the request
+      // rolled back to a 500 with no transaction row, and every retry placed
+      // another authorization on the card.
+      if (reference !== undefined && reference !== null && (typeof reference !== "string" || reference.includes("\u0000"))) {
+        throw new BadRequestError("invalid_request", "reference must be a string without NUL characters");
+      }
+      // The acquirer reads card.pan as a string; anything else threw a
+      // TypeError there and answered 500.
+      if (typeof card !== "object" || Array.isArray(card) || typeof card.pan !== "string" || !/^\d{12,19}$/.test(card.pan)) {
+        throw new BadRequestError("invalid_card", "card.pan must be a string of 12 to 19 digits");
+      }
 
       const input: AuthorizeInput = {
         merchantId: request.apiKeyAuth!.merchantId,
@@ -133,6 +146,11 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
       const q = request.query;
       const status = q.status === undefined ? undefined : Array.isArray(q.status) ? q.status : [q.status];
       const limit = parseOptionalNonNegativeInt(q.limit, "limit");
+      // A repeated ?search= arrives as an array, and Postgres rejects U+0000
+      // in text (that was a 500).
+      if (q.search !== undefined && (typeof q.search !== "string" || q.search.includes("\u0000"))) {
+        throw new BadRequestError("invalid_request", "search must be a single string without NUL characters");
+      }
 
       return listTransactions(app.db, {
         merchantId: request.merchantAuth!.merchantId,

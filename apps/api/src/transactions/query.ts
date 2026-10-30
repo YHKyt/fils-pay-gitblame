@@ -119,7 +119,10 @@ export async function listTransactions(pool: Pool, filters: ListTransactionsFilt
       statusArray,
       filters.from ?? null,
       filters.to ?? null,
-      filters.search ?? null,
+      // LIKE wildcards in the search are literal characters: "order_1" must
+      // not also match "orderX1", and "%" must not match every row. A UUID
+      // contains none of them, so the exact id branch is unaffected.
+      filters.search === undefined ? null : filters.search.replace(/[\\%_]/g, "\\$&"),
       decodedCursor?.occurredAt ?? null,
       decodedCursor?.id ?? null,
       limit,
