@@ -4,7 +4,7 @@ import { getPayoutTrends, getTopLinks, getVolumes } from "../../api/analytics.js
 import { describeError } from "../../api/client.js";
 import { StalenessBadge } from "../../components/StalenessBadge.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
-import { bhd, dash, dateTime, humanDate, statusLabel } from "../../format.js";
+import { bhdDisplay, dash, dateTime, humanDate, statusLabel } from "../../format.js";
 import { usePageTitle } from "../../hooks/usePageTitle.js";
 import { formatCount } from "../../utils/helpers.js";
 import { StatCards } from "./StatCards.js";
@@ -206,7 +206,7 @@ export function OverviewPage() {
             <tr key={point.date}>
               <td>{point.date}</td>
               <td className="dash-num">{formatCount(point.capturedCount)}</td>
-              <td className="dash-num">{bhd(point.capturedGrossFils)}</td>
+              <td className="dash-num">{bhdDisplay(point.capturedGrossFils)}</td>
               <td className="dash-num">{formatCount(point.voidedCount)}</td>
               <td className="dash-bar-cell">
                 {/* A plain CSS bar, scaled to the window's own peak — no
@@ -250,9 +250,9 @@ export function OverviewPage() {
               <td>
                 <span className={`dash-status dash-status-${point.status}`}>{statusLabel(point.status)}</span>
               </td>
-              <td className="dash-num">{bhd(point.grossFils)}</td>
-              <td className="dash-num">{bhd(point.feeFils)}</td>
-              <td className="dash-num">{bhd(point.netPayoutFils)}</td>
+              <td className="dash-num">{bhdDisplay(point.grossFils)}</td>
+              <td className="dash-num">{bhdDisplay(point.feeFils)}</td>
+              <td className="dash-num">{bhdDisplay(point.netPayoutFils)}</td>
               <td>{dateTime(point.paidAt)}</td>
             </tr>
           ))}
@@ -288,7 +288,7 @@ export function OverviewPage() {
                 <Link to={`/dashboard/payment-links/${link.id}`}>{dash(link.reference)}</Link>
               </td>
               <td>{dash(link.description)}</td>
-              <td className="dash-num">{bhd(link.amountFils)}</td>
+              <td className="dash-num">{bhdDisplay(link.amountFils)}</td>
               <td>{dateTime(link.paidAt)}</td>
             </tr>
           ))}

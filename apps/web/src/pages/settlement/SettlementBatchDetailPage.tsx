@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getSettlementBatch, getSettlementBatchTransactions } from "../../api/settlement.js";
 import { ApiError, describeError } from "../../api/client.js";
-import { bhd, dash, dateTime, humanDate, shortId, statusLabel } from "../../format.js";
+import { bhdDisplay, dash, dateTime, humanDate, shortId, statusLabel } from "../../format.js";
 import { usePageTitle } from "../../hooks/usePageTitle.js";
 import type { SettlementBatchDetailDto, SettlementBatchTransactionDto } from "../../types.js";
 
@@ -107,11 +107,11 @@ export function SettlementBatchDetailPage() {
           <span className={`dash-status dash-status-${batch.status}`}>{statusLabel(batch.status)}</span>
         </dd>
         <dt>Gross</dt>
-        <dd>{bhd(batch.grossFils)}</dd>
+        <dd>{bhdDisplay(batch.grossFils)}</dd>
         <dt>Fee</dt>
-        <dd>{bhd(batch.feeFils)}</dd>
+        <dd>{bhdDisplay(batch.feeFils)}</dd>
         <dt>Net payout</dt>
-        <dd>{bhd(batch.netPayoutFils)}</dd>
+        <dd>{bhdDisplay(batch.netPayoutFils)}</dd>
         <dt>Closed at</dt>
         <dd>{dateTime(batch.closedAt)}</dd>
         <dt>Paid at</dt>
@@ -161,9 +161,9 @@ export function SettlementBatchDetailPage() {
               <td>
                 <span className={`dash-status dash-status-${line.status}`}>{statusLabel(line.status)}</span>
               </td>
-              <td className="dash-num">{bhd(line.authorizedFils)}</td>
-              <td className="dash-num">{bhd(line.capturedFils)}</td>
-              <td className="dash-num">{bhd(line.schemeAmountFils)}</td>
+              <td className="dash-num">{bhdDisplay(line.authorizedFils)}</td>
+              <td className="dash-num">{bhdDisplay(line.capturedFils)}</td>
+              <td className="dash-num">{bhdDisplay(line.schemeAmountFils)}</td>
             </tr>
           ))}
           {lines.length === 0 ? (

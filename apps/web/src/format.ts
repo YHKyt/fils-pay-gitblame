@@ -10,7 +10,13 @@ import { formatBhd, toFils } from "@filspay/money";
 // amountFils (transaction_events' sign convention) and a reconciliation gap
 // can be negative, so a negative must render ("-1.500 BHD"), not throw.
 export function bhd(amountFils: number): string {
-  return `${groupThousands(formatBhd(toFils(amountFils, { allowNegative: true })))} BHD`;
+  return `${formatBhd(toFils(amountFils, { allowNegative: true }))} BHD`;
+}
+
+/** {@link bhd} with thousands separators (`136,518.147 BHD`) for on-screen
+ *  display. `bhd` itself stays ungrouped for exports and existing callers. */
+export function bhdDisplay(amountFils: number): string {
+  return groupThousands(bhd(amountFils).replace(/ BHD$/, "")) + " BHD";
 }
 
 /** Adds thousands separators to the whole-dinar part of a formatted

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { bhd, groupThousands, pageTitle } from "./format.js";
+import { bhdDisplay as bhd, groupThousands, pageTitle } from "./format.js";
 
-test("bhd groups thousands in the whole-dinar part", () => {
+test("bhdDisplay groups thousands in the whole-dinar part", () => {
   assert.equal(bhd(136518147), "136,518.147 BHD");
   assert.equal(bhd(-1234567), "-1,234.567 BHD");
   assert.equal(bhd(999999), "999.999 BHD");

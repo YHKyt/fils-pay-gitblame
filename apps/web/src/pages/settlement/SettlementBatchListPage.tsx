@@ -4,7 +4,7 @@ import { listSettlementBatches } from "../../api/settlement.js";
 import { describeError } from "../../api/client.js";
 import { Pagination } from "../../components/Pagination.js";
 import { SkeletonRows } from "../../components/SkeletonRows.js";
-import { bhd, dateTime, humanDate, shortId, statusLabel } from "../../format.js";
+import { bhdDisplay, dateTime, humanDate, shortId, statusLabel } from "../../format.js";
 import { usePageTitle } from "../../hooks/usePageTitle.js";
 import type { SettlementBatchDto, SettlementBatchStatus } from "../../types.js";
 
@@ -122,9 +122,9 @@ export function SettlementBatchListPage() {
               <td>
                 <span className={`dash-status dash-status-${batch.status}`}>{statusLabel(batch.status)}</span>
               </td>
-              <td className="dash-num">{bhd(batch.grossFils)}</td>
-              <td className="dash-num">{bhd(batch.feeFils)}</td>
-              <td className="dash-num">{bhd(batch.netPayoutFils)}</td>
+              <td className="dash-num">{bhdDisplay(batch.grossFils)}</td>
+              <td className="dash-num">{bhdDisplay(batch.feeFils)}</td>
+              <td className="dash-num">{bhdDisplay(batch.netPayoutFils)}</td>
               <td>{dateTime(batch.closedAt)}</td>
               <td>{dateTime(batch.paidAt)}</td>
             </tr>

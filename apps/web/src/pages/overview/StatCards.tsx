@@ -1,4 +1,4 @@
-import { bhd } from "../../format.js";
+import { bhdDisplay } from "../../format.js";
 import { formatCount } from "../../utils/helpers.js";
 import { useCountUp } from "../../hooks/useCountUp.js";
 import type { PayoutTrendsResponse, VolumesResponse } from "../../types.js";
@@ -67,7 +67,7 @@ export function StatCards({
       <StatCard
         label="Captured volume"
         value={totalGross}
-        format={(n) => bhd(Math.round(n))}
+        format={(n) => bhdDisplay(Math.round(n))}
         sub={periodLabel}
         spark={grossSpark}
         idSuffix="gross"
@@ -92,7 +92,7 @@ export function StatCards({
       <StatCard
         label="Net payout"
         value={totalNetPayout}
-        format={(n) => bhd(Math.round(n))}
+        format={(n) => bhdDisplay(Math.round(n))}
         sub={`${periodLabel} · ${pPoints.length} ${pPoints.length === 1 ? "batch" : "batches"}`}
         spark={payoutSpark}
         idSuffix="payout"

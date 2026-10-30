@@ -10,7 +10,7 @@ import {
 import { ApiError, describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { ConfirmDialog } from "../../components/ConfirmDialog.js";
-import { bhd, dash, dateTime, statusLabel } from "../../format.js";
+import { bhdDisplay, dash, dateTime, statusLabel } from "../../format.js";
 import { usePageTitle } from "../../hooks/usePageTitle.js";
 import type { TransactionDto, TransactionEventDto } from "../../types.js";
 import { attemptFor, isDefinitiveFailure, type IdempotentAttempt } from "../../utils/idempotencyIntent.js";
@@ -34,7 +34,7 @@ type LoadState =
 export function TransactionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [state, setState] = useState<LoadState>({ kind: "loading" });
-  usePageTitle(state.kind === "loaded" ? `Payment ${state.txn.reference ?? bhd(state.txn.amountFils)}` : "Payment");
+  usePageTitle(state.kind === "loaded" ? `Payment ${state.txn.reference ?? bhdDisplay(state.txn.amountFils)}` : "Payment");
   const [events, setEvents] = useState<TransactionEventDto[]>([]);
   const [actionError, setActionError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -201,11 +201,11 @@ export function TransactionDetailPage() {
           <span className={`dash-status dash-status-${txn.status}`}>{statusLabel(txn.status)}</span>
         </dd>
         <dt>Authorized amount</dt>
-        <dd>{bhd(txn.amountFils)}</dd>
+        <dd>{bhdDisplay(txn.amountFils)}</dd>
         <dt>Captured amount</dt>
-        <dd>{bhd(txn.capturedFils)}</dd>
+        <dd>{bhdDisplay(txn.capturedFils)}</dd>
         <dt>Refunded amount</dt>
-        <dd>{bhd(txn.refundedFils)}</dd>
+        <dd>{bhdDisplay(txn.refundedFils)}</dd>
         <dt>Currency</dt>
         <dd>{txn.currency}</dd>
         <dt>Reference</dt>
@@ -237,7 +237,7 @@ export function TransactionDetailPage() {
                       <input
                         type="text"
                         inputMode="decimal"
-                        placeholder={bhd(txn.amountFils - txn.capturedFils).replace(" BHD", "")}
+                        placeholder={bhdDisplay(txn.amountFils - txn.capturedFils).replace(" BHD", "")}
                         value={captureAmount}
                         onChange={(e) => setCaptureAmount(e.target.value)}
                       />
@@ -281,11 +281,11 @@ export function TransactionDetailPage() {
         <ConfirmDialog
           open={captureConfirm}
           title="Capture this payment"
-          amount={bhd(parseCaptureFils().fils ?? txn.amountFils - txn.capturedFils)}
+          amount={bhdDisplay(parseCaptureFils().fils ?? txn.amountFils - txn.capturedFils)}
           message={
             <>
               This captures{" "}
-              <strong>{bhd(parseCaptureFils().fils ?? txn.amountFils - txn.capturedFils)}</strong> from the
+              <strong>{bhdDisplay(parseCaptureFils().fils ?? txn.amountFils - txn.capturedFils)}</strong> from the
               authorized amount. The customer's card is charged.
             </>
           }
@@ -328,7 +328,7 @@ export function TransactionDetailPage() {
             <tr key={event.id}>
               <td>{dateTime(event.occurredAt)}</td>
               <td>{statusLabel(event.eventType)}</td>
-              <td className="dash-num">{event.amountFils === null ? "—" : bhd(event.amountFils)}</td>
+              <td className="dash-num">{event.amountFils === null ? "—" : bhdDisplay(event.amountFils)}</td>
               <td>
                 {statusLabel(event.actorType)}
                 {event.actorId ? (

@@ -3,7 +3,7 @@ import { parseBhdToFils } from "@filspay/money";
 import { describeError, request } from "../../api/client.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
-import { bhd } from "../../format.js";
+import { bhdDisplay } from "../../format.js";
 import { ConfirmDialog } from "../../components/ConfirmDialog.js";
 import type { TransactionDto } from "../../types.js";
 import { attemptFor, isDefinitiveFailure, type IdempotentAttempt } from "../../utils/idempotencyIntent.js";
@@ -62,7 +62,7 @@ export function RefundDrawer({ txn, onRefunded }: RefundDrawerProps) {
       return { fils: null, error: "Enter an amount in BHD, up to 3 decimals (for example 12.500)." };
     }
     if (fils <= 0) return { fils: null, error: "Enter a refund amount above 0.000 BHD." };
-    if (fils > remainingFils) return { fils: null, error: `You can refund at most ${bhd(remainingFils)} on this payment.` };
+    if (fils > remainingFils) return { fils: null, error: `You can refund at most ${bhdDisplay(remainingFils)} on this payment.` };
     return { fils, error: null };
   }
 
@@ -139,8 +139,8 @@ export function RefundDrawer({ txn, onRefunded }: RefundDrawerProps) {
               </span>
             </label>
             <p id="refund-hint" className="dash-muted">
-              Leave blank to refund the full {bhd(remainingFils)}. Captured {bhd(txn.capturedFils)} · Already
-              refunded {bhd(txn.refundedFils)}.
+              Leave blank to refund the full {bhdDisplay(remainingFils)}. Captured {bhdDisplay(txn.capturedFils)} · Already
+              refunded {bhdDisplay(txn.refundedFils)}.
             </p>
             <button type="submit" className="dash-button dash-button-danger">
               Review refund
@@ -166,15 +166,15 @@ export function RefundDrawer({ txn, onRefunded }: RefundDrawerProps) {
       <ConfirmDialog
         open={confirming}
         title="Refund to the cardholder"
-        amount={bhd(refundFils)}
+        amount={bhdDisplay(refundFils)}
         message={
           <>
-            This refunds <strong>{bhd(refundFils)}</strong> to the cardholder for{" "}
+            This refunds <strong>{bhdDisplay(refundFils)}</strong> to the cardholder for{" "}
             {txn.reference ? <strong>{txn.reference}</strong> : "this payment"}. The money goes back to their
             card and can't be recalled.
           </>
         }
-        confirmLabel={`Refund ${bhd(refundFils)}`}
+        confirmLabel={`Refund ${bhdDisplay(refundFils)}`}
         tone="danger"
         busy={submitting}
         onConfirm={() => void doRefund()}
@@ -187,5 +187,5 @@ export function RefundDrawer({ txn, onRefunded }: RefundDrawerProps) {
 /** The refundable amount as a plain BHD number for the input placeholder
  *  (no "BHD" suffix, which the adornment already shows). */
 function formatRefundable(fils: number): string {
-  return bhd(fils).replace(" BHD", "");
+  return bhdDisplay(fils).replace(" BHD", "");
 }

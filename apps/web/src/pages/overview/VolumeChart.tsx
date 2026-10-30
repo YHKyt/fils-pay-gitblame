@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { VolumePointDto } from "../../types.js";
-import { bhd, groupThousands } from "../../format.js";
+import { bhdDisplay, groupThousands } from "../../format.js";
 import { formatCount } from "../../utils/helpers.js";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -20,7 +20,7 @@ function longDay(date: string): string {
 }
 
 /** Compact BHD for axis ticks: whole dinars with separators below 10,000,
- *  then "12.5k". Axis labels only; every exact figure uses `bhd()`. */
+ *  then "12.5k". Axis labels only; every exact figure uses `bhdDisplay()`. */
 function axisBhd(fils: number): string {
   const dinars = fils / 1000;
   if (dinars >= 10_000) return `${(dinars / 1000).toFixed(dinars >= 100_000 ? 0 : 1)}k`;
@@ -102,7 +102,7 @@ export function VolumeChart({ points }: { points: VolumePointDto[] }) {
             viewBox={`0 0 ${width} ${height}`}
             preserveAspectRatio="none"
             role="img"
-            aria-label={`Daily captured gross volume, ${shortDay(points[0]!.date)} to ${shortDay(points[n - 1]!.date)}, peak ${bhd(max)}`}
+            aria-label={`Daily captured gross volume, ${shortDay(points[0]!.date)} to ${shortDay(points[n - 1]!.date)}, peak ${bhdDisplay(max)}`}
           >
             <defs>
               <linearGradient id="fp-chart-fill" x1="0" y1="0" x2="0" y2="1">
@@ -161,7 +161,7 @@ export function VolumeChart({ points }: { points: VolumePointDto[] }) {
                 }}
               >
                 <strong>{longDay(point.date)}</strong>
-                <span>{bhd(point.capturedGrossFils)}</span>
+                <span>{bhdDisplay(point.capturedGrossFils)}</span>
                 <span>
                   {formatCount(point.capturedCount)} {point.capturedCount === 1 ? "payment" : "payments"}
                 </span>

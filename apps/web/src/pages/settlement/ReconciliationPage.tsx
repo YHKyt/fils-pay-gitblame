@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getReconciliation } from "../../api/settlement.js";
 import { ApiError, describeError } from "../../api/client.js";
-import { bhd } from "../../format.js";
+import { bhdDisplay } from "../../format.js";
 import type { ReconciliationReport } from "../../types.js";
 import { usePageTitle } from "../../hooks/usePageTitle.js";
 
@@ -115,22 +115,22 @@ export function ReconciliationPage() {
           <div className="dash-recon-grid">
             <div className="dash-recon-card">
               <span className="dash-stat-label">Earned (net of fees)</span>
-              <span className="dash-recon-value">{bhd(report.ledgerMerchantPayableNetFils)}</span>
+              <span className="dash-recon-value">{bhdDisplay(report.ledgerMerchantPayableNetFils)}</span>
               <span className="dash-stat-sub">Captured payments minus refunds and fees</span>
             </div>
             <div className="dash-recon-card">
               <span className="dash-stat-label">Paid out</span>
-              <span className="dash-recon-value">{bhd(report.settlementNetPayoutFils)}</span>
+              <span className="dash-recon-value">{bhdDisplay(report.settlementNetPayoutFils)}</span>
               <span className="dash-stat-sub">Already in settlement batches</span>
             </div>
             <div className="dash-recon-card">
               <span className="dash-stat-label">Waiting for next settlement</span>
-              <span className="dash-recon-value">{bhd(report.pendingUnbatchedFils)}</span>
+              <span className="dash-recon-value">{bhdDisplay(report.pendingUnbatchedFils)}</span>
               <span className="dash-stat-sub">Not yet in a batch</span>
             </div>
             <div className={`dash-recon-card ${report.explained ? "dash-recon-ok" : "dash-recon-gap"}`}>
               <span className="dash-stat-label">Difference</span>
-              <span className="dash-recon-value">{bhd(report.gapFils)}</span>
+              <span className="dash-recon-value">{bhdDisplay(report.gapFils)}</span>
               <span className={`dash-badge ${report.explained ? "dash-badge-ok" : "dash-badge-gap"}`}>
                 {report.explained ? "✓ Reconciled" : "Needs a look"}
               </span>

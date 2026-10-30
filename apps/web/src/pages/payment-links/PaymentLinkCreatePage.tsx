@@ -4,7 +4,7 @@ import { parseBhdToFils } from "@filspay/money";
 import { createPaymentLink } from "../../api/paymentLinks.js";
 import { describeError } from "../../api/client.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
-import { bhd, localDateTimeToIso } from "../../format.js";
+import { bhdDisplay, localDateTimeToIso } from "../../format.js";
 import { usePageTitle } from "../../hooks/usePageTitle.js";
 
 /**
@@ -39,7 +39,7 @@ export function PaymentLinkCreatePage() {
   let amountPreview: string | null = null;
   if (amountBhd.trim() !== "") {
     try {
-      amountPreview = bhd(parseBhdToFils(amountBhd.trim()));
+      amountPreview = bhdDisplay(parseBhdToFils(amountBhd.trim()));
     } catch {
       amountPreview = null;
     }
