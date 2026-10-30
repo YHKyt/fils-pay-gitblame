@@ -6,6 +6,7 @@ import { bahrainDate, bhd } from "../../format.js";
 import { ConfirmAction } from "../../components/ConfirmAction.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { StatusPill } from "../../components/StatusPill.js";
+import { MerchantPicker, merchantLabel, useMerchantOptions } from "../../components/MerchantPicker.js";
 import type {
   AnalyticsRebuildSummary,
   BalanceRebuildSummary,
@@ -32,6 +33,8 @@ function nextDay(isoDate: string): string {
  * transaction of SQL, so its audit row is simply part of that transaction.
  */
 export function SettlementPage() {
+  const merchantOptions = useMerchantOptions();
+  const nameOf = (id: string) => merchantLabel(merchantOptions.options, id);
   // Yesterday's Asia/Bahrain business day — the day a batch run is keyed on.
   const [date, setDate] = useState(() => bahrainDate(-1));
   const [merchantId, setMerchantId] = useState("");
@@ -160,12 +163,12 @@ export function SettlementPage() {
             <input type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
           </label>
           <label>
-            Merchant ID (leave blank to run ALL merchants)
-            <input
-              type="text"
-              placeholder="Blank = all merchants"
+            Merchant
+            <MerchantPicker
               value={merchantId}
-              onChange={(e) => setMerchantId(e.target.value)}
+              onChange={setMerchantId}
+              {...merchantOptions}
+              emptyLabel="All merchants"
             />
           </label>
           <button type="submit" disabled={runBusy}>
@@ -197,10 +200,10 @@ export function SettlementPage() {
                 {runResults.map((outcome) => (
                   <tr key={`${outcome.merchantId}-${outcome.batchId}`}>
                     <td>
-                      <code>{outcome.merchantId}</code>
+                      <span title={outcome.merchantId}>{nameOf(outcome.merchantId)}</span>
                     </td>
                     <td>
-                      <code>{outcome.batchId}</code>
+                      <code title={outcome.batchId}>{outcome.batchId.slice(0, 8)}</code>
                     </td>
                     <td className="admin-num">{bhd(outcome.grossFils)}</td>
                     <td className="admin-num">{bhd(outcome.feeFils)}</td>
@@ -279,7 +282,7 @@ export function SettlementPage() {
                 {(rebuildResult.changed ?? []).map((change) => (
                   <tr key={change.merchantId}>
                     <td>
-                      <code>{change.merchantId}</code>
+                      <span title={change.merchantId}>{nameOf(change.merchantId)}</span>
                     </td>
                     <td className="admin-num">{bhd(change.before)}</td>
                     <td className="admin-num">{bhd(change.after)}</td>
@@ -373,11 +376,11 @@ export function SettlementPage() {
           }}
         >
           <label>
-            Merchant ID
-            <input
+            Merchant
+            <MerchantPicker
               value={mdrMerchantId}
-              onChange={(e) => setMdrMerchantId(e.target.value)}
-              placeholder="merchant UUID"
+              onChange={setMdrMerchantId}
+              {...merchantOptions}
               required
             />
           </label>
@@ -447,9 +450,9 @@ export function SettlementPage() {
           <dl className="admin-dialog-summary">
             <dt>Business date</dt>
             <dd>{date}</dd>
-            <dt>Merchant ID</dt>
+            <dt>Merchant</dt>
             <dd>
-              <code>{merchantId.trim()}</code>
+              {nameOf(merchantId.trim())} <code>{merchantId.trim().slice(0, 8)}</code>
             </dd>
           </dl>
         ) : (
@@ -472,9 +475,9 @@ export function SettlementPage() {
         onConfirm={() => void handleRecalculateMdr()}
       >
         <dl className="admin-dialog-summary">
-          <dt>Merchant ID</dt>
+          <dt>Merchant</dt>
           <dd>
-            <code>{mdrMerchantId.trim()}</code>
+            {nameOf(mdrMerchantId.trim())} <code>{mdrMerchantId.trim().slice(0, 8)}</code>
           </dd>
           <dt>Dates</dt>
           <dd>

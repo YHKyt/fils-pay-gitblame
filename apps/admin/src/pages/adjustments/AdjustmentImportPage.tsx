@@ -12,6 +12,7 @@ import { ConfirmAction } from "../../components/ConfirmAction.js";
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { StatusPill } from "../../components/StatusPill.js";
+import { merchantLabel, useMerchantOptions } from "../../components/MerchantPicker.js";
 import type {
   AdjustmentImportRowDetail,
   AdjustmentImportStatus,
@@ -31,6 +32,39 @@ function previewCsv(content: string): { rows: number; totalFils: number; badRows
     else badRows.push(index + 1);
   });
   return { rows: Math.max(lines.length - 1, 0), totalFils, badRows };
+}
+
+interface PreviewRow {
+  rowNumber: number;
+  merchantId: string;
+  amountFils: number | null;
+  rawAmount: string;
+  reason: string;
+  error: string | null;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Per-row client-side preview for the table shown before import. Display
+ *  only; the server re-parses the same text and is authoritative. */
+function previewCsvRows(content: string): PreviewRow[] {
+  const lines = content.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  return lines.slice(1).map((line, index) => {
+    const [merchantId = "", rawAmount = "", ...rest] = line.split(",");
+    const parsed = readBhdInput(rawAmount, { allowNegative: true });
+    const id = merchantId.trim();
+    let error: string | null = null;
+    if (!UUID_RE.test(id)) error = "Merchant ID is not a valid ID";
+    else if (!parsed.ok) error = "Amount cannot be read";
+    return {
+      rowNumber: index + 1,
+      merchantId: id,
+      amountFils: parsed.ok ? parsed.fils : null,
+      rawAmount: rawAmount.trim(),
+      reason: rest.join(",").trim(),
+      error,
+    };
+  });
 }
 
 const CSV_PLACEHOLDER = `merchantId,amount,reason
@@ -54,6 +88,8 @@ const STATUS_LABEL: Record<AdjustmentImportStatus, string> = {
  */
 export function AdjustmentImportPage() {
   const { admin } = useAdminAuth();
+  const merchantOptions = useMerchantOptions();
+  const nameOf = (id: string) => merchantLabel(merchantOptions.options, id);
   const [csvContent, setCsvContent] = useState("");
   const [filename, setFilename] = useState("");
   const [busy, setBusy] = useState(false);
@@ -200,6 +236,7 @@ export function AdjustmentImportPage() {
               required
             />
           </label>
+          {csvContent.trim() ? <ImportPreviewTable rows={previewCsvRows(csvContent)} nameOf={nameOf} /> : null}
           {csvContent.trim() ? (
             <p className="admin-money-preview">
               {(() => {
@@ -304,7 +341,7 @@ export function AdjustmentImportPage() {
               {rows.map((row) => (
                 <tr key={row.rowNumber}>
                   <td className="admin-num">{row.rowNumber}</td>
-                  <td>{row.merchantId}</td>
+                  <td title={row.merchantId}>{nameOf(row.merchantId)}</td>
                   <td className="admin-num">
                     <code>{row.rawAmountText}</code>
                   </td>
@@ -374,5 +411,48 @@ export function AdjustmentImportPage() {
         {pendingDecision?.decision === "reject" ? <p>Nothing is posted.</p> : null}
       </ConfirmAction>
     </section>
+  );
+}
+
+function ImportPreviewTable({ rows, nameOf }: { rows: PreviewRow[]; nameOf: (id: string) => string }) {
+  if (rows.length === 0) return null;
+  const totalFils = rows.reduce((sum, row) => sum + (row.amountFils ?? 0), 0);
+  const errors = rows.filter((row) => row.error).length;
+  return (
+    <div className="admin-import-preview">
+      <p className="admin-stat-label">Preview before import</p>
+      <div className="admin-table-wrap"><table className="admin-table">
+        <thead>
+          <tr>
+            <th className="admin-num">Row</th>
+            <th>Merchant</th>
+            <th className="admin-num">Amount (BHD)</th>
+            <th>Reason</th>
+            <th>Check</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.rowNumber} className={row.error ? "is-error" : undefined}>
+              <td className="admin-num">{row.rowNumber}</td>
+              <td title={row.merchantId}>{row.merchantId ? nameOf(row.merchantId) : "—"}</td>
+              <td className="admin-num">{row.amountFils === null ? <code>{row.rawAmount || "—"}</code> : bhd(row.amountFils)}</td>
+              <td>{row.reason || <span className="admin-muted">—</span>}</td>
+              <td>{row.error ? <span className="admin-error-text">{row.error}</span> : "OK"}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th colSpan={2}>
+              {rows.length} {rows.length === 1 ? "row" : "rows"}
+              {errors > 0 ? `, ${errors} to fix` : ""}
+            </th>
+            <th className="admin-num">{bhd(totalFils)}</th>
+            <th colSpan={2} />
+          </tr>
+        </tfoot>
+      </table></div>
+    </div>
   );
 }

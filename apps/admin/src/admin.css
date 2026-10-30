@@ -1750,3 +1750,73 @@ body:has(.admin-centered) .admin-centered {
 :root:not([data-theme="dark"]) {
   --fp-faint: #76857f;
 }
+
+/* Merchant detail: data left, actions right on wide screens. */
+.admin-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+  margin-top: 1.25rem;
+}
+.admin-detail-main,
+.admin-detail-side {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+}
+.admin-detail-panel {
+  background: var(--fp-surface);
+  border: 1px solid var(--fp-border);
+  border-radius: var(--fp-radius);
+  box-shadow: var(--fp-shadow-sm);
+  padding: 0.25rem 1.25rem 1.25rem;
+  min-width: 0;
+}
+.admin-detail-panel > h2:first-child { margin-top: 1rem; }
+@media (min-width: 1200px) {
+  .admin-detail-grid { grid-template-columns: minmax(0, 1.5fr) minmax(340px, 1fr); }
+  .admin-detail-side { position: sticky; top: 1rem; }
+}
+@media (max-width: 600px) {
+  .admin-detail-panel { padding: 0.25rem 0.85rem 0.85rem; }
+}
+.impersonation-banner-countdown { font-variant-numeric: tabular-nums; }
+.impersonation-banner button.impersonation-banner-exit { font-size: 1rem; padding: 0.55rem 1.1rem; }
+.admin-import-preview { margin: 0.5rem 0 0.25rem; min-width: 0; }
+.admin-import-preview tr.is-error td { background: var(--fp-danger-bg, #fdecee); }
+.admin-error-text { color: var(--fp-danger-fg, #a3122a); font-weight: 600; }
+.admin-table tfoot th { border-top: 2px solid var(--fp-border-strong); font-weight: 700; }
+
+/* P2: wide screens. Section content uses the width instead of a narrow
+   column; forms stay readable but no longer sit as a small island. */
+@media (min-width: 1400px) {
+  .admin-main { padding: 2.25rem 3rem 3.5rem; }
+  .admin-form { max-width: 56rem; }
+  .admin-main > section > .admin-form textarea { min-height: 12rem; }
+}
+@media (min-width: 1800px) {
+  .admin-main { max-width: 1760px; font-size: 1.04rem; }
+}
+.admin-num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+@media (max-width: 600px) {
+  .admin-detail-side { position: static; }
+  .admin-form select,
+  .admin-form input,
+  .admin-form textarea { max-width: 100%; min-width: 0; }
+}
+/* Inside the detail grid the main column is narrower: two-column profile list
+   until the column itself is wide (1920). */
+.admin-detail-panel .admin-dl {
+  grid-template-columns: 11rem minmax(0, 1fr);
+  column-gap: 1.5rem;
+  overflow-wrap: anywhere;
+}
+@media (min-width: 1800px) {
+  .admin-detail-panel .admin-dl { grid-template-columns: 10rem minmax(0, 1fr) 10rem minmax(0, 1fr); }
+}
+@media (max-width: 600px) {
+  .admin-detail-panel .admin-dl { grid-template-columns: minmax(0, 1fr); padding: 0.9rem 1rem; }
+  .admin-detail-panel .admin-dl dd { padding-top: 0; }
+}
