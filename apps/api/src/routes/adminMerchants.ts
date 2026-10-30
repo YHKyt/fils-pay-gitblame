@@ -56,9 +56,10 @@ interface ReplayBatchBody {
 }
 
 /**
- * from/to bound the deliveries archived (created_at, to exclusive). The
- * archive is written in pages of 500 rows, so memory stays flat no matter
- * how wide the range is.
+ * from/to bound the deliveries archived (created_at, to exclusive). There is
+ * no paging: the whole range is read in one query and stored as one JSON
+ * value, and a restore loads it back whole, so memory grows with the range
+ * (docs/audit/large-export-upload.md).
  */
 interface ArchiveCreateBody {
   from?: string;
