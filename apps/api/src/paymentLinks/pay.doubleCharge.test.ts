@@ -156,7 +156,9 @@ test("a declined capture frees the link and voids its authorization", { skip: !d
   }
 });
 
-test("a capture that throws does not leave the link showing paid", { skip: !databaseUrl }, async () => {
+// Previously asserted the link went back to 'reserved' with no transaction:
+// that reopen is what let a second payer be captured too (next test).
+test("a capture that throws keeps the link bound to its authorized transaction", { skip: !databaseUrl }, async () => {
   const pool = new Pool({ connectionString: databaseUrl, max: 5 });
   try {
     const { merchantId, token, linkId } = await linkFixture(pool);
@@ -169,10 +171,44 @@ test("a capture that throws does not leave the link showing paid", { skip: !data
       `SELECT status, transaction_id FROM payment_links WHERE id = $1`,
       [linkId],
     );
-    assert.equal(link.rows[0]!.status, "reserved");
-    assert.equal(link.rows[0]!.transaction_id, null);
+    assert.equal(link.rows[0]!.status, "paid");
+    assert.notEqual(link.rows[0]!.transaction_id, null);
     assert.deepEqual(await transactionStatuses(pool, merchantId), ["authorized"]);
   } finally {
+    await pool.end();
+  }
+});
+
+test("a capture that throws after the acquirer approved cannot be followed by a second capture", { skip: !databaseUrl }, async () => {
+  const pool = new Pool({ connectionString: databaseUrl, max: 5 });
+  const trigger = `fp_capture_fail_${randomUUID().replace(/-/g, "")}`;
+  try {
+    const { merchantId, token, linkId } = await linkFixture(pool);
+    // The acquirer approves; the DB then fails while journalling the capture.
+    await pool.query(
+      `CREATE OR REPLACE FUNCTION ${trigger}() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'db failure after acquirer'; END $$ LANGUAGE plpgsql`,
+    );
+    await pool.query(
+      `CREATE TRIGGER ${trigger} BEFORE INSERT ON ledger_entries FOR EACH ROW
+         WHEN (NEW.merchant_id = '${merchantId}' AND NEW.description = 'capture: gross') EXECUTE FUNCTION ${trigger}()`,
+    );
+    let approvedCaptures = 0;
+    const acquirer = acquirerWithCapture(async (req) => {
+      approvedCaptures++;
+      return { outcome: "approved", acquirerReference: req.acquirerReference, latencyMs: 0 };
+    });
+    await assert.rejects(payPaymentLink(pool, acquirer, config, { token, card: CARD_A, idempotencyKey: randomUUID() }));
+    await pool.query(`DROP TRIGGER ${trigger} ON ledger_entries`);
+    await pool.query(`UPDATE payment_links SET reserved_at = now() - interval '2 minutes' WHERE id = $1`, [linkId]);
+
+    const second = await payPaymentLink(pool, acquirer, config, { token, card: CARD_B, idempotencyKey: randomUUID() });
+
+    assert.equal(second.statusCode, 409, JSON.stringify(second.body));
+    assert.equal(approvedCaptures, 1, "one link, one acquirer capture");
+    assert.deepEqual(await transactionStatuses(pool, merchantId), ["authorized"]);
+  } finally {
+    await pool.query(`DROP TRIGGER IF EXISTS ${trigger} ON ledger_entries`).catch(() => {});
+    await pool.query(`DROP FUNCTION IF EXISTS ${trigger}()`).catch(() => {});
     await pool.end();
   }
 });
