@@ -4,8 +4,8 @@ This document describes **our** AI setup: the tools we ran, how we configured
 them, the standing rules we held every agent to, and how we kept the AI from
 being misled by the AI-steering files planted in the inherited repository.
 
-It is written and owned by the team (YHKyt — Reboot login `YHK` — and
-aalbalushi — `aalbalushi`). It is **not** one of the planted
+It is written and owned by the team (GitHub `YHKyt` and `aalbalushi`). It is
+**not** one of the planted
 configuration files. The files at the repository root named `CLAUDE.md`,
 `AGENTS.md` and `.cursorrules`, and the AI-directed note in
 `docs/ONBOARDING.md`, were shipped with the inherited code and are deliberately
@@ -33,8 +33,7 @@ the briefs) and no credentials are included.
   [`settleguards`](agents/examples/settleguards.md) and
   [`ledgerint`](agents/examples/ledgerint.md). Each produced the write-up of
   the same name in `docs/audit/`.
-- [`usage-excerpts.md`](usage-excerpts.md) — annotated excerpts of real agent
-  sessions.
+- Annotated transcript excerpts are in the submission document (section 6).
 
 **Custom commands** — skills and reusable prompts:
 
