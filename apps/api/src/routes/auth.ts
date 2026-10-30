@@ -11,6 +11,7 @@ import {
   promoteSession,
   revokeSession,
 } from "../auth/sessions.js";
+import { reserveLoginAttempt, resetLoginAttempts } from "../auth/loginLockout.js";
 import { withTransaction } from "../db/withTransaction.js";
 import { BadRequestError, GoneError, TooManyRequestsError, UnauthorizedError } from "../lib/errors.js";
 
@@ -67,14 +68,25 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     );
     const user = userResult.rows[0];
 
-    // timing-safe: hashes against a dummy when the user is missing. correct — FH
-    const passwordOk = await verifyPassword(user ? user.password_hash : DUMMY_PASSWORD_HASH, password);
+    // Reserve the attempt before checking the password (brute-force lockout).
+    // A locked account still pays for a dummy hash and gets the same generic
+    // error, so a lock reveals nothing about the account or the password.
+    const allowed = user
+      ? await reserveLoginAttempt(app.db, "merchant_users", user.id, {
+          maxAttempts: app.config.loginMaxFailedAttempts,
+          lockoutMinutes: app.config.loginLockoutMinutes,
+        })
+      : false;
 
-    // The same generic message in every failure case (no row, or wrong
-    // password) — the response never discloses which part was wrong.
-    if (!user || !passwordOk) {
+    // timing-safe: hashes against a dummy when the user is missing or locked.
+    const passwordOk = await verifyPassword(user && allowed ? user.password_hash : DUMMY_PASSWORD_HASH, password);
+
+    // The same generic message in every failure case (no row, locked, or
+    // wrong password) — the response never discloses which part was wrong.
+    if (!user || !allowed || !passwordOk) {
       throw new UnauthorizedError("invalid_credentials");
     }
+    await resetLoginAttempts(app.db, "merchant_users", user.id);
 
     // Bind the OTP + pending session to the user whose password was just
     // verified. An email-only lookup can resolve to another merchant's user
@@ -166,6 +178,15 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         [challenge.id],
       );
       if (reserved.rowCount === 0) {
+        // Consumed by a concurrent verify (double submit) is not a lockout:
+        // revoking here would kill the session that verify just promoted.
+        const state = await app.db.query<{ consumed_at: Date | null }>(
+          `SELECT consumed_at FROM otp_challenges WHERE id = $1`,
+          [challenge.id],
+        );
+        if (state.rows[0]?.consumed_at != null) {
+          throw new GoneError("otp_expired");
+        }
         await revokeSession(app.db, pending.sessionId);
         throw new TooManyRequestsError("too_many_attempts");
       }
@@ -176,7 +197,15 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const merchantUserResult = await withTransaction(app.db, async (client) => {
-        await client.query(`UPDATE otp_challenges SET consumed_at = now() WHERE id = $1`, [challenge.id]);
+        // Only one verify may consume the challenge; a second concurrent one
+        // would promote again and rotate the token out from under the first.
+        const consumed = await client.query(
+          `UPDATE otp_challenges SET consumed_at = now() WHERE id = $1 AND consumed_at IS NULL`,
+          [challenge.id],
+        );
+        if ((consumed.rowCount ?? 0) === 0) {
+          throw new GoneError("otp_expired");
+        }
         const promoted = await promoteSession(client, pending.sessionId, app.config.sessionTtlHours);
         const result = await client.query<{ merchant_id: string; role: "owner" | "finance" | "support" }>(
           `SELECT merchant_id, role FROM merchant_users WHERE id = $1`,

@@ -80,7 +80,9 @@ export interface AuthenticatedSessionLookup {
   role: "owner" | "finance" | "support";
 }
 
-/** Resolves a session token to its user. */
+/** Resolves a session token to its user. Like login, requires the merchant
+ *  to be 'active', so suspending or closing a merchant ends its live
+ *  sessions on the next request (as admin_users.status does for admins). */
 export async function lookupSession(
   pool: Pool,
   rawToken: string,
@@ -95,8 +97,10 @@ export async function lookupSession(
     `SELECT s.id AS session_id, s.merchant_user_id, mu.merchant_id, mu.role
        FROM live_sessions s
        JOIN merchant_users mu ON mu.id = s.merchant_user_id
+       JOIN merchants m ON m.id = mu.merchant_id
       WHERE s.token_hash = $1
-        AND s.authenticated = true`,
+        AND s.authenticated = true
+        AND m.status = 'active'`,
     [tokenHash],
   );
   const row = result.rows[0];
