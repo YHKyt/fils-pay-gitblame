@@ -105,8 +105,10 @@ archive the endpoint's history; after they register the new one, restore
 the archive against it to backfill. No screen for this yet — it's
 `POST /v1/admin/merchants/:id/webhook-endpoints/:endpointId/archive` and
 `.../archive/:archiveId/replay`. Restoring resends every archived delivery,
-succeeded ones included, so it needs finance or super_admin. Archives are written in pages of 1000
-deliveries, so any range is fine.
+succeeded ones included, so it needs finance or super_admin. Archives are
+not paged: the whole range is read at once and stored as one value, and a
+restore loads it back whole in one transaction. Keep the range to what the
+rotation needs; a very wide range costs API memory on both steps.
 
 ## Incident review: duplicate `settlement.paid` (2026-08-21)
 
