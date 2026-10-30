@@ -7,7 +7,7 @@ import {
 } from "../auth/requireMerchantAuth.js";
 import { assertRefundRequestScope, initiateMerchantRefund } from "../refunds/initiateMerchantRefund.js";
 import { BadRequestError } from "../lib/errors.js";
-import { isAcceptedAmountFils, MAX_AMOUNT_FILS } from "../lib/requestParams.js";
+import { assertBhdCurrency, isAcceptedAmountFils, MAX_AMOUNT_FILS } from "../lib/requestParams.js";
 
 interface RefundBody {
   transactionId?: unknown;
@@ -36,6 +36,7 @@ function parseBody(body: RefundBody | undefined) {
   if (typeof transactionId !== "string" || transactionId === "") {
     throw new BadRequestError("invalid_request", "transactionId is required");
   }
+  assertBhdCurrency(body);
   if (amountFils !== undefined && !isAcceptedAmountFils(amountFils)) {
     throw new BadRequestError(
       "invalid_request",

@@ -9,6 +9,7 @@ import { getTransactionById, listTransactions } from "../transactions/query.js";
 import { listTransactionEvents } from "../transactions/events.js";
 import { BadRequestError, NotFoundError } from "../lib/errors.js";
 import {
+  assertBhdCurrency,
   parseOptionalInstant,
   parseOptionalPositiveInt,
   parsePositiveAmountFils,
@@ -79,6 +80,7 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
       if (amountFils === undefined || !card) {
         throw new BadRequestError("invalid_request", "amountFils and card are required");
       }
+      assertBhdCurrency(request.body);
       // Checked before the acquirer is called. Postgres TEXT cannot hold
       // U+0000, so a NUL reference used to fail the transactions INSERT only
       // after the acquirer had approved: the card was authorized, the request
@@ -117,6 +119,7 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
       const transactionId = requireUuidParam(request.params.id);
       const idempotencyKey = getIdempotencyKey(request);
       const { amountFils } = request.body ?? {};
+      assertBhdCurrency(request.body);
 
       const result = await captureTransaction(app.db, app.acquirer, {
         transactionId,
