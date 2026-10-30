@@ -339,18 +339,34 @@ export function startWebhookDispatcher(pool: Pool, transport: WebhookTransport, 
   // `sending` until its lease runs out and is then sent a second time.
   let inFlight: Promise<void> | null = null;
   let stopped = false;
+  // Run another pass as soon as this one ends: set when a pass filled a
+  // whole batch (more work is waiting), or when a NOTIFY or tick arrived
+  // during the pass. Without it a backlog drained at one Step B batch (100)
+  // per poll interval, and an event committed mid-pass waited for the next
+  // tick (perfload; the reporting consumer had the same shape, PL3).
+  let rerun = false;
 
   const triggerPass = (): void => {
-    if (inFlight || stopped) return;
+    if (stopped) return;
+    if (inFlight) {
+      rerun = true;
+      return;
+    }
+    rerun = false;
     inFlight = runDispatchPass(pool, transport, config, () => stopped)
-      .then(() => undefined)
+      .then(({ createdCount, attemptedCount }) => {
+        if (createdCount >= STEP_A_BATCH_LIMIT || attemptedCount >= STEP_B_BATCH_LIMIT) rerun = true;
+      })
       .catch((err: unknown) => {
         // A thrown error from one pass must never crash the listener or
         // the process — the next NOTIFY or poll tick simply tries again.
+        // No immediate rerun: a failing pass must not spin.
+        rerun = false;
         console.error("[webhooks/dispatcher] dispatch pass failed", err);
       })
       .finally(() => {
         inFlight = null;
+        if (rerun) triggerPass();
       });
   };
 
