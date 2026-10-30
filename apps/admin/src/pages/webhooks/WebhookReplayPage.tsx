@@ -3,7 +3,9 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { getMerchant, listMerchants } from "../../api/merchants.js";
 import { replayBatch } from "../../api/webhooks.js";
 import { describeError } from "../../api/client.js";
-import { bahrainInputToIso, toBahrainInputValue } from "../../format.js";
+import { bahrainInputToIso, dateTime, enumLabel, toBahrainInputValue } from "../../format.js";
+import { ConfirmAction } from "../../components/ConfirmAction.js";
+import { StatusPill } from "../../components/StatusPill.js";
 import type {
   AdminMerchantDetail,
   AdminMerchantSummary,
@@ -47,6 +49,9 @@ export function WebhookReplayPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<BatchReplayResult | null>(null);
+  const [confirming, setConfirming] = useState<{ from: string; to: string } | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false);
 
   const loadMerchant = useCallback(async () => {
     if (!merchantId) {
@@ -71,11 +76,15 @@ export function WebhookReplayPage() {
   async function handleSearch(event: React.FormEvent): Promise<void> {
     event.preventDefault();
     setError(null);
+    setSearching(true);
     try {
       const found = await listMerchants({ q: search.trim() || undefined, limit: 10 });
       setCandidates(found.merchants ?? []);
+      setSearched(true);
     } catch (err) {
       setError(describeError(err));
+    } finally {
+      setSearching(false);
     }
   }
 
@@ -86,15 +95,25 @@ export function WebhookReplayPage() {
   }
 
   /** Replays keep the original Webhook-Delivery-Id so receivers can dedupe. */
-  async function handleReplay(event: React.FormEvent): Promise<void> {
+  function requestReplay(event: React.FormEvent): void {
     event.preventDefault();
     if (!merchantId || !endpointId) return;
+    if (statuses.length === 0) {
+      setError("Pick at least one status.");
+      return;
+    }
     const from = bahrainInputToIso(range.from);
     const to = bahrainInputToIso(range.to);
     if (!from || !to) {
       setError("From and To must be valid dates and times.");
       return;
     }
+    setError(null);
+    setConfirming({ from, to });
+  }
+
+  async function handleReplay(from: string, to: string): Promise<void> {
+    if (!merchantId || !endpointId) return;
     setBusy(true);
     setError(null);
     setResult(null);
@@ -103,9 +122,10 @@ export function WebhookReplayPage() {
         await replayBatch(merchantId, endpointId, {
           from,
           to,
-          statuses: statuses.length > 0 ? statuses : undefined,
+          statuses,
         }),
       );
+      setConfirming(null);
     } catch (err) {
       setError(describeError(err));
     } finally {
@@ -129,18 +149,46 @@ export function WebhookReplayPage() {
               placeholder="Display name, merchant id, or contact email"
             />
           </label>
-          <button type="submit">Search</button>
+          <button type="submit" disabled={searching}>
+            {searching ? "Searching…" : "Search"}
+          </button>
         </form>
-        <ul>
-          {candidates.map((merchant) => (
-            <li key={merchant.id}>
-              <button type="button" onClick={() => navigate(`/webhooks/${merchant.id}`)}>
-                {merchant.displayName}
-              </button>{" "}
-              <code className="admin-muted">{merchant.id}</code>
-            </li>
-          ))}
-        </ul>
+        {searched && candidates.length === 0 ? (
+          <div className="admin-empty">
+            {search.trim() ? `No merchants match "${search.trim()}".` : "No merchants found."}
+          </div>
+        ) : null}
+        {candidates.length > 0 ? (
+          <div className="admin-table-wrap"><table className="admin-table">
+            <thead>
+              <tr>
+                <th>Merchant</th>
+                <th>Status</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {candidates.map((merchant) => (
+                <tr key={merchant.id}>
+                  <td>
+                    {merchant.displayName}
+                    <div className="admin-muted">
+                      <code>{merchant.id}</code>
+                    </div>
+                  </td>
+                  <td>
+                    <StatusPill value={merchant.status} />
+                  </td>
+                  <td>
+                    <button type="button" onClick={() => navigate(`/webhooks/${merchant.id}`)}>
+                      Choose
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table></div>
+        ) : null}
       </section>
     );
   }
@@ -165,10 +213,12 @@ export function WebhookReplayPage() {
       {error ? <p className="admin-error">{error}</p> : null}
 
       {detail && endpoints.length === 0 ? (
-        <div className="admin-empty">This merchant has no webhook endpoints registered.</div>
-      ) : null}
-
-      <form className="admin-form" onSubmit={(e) => void handleReplay(e)}>
+        <div className="admin-empty">
+          <p>This merchant has no webhook endpoints, so there is nothing to replay.</p>
+          <Link to={`/merchants/${merchantId}`}>Back to {detail.merchant.displayName}</Link>
+        </div>
+      ) : (
+      <form className="admin-form" onSubmit={requestReplay}>
         <label>
           Endpoint
           <select value={endpointId} onChange={(e) => setEndpointId(e.target.value)} required>
@@ -177,7 +227,7 @@ export function WebhookReplayPage() {
             </option>
             {endpoints.map((endpoint) => (
               <option key={endpoint.id} value={endpoint.id}>
-                {endpoint.url} ({endpoint.status})
+                {endpoint.url} ({enumLabel(endpoint.status)})
               </option>
             ))}
           </select>
@@ -209,27 +259,28 @@ export function WebhookReplayPage() {
                 checked={statuses.includes(status)}
                 onChange={() => toggleStatus(status)}
               />
-              {status}
+              {enumLabel(status)}
             </label>
           ))}
           <p className="admin-muted">
-            Defaults to <code>exhausted</code> — the one terminal failure state the dispatcher
-            produces. Replaying a <code>succeeded</code> delivery is allowed but resends an event the
-            receiver already accepted.
+            Defaults to Gave up (deliveries that ran out of retries). Replaying Succeeded
+            deliveries resends events the receiver already accepted.
           </p>
+          {statuses.length === 0 ? <p className="admin-error">Pick at least one status.</p> : null}
         </fieldset>
-        <button type="submit" disabled={busy || !endpointId}>
-          {busy ? "Replaying..." : "Replay batch"}
+        <button type="submit" disabled={busy || !endpointId || statuses.length === 0}>
+          {busy ? "Replaying…" : "Replay batch"}
         </button>
       </form>
+      )}
 
       {result ? (
         <div className="admin-notice">
           <p>
             Matched {result.matchedCount} deliver{result.matchedCount === 1 ? "y" : "ies"}; queued{" "}
             {(result.replayedDeliveryIds ?? []).length} replay
-            {(result.replayedDeliveryIds ?? []).length === 1 ? "" : "s"}. They are sent by the normal
-            async dispatcher pass, not immediately by this request.
+            {(result.replayedDeliveryIds ?? []).length === 1 ? "" : "s"}. They go out with the next
+            delivery run, within a minute or so.
           </p>
           {result.hasMore ? (
             <p>More deliveries match than one replay sends (500). Replay the batch again for the next ones.</p>
@@ -245,6 +296,40 @@ export function WebhookReplayPage() {
           ) : null}
         </div>
       ) : null}
+      <ConfirmAction
+        open={confirming !== null}
+        title="Replay these webhook deliveries?"
+        confirmLabel="Replay deliveries"
+        danger={statuses.includes("succeeded")}
+        busy={busy}
+        error={error}
+        onCancel={() => setConfirming(null)}
+        onConfirm={() => {
+          if (confirming) void handleReplay(confirming.from, confirming.to);
+        }}
+      >
+        {confirming ? (
+          <>
+            <dl className="admin-dialog-summary">
+              <dt>Merchant</dt>
+              <dd>{detail?.merchant.displayName ?? merchantId}</dd>
+              <dt>Endpoint</dt>
+              <dd>{endpoints.find((e) => e.id === endpointId)?.url ?? endpointId}</dd>
+              <dt>Statuses</dt>
+              <dd>{statuses.map((s) => enumLabel(s)).join(", ")}</dd>
+              <dt>From</dt>
+              <dd>{dateTime(confirming.from)}</dd>
+              <dt>To</dt>
+              <dd>{dateTime(confirming.to)}</dd>
+            </dl>
+            {statuses.includes("succeeded") ? (
+              <p className="admin-dialog-warning">
+                Succeeded is ticked: the receiver gets events it already accepted.
+              </p>
+            ) : null}
+          </>
+        ) : null}
+      </ConfirmAction>
     </section>
   );
 }
