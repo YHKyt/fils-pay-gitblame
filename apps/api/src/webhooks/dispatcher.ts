@@ -269,7 +269,11 @@ async function claimNextDueDelivery(pool: Pool, config: DispatcherConfig): Promi
              -- a disabled endpoint's pending rows wait (unclaimed) until it is re-enabled
              AND EXISTS (SELECT 1 FROM webhook_endpoints we
                           WHERE we.id = webhook_deliveries.endpoint_id AND we.status = 'active')
-           ORDER BY next_attempt_at ASC
+           -- Step A gives every delivery of a pass the same next_attempt_at;
+           -- the tie-breaker sends them in event order (outbox ids are
+           -- assigned in commit-order per producer transaction), so a
+           -- receiver keeping the latest status ends on the right one.
+           ORDER BY next_attempt_at ASC, outbox_event_id ASC, id ASC
            LIMIT 1
            FOR UPDATE SKIP LOCKED)
        RETURNING wd.id, wd.endpoint_id, wd.event_type, wd.delivery_event_id, wd.payload, wd.attempt_count
