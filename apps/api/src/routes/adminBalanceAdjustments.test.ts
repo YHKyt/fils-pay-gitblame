@@ -229,3 +229,56 @@ test("invalid bodies are rejected with 400", async () => {
     assert.equal(res.statusCode, 400, `${JSON.stringify(payload)} -> ${res.body}`);
   }
 });
+
+test("a retried adjustment with the same Idempotency-Key moves the balance once", async () => {
+  const admin = await signedInAdmin("finance");
+  const merchantId = await createMerchant(100_000);
+  const key = randomUUID();
+  const send = () =>
+    app.inject({
+      method: "POST",
+      url: PATH(merchantId),
+      headers: { cookie: admin.cookie, "idempotency-key": key },
+      payload: { deltaFils: 40_000, reason: "statement shows 40.000 BD higher" },
+    });
+
+  const first = await send();
+  assert.equal(first.statusCode, 200, first.body);
+  const retry = await send();
+  assert.equal(retry.statusCode, 200, retry.body);
+  assert.deepEqual(retry.json(), first.json(), "the retry replays the first response");
+  assert.equal((retry.json() as { cachedPayableFilsAfter: number }).cachedPayableFilsAfter, 140_000);
+
+  const after = await pool.query<{ cached_payable_fils: string }>(
+    `SELECT cached_payable_fils FROM merchant_balances WHERE merchant_id = $1`,
+    [merchantId],
+  );
+  assert.equal(Number(after.rows[0]!.cached_payable_fils), 140_000);
+  const audit = await pool.query(
+    `SELECT 1 FROM admin_audit_log WHERE action = 'balance_adjustment' AND target_id = $1`,
+    [merchantId],
+  );
+  assert.equal(audit.rowCount, 1, "a replay is not a second action");
+});
+
+test("reusing an adjustment key for a different delta is a 422 and moves nothing", async () => {
+  const admin = await signedInAdmin("finance");
+  const merchantId = await createMerchant(100_000);
+  const key = randomUUID();
+  const send = (deltaFils: number) =>
+    app.inject({
+      method: "POST",
+      url: PATH(merchantId),
+      headers: { cookie: admin.cookie, "idempotency-key": key },
+      payload: { deltaFils, reason: "statement correction" },
+    });
+  assert.equal((await send(40_000)).statusCode, 200);
+  const reused = await send(-40_000);
+  assert.equal(reused.statusCode, 422, reused.body);
+  assert.equal((reused.json() as { error: string }).error, "idempotency_key_reused");
+  const after = await pool.query<{ cached_payable_fils: string }>(
+    `SELECT cached_payable_fils FROM merchant_balances WHERE merchant_id = $1`,
+    [merchantId],
+  );
+  assert.equal(Number(after.rows[0]!.cached_payable_fils), 140_000);
+});

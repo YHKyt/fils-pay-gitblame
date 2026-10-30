@@ -7,12 +7,15 @@ import type { BalanceAdjustmentResult } from "../types.js";
  * the admin plane's wire format uses.
  */
 // FH: posts to ledger + cache (journaled)
+/** `idempotencyKey`: one per form intent, reused on a retry (see utils/idempotencyIntent). */
 export function adjustBalance(
   merchantId: string,
   input: { deltaFils: number; reason: string },
+  idempotencyKey: string,
 ): Promise<BalanceAdjustmentResult> {
   return request(`/v1/admin/merchants/${merchantId}/balance-adjustments`, {
     method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify(input),
   });
 }

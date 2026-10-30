@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { formatBhd, toFils } from "@filspay/money";
 import {
+  approveAdjustmentImport,
   getAdjustmentImportRows,
   listAdjustmentImports,
+  rejectAdjustmentImport,
   uploadAdjustmentImport,
 } from "../../api/adjustmentImports.js";
 import { describeError } from "../../api/client.js";
+import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import type {
   AdjustmentImportRowDetail,
+  AdjustmentImportStatus,
   AdjustmentImportSummary,
 } from "../../types.js";
 
@@ -20,15 +24,24 @@ function bhd(fils: number): string {
 const CSV_PLACEHOLDER = `merchantId,amount,reason
 00000000-0000-0000-0000-000000000000,4.750,statement correction`;
 
+const STATUS_LABEL: Record<AdjustmentImportStatus, string> = {
+  pending_approval: "Awaiting second approver",
+  posted: "Posted",
+  rejected: "Rejected",
+};
+
 /**
- * "Import adjustments" — paste a CSV of manual balance corrections and apply
- * them. There is no preview step: the paste box submits directly, because an
- * adjustment CSV is assembled and checked in the spreadsheet it came from.
+ * "Import adjustments" — paste a CSV of manual balance corrections. A batch
+ * at or below the credit approval limit (gross) posts on submit; above it,
+ * it waits here until a different finance admin approves it. The server
+ * refuses a batch that is already posted or pending (409), so submitting the
+ * same file twice never posts it twice.
  *
  * The history table below drills into per-row detail, which shows the raw
  * CSV text next to the integer that was actually posted.
  */
 export function AdjustmentImportPage() {
+  const { admin } = useAdminAuth();
   const [csvContent, setCsvContent] = useState("");
   const [filename, setFilename] = useState("");
   const [busy, setBusy] = useState(false);
@@ -68,10 +81,34 @@ export function AdjustmentImportPage() {
         filename.trim() ? filename.trim() : undefined,
       );
       setNotice(
-        `Applied ${result.rowCount} row(s), posting ${bhd(result.totalPostedFils)} in total.`,
+        result.status === "posted"
+          ? `Applied ${result.rowCount} row(s), posting ${bhd(result.totalPostedFils)} in total.`
+          : `Held ${result.rowCount} row(s) (${bhd(result.totalPostedFils)}) for a second approver. Nothing is posted until another finance admin approves it below.`,
       );
       setCsvContent("");
       setFilename("");
+      await loadHistory();
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDecision(importId: string, decision: "approve" | "reject"): Promise<void> {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result =
+        decision === "approve"
+          ? await approveAdjustmentImport(importId)
+          : await rejectAdjustmentImport(importId);
+      setNotice(
+        result.status === "posted"
+          ? `Approved: posted ${result.rowCount} row(s), ${bhd(result.totalPostedFils)} in total.`
+          : "Rejected: nothing was posted.",
+      );
       await loadHistory();
     } catch (err) {
       setError(describeError(err));
@@ -99,8 +136,10 @@ export function AdjustmentImportPage() {
     <section>
       <h1>Import adjustments</h1>
       <p className="admin-muted">
-        Applies a CSV of manual balance corrections immediately — one balanced ledger posting per
-        row. Uploading is gated server-side to the <code>finance</code> and{" "}
+        Applies a CSV of manual balance corrections — one balanced ledger posting per row. A batch
+        whose total (ignoring sign) is over the credit approval limit waits for a second finance
+        admin; smaller batches post immediately. The same batch cannot be imported twice. Uploading
+        and approving are gated server-side to the <code>finance</code> and{" "}
         <code>super_admin</code> roles.
       </p>
 
@@ -148,7 +187,8 @@ export function AdjustmentImportPage() {
         <table className="admin-table">
           <thead>
             <tr>
-              <th>Applied</th>
+              <th>Uploaded</th>
+              <th>Status</th>
               <th>File</th>
               <th>Rows</th>
               <th />
@@ -157,13 +197,40 @@ export function AdjustmentImportPage() {
           <tbody>
             {imports.map((item) => (
               <tr key={item.id}>
-                <td>{item.appliedAt}</td>
+                <td>{item.createdAt}</td>
+                <td>
+                  {STATUS_LABEL[item.status]}
+                  {item.appliedAt ? <div className="admin-muted">posted {item.appliedAt}</div> : null}
+                </td>
                 <td>{item.originalFilename}</td>
                 <td>{item.rowCount}</td>
                 <td>
                   <button type="button" onClick={() => void handleOpenRows(item.id)}>
                     {openImportId === item.id ? "Hide rows" : "View rows"}
                   </button>
+                  {item.status === "pending_approval" ? (
+                    <RequireRole allow={["finance", "super_admin"]}>
+                      {" "}
+                      {admin?.adminUserId === item.uploadedByAdminUserId ? (
+                        <span className="admin-muted">another admin must approve</span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void handleDecision(item.id, "approve")}
+                        >
+                          Approve
+                        </button>
+                      )}{" "}
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void handleDecision(item.id, "reject")}
+                      >
+                        Reject
+                      </button>
+                    </RequireRole>
+                  ) : null}
                 </td>
               </tr>
             ))}

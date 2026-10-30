@@ -249,6 +249,110 @@ test("create validates its body and 404s an unknown or malformed merchant", asyn
   }
 });
 
+// ------------------------------------------------------------ idempotency
+
+async function creditTrail(merchantId: string): Promise<{ requests: number; groups: number; cached: number | null }> {
+  const requests = await pool.query<{ n: number }>(
+    `SELECT COUNT(*)::int AS n FROM credit_requests WHERE merchant_id = $1`,
+    [merchantId],
+  );
+  const groups = await pool.query<{ n: number }>(
+    `SELECT COUNT(DISTINCT entry_group_id)::int AS n FROM ledger_entries WHERE merchant_id = $1`,
+    [merchantId],
+  );
+  const cache = await pool.query<{ cached_payable_fils: string }>(
+    `SELECT cached_payable_fils::text AS cached_payable_fils FROM merchant_balances WHERE merchant_id = $1`,
+    [merchantId],
+  );
+  return {
+    requests: requests.rows[0]!.n,
+    groups: groups.rows[0]!.n,
+    cached: cache.rows[0] ? Number(cache.rows[0].cached_payable_fils) : null,
+  };
+}
+
+test("a retried credit with the same Idempotency-Key posts once and replays the first response", async () => {
+  const finance = await signedInAdmin("finance", "idem-retry");
+  const merchantId = await createMerchant("idem-retry");
+  const key = randomUUID();
+  const payload = { baseAmountFils: 40_000, reasonCode: "goodwill", effectiveDate: todayIso() };
+
+  const send = () =>
+    app.inject({
+      method: "POST",
+      url: `/v1/admin/merchants/${merchantId}/credits`,
+      headers: { cookie: finance.cookie, "idempotency-key": key },
+      payload,
+    });
+
+  const first = await send();
+  assert.equal(first.statusCode, 201, first.body);
+  // The operator's browser timed out and they pressed the button again.
+  const retry = await send();
+  assert.equal(retry.statusCode, 201, retry.body);
+  assert.deepEqual(retry.json(), first.json(), "the retry replays the first response");
+
+  assert.deepEqual(await creditTrail(merchantId), { requests: 1, groups: 1, cached: 40_000 });
+  const audit = await pool.query(
+    `SELECT 1 FROM admin_audit_log WHERE action = 'credit_request_created' AND target_id = $1`,
+    [(first.json() as CreditRequestBody).id],
+  );
+  assert.equal(audit.rowCount, 1, "a replay is not a second action");
+});
+
+test("two concurrent credits with the same Idempotency-Key post once", async () => {
+  const finance = await signedInAdmin("finance", "idem-race");
+  const merchantId = await createMerchant("idem-race");
+  const key = randomUUID();
+  const send = () =>
+    app.inject({
+      method: "POST",
+      url: `/v1/admin/merchants/${merchantId}/credits`,
+      headers: { cookie: finance.cookie, "idempotency-key": key },
+      payload: { baseAmountFils: 40_000, reasonCode: "goodwill", effectiveDate: todayIso() },
+    });
+
+  const [a, b] = await Promise.all([send(), send()]);
+  assert.equal(a.statusCode, 201, a.body);
+  assert.equal(b.statusCode, 201, b.body);
+  assert.equal((a.json() as CreditRequestBody).id, (b.json() as CreditRequestBody).id);
+  assert.deepEqual(await creditTrail(merchantId), { requests: 1, groups: 1, cached: 40_000 });
+});
+
+test("a key reused for another amount is a 422, a key is private to its admin, and a bad key is a 400", async () => {
+  const finance = await signedInAdmin("finance", "idem-misuse");
+  const merchantId = await createMerchant("idem-misuse");
+  const payload = { baseAmountFils: 40_000, reasonCode: "goodwill", effectiveDate: todayIso() };
+  const key = randomUUID();
+  const send = (cookie: string, idempotencyKey: string, body: object) =>
+    app.inject({
+      method: "POST",
+      url: `/v1/admin/merchants/${merchantId}/credits`,
+      headers: { cookie, "idempotency-key": idempotencyKey },
+      payload: body,
+    });
+
+  const first = await send(finance.cookie, key, payload);
+  assert.equal(first.statusCode, 201, first.body);
+  const reused = await send(finance.cookie, key, { ...payload, baseAmountFils: 41_000 });
+  assert.equal(reused.statusCode, 422, reused.body);
+  assert.equal((reused.json() as { error: string }).error, "idempotency_key_reused");
+  assert.deepEqual(await creditTrail(merchantId), { requests: 1, groups: 1, cached: 40_000 });
+
+  // Another admin's request with the same key is its own action, never a
+  // replay of (or a collision with) someone else's.
+  const other = await signedInAdmin("finance", "idem-misuse-2");
+  const otherRes = await send(other.cookie, key, payload);
+  assert.equal(otherRes.statusCode, 201, otherRes.body);
+  assert.notEqual((otherRes.json() as CreditRequestBody).id, (first.json() as CreditRequestBody).id);
+  assert.deepEqual(await creditTrail(merchantId), { requests: 2, groups: 2, cached: 80_000 });
+
+  const tooLong = await send(finance.cookie, "k".repeat(256), payload);
+  assert.equal(tooLong.statusCode, 400, tooLong.body);
+  assert.equal((tooLong.json() as { error: string }).error, "invalid_idempotency_key");
+  assert.deepEqual(await creditTrail(merchantId), { requests: 2, groups: 2, cached: 80_000 });
+});
+
 // ----------------------------------------------------------- approve/reject
 
 test("a second finance admin approves a pending credit; approving it again is a 409", async () => {

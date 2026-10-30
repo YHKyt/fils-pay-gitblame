@@ -6,6 +6,8 @@ import { withTransaction } from "../db/withTransaction.js";
 import { getEffectiveMdrBps } from "../fees/feeSchedule.js";
 import { getVolumeTierBonusBps } from "../fees/platformVolumeTier.js";
 import { ConflictError, NotFoundError } from "../lib/errors.js";
+import { completeIdempotencyKey } from "../payments/idempotency.js";
+import { claimAdminIdempotencyKey } from "./adminIdempotency.js";
 import { assertDistinctApprover } from "./creditApproval.js";
 import { calculateCreditFeeReversal, creditRequiresSecondApprover } from "./creditThreshold.js";
 import { parseCreditRequestInput, type CreditReasonCode } from "./creditRequestValidation.js";
@@ -203,10 +205,14 @@ async function postCreditToLedger(client: PoolClient, credit: PostableCredit): P
 /**
  * Creates a credit request and posts it immediately when it is under the threshold.
  * Requires finance or super_admin; a support caller gets a 403 from here.
+ *
+ * With an `idempotencyKey` (the console always sends one), a retry with the same
+ * key and body returns the first response and creates nothing; see
+ * claimAdminIdempotencyKey.
  */
 export async function createCreditRequest(
   pool: Pool,
-  input: { merchantId: string; adminUserId: string; body: unknown },
+  input: { merchantId: string; adminUserId: string; body: unknown; idempotencyKey?: string },
 ): Promise<CreditRequestRecord> {
   const draft = parseCreditRequestInput(input.body);
 
@@ -218,6 +224,21 @@ export async function createCreditRequest(
     const merchant = merchantResult.rows[0];
     if (!merchant) {
       throw new NotFoundError("merchant_not_found");
+    }
+
+    let idempotencyClaimId: string | null = null;
+    if (input.idempotencyKey !== undefined) {
+      const claim = await claimAdminIdempotencyKey(client, {
+        adminUserId: input.adminUserId,
+        merchantId: input.merchantId,
+        endpoint: "admin.credits.create",
+        key: input.idempotencyKey,
+        request: input.body,
+      });
+      if ("replay" in claim) {
+        return claim.replay as CreditRequestRecord;
+      }
+      idempotencyClaimId = claim.claimId;
     }
 
     // Never operator-supplied: the reversal is the rate the merchant was
@@ -295,7 +316,15 @@ export async function createCreditRequest(
       },
     });
 
-    return readRecord(client, creditRequestId);
+    const record = await readRecord(client, creditRequestId);
+    if (idempotencyClaimId !== null) {
+      await completeIdempotencyKey(client, idempotencyClaimId, {
+        statusCode: 201,
+        body: record,
+        resourceId: creditRequestId,
+      });
+    }
+    return record;
   });
 }
 

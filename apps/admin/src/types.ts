@@ -351,11 +351,17 @@ export interface MdrRecalcSummary {
   adjusted: MdrBatchAdjustment[];
 }
 
-/** `POST /v1/admin/adjustment-imports` → `201`. */
+export type AdjustmentImportStatus = "pending_approval" | "posted" | "rejected";
+
+/** `POST /v1/admin/adjustment-imports` → `201` (also approve/reject → `200`).
+ *  `totalPostedFils` is the signed sum of the rows; it is on the ledger only
+ *  when `status` is `posted`. */
 export interface AdjustmentImportResult {
   importId: string;
   rowCount: number;
   totalPostedFils: number;
+  status: AdjustmentImportStatus;
+  requiresApproval: boolean;
 }
 
 /** One row of `GET /v1/admin/adjustment-imports`. */
@@ -364,7 +370,11 @@ export interface AdjustmentImportSummary {
   uploadedByAdminUserId: string;
   originalFilename: string;
   rowCount: number;
-  appliedAt: string;
+  status: AdjustmentImportStatus;
+  requiresApproval: boolean;
+  approvedByAdminUserId: string | null;
+  /** null while pending approval or after a rejection. */
+  appliedAt: string | null;
   createdAt: string;
 }
 

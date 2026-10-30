@@ -10,7 +10,10 @@ import type {
  * JSON field rather than as a multipart upload — a paste box is the whole
  * UI, and this keeps the transport dependency-free on both sides.
  *
- * Applied immediately on upload: there is no preview or dry-run step.
+ * At or below the credit approval threshold (gross) the batch posts on
+ * upload; above it the result is `pending_approval` until a different admin
+ * approves it. Re-uploading a batch that is already posted or pending is a
+ * `409 duplicate_adjustment_import`.
  */
 // MK: amounts in BD, 2dp
 export function uploadAdjustmentImport(
@@ -35,6 +38,17 @@ export function listAdjustmentImports(params?: {
   if (params?.cursor) query.set("cursor", params.cursor);
   const suffix = query.toString();
   return request(`/v1/admin/adjustment-imports${suffix ? `?${suffix}` : ""}`);
+}
+
+/** `POST /v1/admin/adjustment-imports/:id/approve` — the second approver
+ *  posts a held import. `409` for the uploader or once decided. */
+export function approveAdjustmentImport(importId: string): Promise<AdjustmentImportResult> {
+  return request(`/v1/admin/adjustment-imports/${importId}/approve`, { method: "POST" });
+}
+
+/** `POST /v1/admin/adjustment-imports/:id/reject` — nothing is posted. */
+export function rejectAdjustmentImport(importId: string): Promise<AdjustmentImportResult> {
+  return request(`/v1/admin/adjustment-imports/${importId}/reject`, { method: "POST" });
 }
 
 /** `GET /v1/admin/adjustment-imports/:id/rows`. */
