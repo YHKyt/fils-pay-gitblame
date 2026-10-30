@@ -139,10 +139,14 @@ test("a concurrent refund that declines does not inflate the approved refund's t
     actor: m.actor,
   });
   await g.waitFor(2);
+  // Either refund can reach the acquirer first. Approve whichever arrived
+  // first and decline the other; awaiting `a` first hung (and cancelled the
+  // file) whenever `b` won the race to the acquirer.
   g.gates[0]!.resolve("approved");
-  const ra = await a;
+  const first = await Promise.race([a.then((r) => ({ r, other: b })), b.then((r) => ({ r, other: a }))]);
+  const ra = first.r;
   g.gates[1]!.resolve("declined");
-  const rb = await b;
+  const rb = await first.other;
 
   assert.equal(ra.statusCode, 200);
   assert.equal(rb.statusCode, 402);
