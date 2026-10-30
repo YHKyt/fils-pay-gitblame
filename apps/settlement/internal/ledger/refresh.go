@@ -53,12 +53,18 @@ func RefreshBalanceCache(ctx context.Context, db *pgxpool.Pool) (map[uuid.UUID]R
 		  FROM merchants m
 		  LEFT JOIN merchant_balances mb ON mb.merchant_id = m.merchant_id
 		  LEFT JOIN payable p            ON p.merchant_id  = m.merchant_id
+		 ORDER BY m.merchant_id
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("ledger: RefreshBalanceCache: aggregate ledger: %w", err)
 	}
 
+	// Rows are written back in merchant_id order (the same order
+	// RebuildAllBalances uses), never in map order: Go randomises map
+	// iteration, so two concurrent rebuilds locked the same
+	// merchant_balances rows in different orders and deadlocked.
 	diffs := make(map[uuid.UUID]RebuildDiff)
+	var ordered []uuid.UUID
 	for rows.Next() {
 		var id uuid.UUID
 		var before, rebuilt int64
@@ -67,13 +73,15 @@ func RefreshBalanceCache(ctx context.Context, db *pgxpool.Pool) (map[uuid.UUID]R
 			return nil, fmt.Errorf("ledger: RefreshBalanceCache: scan: %w", err)
 		}
 		diffs[id] = RebuildDiff{MerchantID: id, CachedBefore: money.Fils(before), Rebuilt: money.Fils(rebuilt)}
+		ordered = append(ordered, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("ledger: RefreshBalanceCache: iterate: %w", err)
 	}
 	rows.Close()
 
-	for id, d := range diffs {
+	for _, id := range ordered {
+		d := diffs[id]
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO merchant_balances (merchant_id, cached_payable_fils, updated_at)
 			VALUES ($1, $2, now())

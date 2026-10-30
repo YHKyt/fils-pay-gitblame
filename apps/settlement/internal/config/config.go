@@ -49,28 +49,23 @@ type Config struct {
 }
 
 // Load reads Config from the process environment. Fails fast (returns an
-// error main.go treats as a fatal boot error) if DATABASE_URL is unset,
-// mirroring apps/api's crash-rather-than-serve-half-configured posture.
+// error main.go treats as a fatal boot error) if neither DATABASE_URL nor
+// its PGCONN_SETTLEMENT fallback is set, mirroring apps/api's
+// crash-rather-than-serve-half-configured posture.
 // SETTLEMENT_INTERNAL_TOKEN is read but not required here — see
 // RequireInternalToken, called only by the subcommand that actually needs it.
 func Load() (Config, error) {
+	// DATABASE_URL always wins. PGCONN_SETTLEMENT is only a fallback for
+	// when DATABASE_URL is unset (ops/README.md). It is documented as a
+	// settlement role or read replica, but this worker has one pool and
+	// every batch close and payout writes through it, so letting it override
+	// DATABASE_URL pointed all settlement writes at the wrong database.
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
-		return Config{}, fmt.Errorf("config: DATABASE_URL environment variable is not set")
+		databaseURL = os.Getenv("PGCONN_SETTLEMENT")
 	}
-
-	// PGCONN_SETTLEMENT optionally overrides DATABASE_URL for a deployment
-	// that routes this worker's batch/export queries through a dedicated
-	// settlement Postgres role or read replica, kept separate from the
-	// pool apps/api's request path uses so a long-running batch close can't
-	// starve it. Unset in the common case — most deployments share one
-	// Postgres instance across every service, so DATABASE_URL alone is
-	// sufficient and this worker falls back to it exactly like every other
-	// service does.
-	// MK (b64cd3c): replica routing for batch close. compose doesn't set it so DATABASE_URL wins.
-	// am: compose DOES set PGCONN_SETTLEMENT? i added it in june. or that was .env.docker
-	if override := os.Getenv("PGCONN_SETTLEMENT"); override != "" {
-		databaseURL = override
+	if databaseURL == "" {
+		return Config{}, fmt.Errorf("config: DATABASE_URL environment variable is not set")
 	}
 
 	// YA: token is required for every subcommand, Load() fails without it

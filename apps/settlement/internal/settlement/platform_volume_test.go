@@ -33,6 +33,15 @@ func TestRecordPlatformProcessedVolume_SmallValuesExact(t *testing.T) {
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
+	// `go test ./...` runs packages in parallel on one database, and other
+	// packages' CloseBatch calls add to this same row, so the committed
+	// reset above is not a stable baseline. Measure from the value read
+	// under the row lock, which this tx then holds until Rollback.
+	start, err := ReadAndLockPlatformProcessedFils(ctx, tx)
+	if err != nil {
+		t.Fatalf("ReadAndLockPlatformProcessedFils (baseline): %v", err)
+	}
+
 	for _, gross := range []int64{1_000_000, 2_500_000, 47_500_000} {
 		current, err := ReadAndLockPlatformProcessedFils(ctx, tx)
 		if err != nil {
@@ -43,13 +52,13 @@ func TestRecordPlatformProcessedVolume_SmallValuesExact(t *testing.T) {
 		}
 	}
 
-	var got int32
+	var got int64
 	err = tx.QueryRow(ctx, `SELECT total_processed_fils FROM platform_stats WHERE id = 1`).Scan(&got)
 	if err != nil {
 		t.Fatalf("read back total: %v", err)
 	}
-	if got != 51_000_000 {
-		t.Fatalf("total_processed_fils = %v, want exactly 51000000 (1000000 + 2500000 + 47500000)", got)
+	if got-start != 51_000_000 {
+		t.Fatalf("total_processed_fils grew by %v, want exactly 51000000 (1000000 + 2500000 + 47500000)", got-start)
 	}
 }
 

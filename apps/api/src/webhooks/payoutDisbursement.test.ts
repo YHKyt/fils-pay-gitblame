@@ -72,3 +72,22 @@ test("recordPayoutDisbursementEffect records at most one instruction per batch, 
   );
   assert.equal(result.rows[0]!.count, "1");
 });
+
+// The settlement worker now writes the row in the pay transaction, before
+// settlement.paid exists, so the dispatcher must leave that row alone.
+test("recordPayoutDisbursementEffect keeps the row the pay step already wrote", async () => {
+  const batchId = await createPaidBatch(64_000);
+  await pool.query(
+    `INSERT INTO settlement_payout_disbursements (settlement_batch_id, amount_fils, disbursement_reference)
+     VALUES ($1, 64000, 'disb_from_pay_step')`,
+    [batchId],
+  );
+
+  await recordPayoutDisbursementEffect(pool, batchId, 64_000);
+
+  const result = await pool.query<{ disbursement_reference: string }>(
+    `SELECT disbursement_reference FROM settlement_payout_disbursements WHERE settlement_batch_id = $1`,
+    [batchId],
+  );
+  assert.deepEqual(result.rows, [{ disbursement_reference: "disb_from_pay_step" }]);
+});
