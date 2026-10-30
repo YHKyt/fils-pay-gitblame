@@ -368,10 +368,11 @@ export function MerchantDetailPage() {
         Journals a manual credit to this merchant&apos;s payable balance. Above the approval limit
         it waits in <Link to="/credits">Credits</Link> for a second finance operator; at or below
         it, it posts immediately. The effective date is the accounting date the ledger legs are
-        booked against.
+        booked against. Any role may issue one (support issues small credits; see ADMIN.md);
+        only <code>finance</code> or <code>super_admin</code> can approve a held one.
       </p>
       <RequireRole
-        allow={["finance", "super_admin"]}
+        allow={["support", "finance", "super_admin"]}
         fallback={
           <p className="admin-muted">
             Your role cannot issue credits. Ask a finance admin.
