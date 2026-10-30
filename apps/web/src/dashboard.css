@@ -1866,3 +1866,11 @@ h1 .dash-ref-sub {
     position: static;
   }
 }
+.dash-create-grid > .dash-form {
+  margin-top: 0;
+}
+@media (max-width: 720px) {
+  .dash-chart-x-minor {
+    display: none;
+  }
+}

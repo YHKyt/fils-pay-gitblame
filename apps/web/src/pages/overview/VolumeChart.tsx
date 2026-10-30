@@ -198,9 +198,12 @@ export function VolumeChart({ points }: { points: VolumePointDto[] }) {
           ) : null}
         </div>
         <div className="dash-chart-xaxis" aria-hidden="true">
-          {labelIdx.map((i) => (
+          {labelIdx.map((i, k) => (
             <span
               key={i}
+              className={
+                k === 0 || k === labelIdx.length - 1 || k === Math.floor(labelIdx.length / 2) ? undefined : "dash-chart-x-minor"
+              }
               style={{
                 left: `${xf(i) * 100}%`,
                 transform: `translateX(${i === 0 && n > 1 ? "0" : i === n - 1 && n > 1 ? "-100%" : "-50%"})`,
