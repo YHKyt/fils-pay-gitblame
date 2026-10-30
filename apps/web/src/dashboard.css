@@ -607,6 +607,47 @@ footer.dash-main {
   box-shadow: var(--fp-ring);
 }
 
+/* A BHD money field: the input with a "BHD" suffix adornment, tabular mono so
+   entered amounts line up. The value is typed in BHD and parsed to integer
+   fils before it ever reaches the API. */
+.dash-money-input {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--fp-border-strong);
+  border-radius: var(--fp-radius-sm);
+  background: var(--fp-surface);
+  overflow: hidden;
+  transition: border-color var(--fp-dur-fast) var(--fp-ease), box-shadow var(--fp-dur-fast) var(--fp-ease);
+}
+.dash-money-input:focus-within {
+  border-color: var(--fp-accent);
+  box-shadow: var(--fp-ring);
+}
+.dash-money-input input {
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  font-family: var(--fp-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  min-width: 7rem;
+}
+.dash-money-input input:focus {
+  box-shadow: none;
+  border: none;
+}
+.dash-money-suffix {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.7rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: var(--fp-tracking-wide);
+  color: var(--fp-accent-hover);
+  background: var(--fp-surface-2);
+  border-left: 1px solid var(--fp-border);
+}
+
 /* ---- Buttons ------------------------------------------------------- */
 .dash-button,
 .dash-button-link {
@@ -1253,6 +1294,89 @@ footer.dash-main {
 .dash-empty-icon {
   color: var(--fp-faint);
   opacity: 0.8;
+}
+
+/* ---- Confirm dialog (money actions) -------------------------------- */
+.fp-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(6, 35, 31, 0.55);
+  backdrop-filter: blur(3px);
+  animation: fp-confirm-fade var(--fp-dur) var(--fp-ease) both;
+}
+.fp-confirm-card {
+  width: 100%;
+  max-width: 26rem;
+  padding: 1.6rem 1.5rem 1.35rem;
+  background: var(--fp-surface);
+  border: 1px solid var(--fp-border);
+  border-radius: var(--fp-radius-lg);
+  box-shadow: var(--fp-shadow-lg);
+  position: relative;
+  overflow: hidden;
+  animation: fp-confirm-pop var(--fp-dur) var(--fp-ease-spring) both;
+}
+.fp-confirm-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: var(--fp-gradient);
+}
+.fp-confirm-title {
+  font-family: var(--fp-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--fp-heading);
+  margin: 0 0 0.35rem;
+}
+.fp-confirm-amount {
+  font-family: var(--fp-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.9rem;
+  font-weight: 700;
+  letter-spacing: var(--fp-tracking-tight);
+  color: var(--fp-heading);
+  margin: 0.2rem 0 0.4rem;
+}
+.fp-confirm-message {
+  color: var(--fp-muted);
+  margin: 0 0 1.1rem;
+  font-size: 0.95rem;
+}
+.fp-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+@keyframes fp-confirm-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes fp-confirm-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fp-confirm-overlay,
+  .fp-confirm-card {
+    animation: none;
+  }
 }
 
 /* ---- Impersonation banner — must be impossible to miss. ------------- */

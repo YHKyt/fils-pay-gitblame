@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { parseBhdToFils } from "@filspay/money";
 import {
   captureTransaction,
   getTransaction,
@@ -8,6 +9,7 @@ import {
 } from "../../api/transactions.js";
 import { ApiError, describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
+import { ConfirmDialog } from "../../components/ConfirmDialog.js";
 import { bhd, dash, dateTime, statusLabel } from "../../format.js";
 import type { TransactionDto, TransactionEventDto } from "../../types.js";
 import { attemptFor, isDefinitiveFailure, type IdempotentAttempt } from "../../utils/idempotencyIntent.js";
@@ -36,6 +38,8 @@ export function TransactionDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [captureOpen, setCaptureOpen] = useState(false);
   const [captureAmount, setCaptureAmount] = useState("");
+  const [captureConfirm, setCaptureConfirm] = useState(false);
+  const [voidConfirm, setVoidConfirm] = useState(false);
   const captureAttempt = useRef<IdempotentAttempt | null>(null);
 
   const load = useCallback(async () => {
@@ -62,17 +66,43 @@ export function TransactionDetailPage() {
     void load();
   }, [load]);
 
-  async function handleCapture(event: React.FormEvent): Promise<void> {
+  // Parse the BHD-entered capture amount to integer fils. Blank = capture
+  // everything outstanding. Payload stays integer fils, so nothing about the
+  // money path changes — only the unit typed.
+  function parseCaptureFils(): { fils: number | null; error: string | null } {
+    const trimmed = captureAmount.trim();
+    if (trimmed === "") return { fils: null, error: null };
+    let fils: number;
+    try {
+      fils = parseBhdToFils(trimmed);
+    } catch {
+      return { fils: null, error: "Enter an amount in BHD, up to 3 decimals (for example 12.500)." };
+    }
+    if (fils <= 0) return { fils: null, error: "Enter an amount above 0.000 BHD." };
+    return { fils, error: null };
+  }
+
+  function reviewCapture(event: React.FormEvent): void {
     event.preventDefault();
+    const { error } = parseCaptureFils();
+    if (error) {
+      setActionError(error);
+      return;
+    }
+    setActionError(null);
+    setCaptureConfirm(true);
+  }
+
+  async function handleCapture(): Promise<void> {
     if (!id || submitting) return;
     setSubmitting(true);
     setActionError(null);
     try {
-      const trimmed = captureAmount.trim();
+      const { fils } = parseCaptureFils();
       // Left blank, `amountFils` is omitted entirely and capture.ts captures
       // everything still outstanding — its own documented default. Computing
       // the remainder here would just be a second, staler copy of that rule.
-      const input = trimmed === "" ? {} : { amountFils: Number(trimmed) };
+      const input = fils === null ? {} : { amountFils: fils };
       // One Idempotency-Key per capture intent (same rule as RefundDrawer):
       // a retry after a lost response or 5xx resends the same key, so the
       // server replays the first capture instead of capturing again. A
@@ -82,6 +112,7 @@ export function TransactionDetailPage() {
       captureAttempt.current = current;
       await captureTransaction(id, input, current.key);
       captureAttempt.current = null;
+      setCaptureConfirm(false);
       setCaptureOpen(false);
       setCaptureAmount("");
       // Refetch rather than patch: a capture wrote a new transaction_events
@@ -89,20 +120,18 @@ export function TransactionDetailPage() {
       await load();
     } catch (err) {
       if (isDefinitiveFailure(err)) captureAttempt.current = null;
+      setCaptureConfirm(false);
       setActionError(describeError(err));
     } finally {
       setSubmitting(false);
     }
   }
 
-  /** Only offered while status is authorized. */
+  /** Only offered while status is authorized. The confirm step is the
+   *  ConfirmDialog opened by `voidConfirm`; no key needed because void is
+   *  idempotent by state server-side (an already-voided row answers 200). */
   async function handleVoid(): Promise<void> {
-    // No key needed: void is idempotent by state server-side (void.ts
-    // answers 200 for an already-voided row), so a retry is always safe.
     if (!id || submitting) return;
-    if (!window.confirm("Void this authorization? The held funds are released and cannot be captured afterwards.")) {
-      return;
-    }
     setSubmitting(true);
     setActionError(null);
     try {
@@ -110,8 +139,10 @@ export function TransactionDetailPage() {
       // indistinguishable from a first void on the wire, and correctly so:
       // both mean "now voided".
       await voidTransaction(id);
+      setVoidConfirm(false);
       await load();
     } catch (err) {
+      setVoidConfirm(false);
       setActionError(describeError(err));
     } finally {
       setSubmitting(false);
@@ -197,31 +228,36 @@ export function TransactionDetailPage() {
 
             {capturable ? (
               captureOpen ? (
-                <form className="dash-form dash-form-inline" onSubmit={(e) => void handleCapture(e)}>
+                <form className="dash-form dash-form-inline" onSubmit={reviewCapture}>
                   <label>
-                    Amount in fils (blank captures everything outstanding)
-                    <input
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={captureAmount}
-                      onChange={(e) => setCaptureAmount(e.target.value)}
-                    />
+                    Capture amount
+                    <span className="dash-money-input">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        placeholder={bhd(txn.amountFils - txn.capturedFils).replace(" BHD", "")}
+                        value={captureAmount}
+                        onChange={(e) => setCaptureAmount(e.target.value)}
+                      />
+                      <span className="dash-money-suffix">BHD</span>
+                    </span>
                   </label>
-                  <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
-                    {submitting ? "Capturing..." : "Capture"}
+                  <button type="submit" className="dash-button dash-button-primary">
+                    Review capture
                   </button>
                   <button
                     type="button"
                     className="dash-button"
-                    disabled={submitting}
-                    onClick={() => setCaptureOpen(false)}
+                    onClick={() => {
+                      setCaptureOpen(false);
+                      setActionError(null);
+                    }}
                   >
                     Cancel
                   </button>
                 </form>
               ) : (
-                <button type="button" className="dash-button" onClick={() => setCaptureOpen(true)}>
+                <button type="button" className="dash-button dash-button-primary" onClick={() => setCaptureOpen(true)}>
                   Capture
                 </button>
               )
@@ -232,13 +268,41 @@ export function TransactionDetailPage() {
                 type="button"
                 className="dash-button dash-button-danger"
                 disabled={submitting}
-                onClick={() => void handleVoid()}
+                onClick={() => setVoidConfirm(true)}
               >
-                Void
+                Void authorization
               </button>
             ) : null}
           </div>
         ) : null}
+
+        <ConfirmDialog
+          open={captureConfirm}
+          title="Capture this payment"
+          amount={bhd(parseCaptureFils().fils ?? txn.amountFils - txn.capturedFils)}
+          message={
+            <>
+              This captures{" "}
+              <strong>{bhd(parseCaptureFils().fils ?? txn.amountFils - txn.capturedFils)}</strong> from the
+              authorized amount. The customer's card is charged.
+            </>
+          }
+          confirmLabel="Capture"
+          tone="primary"
+          busy={submitting}
+          onConfirm={() => void handleCapture()}
+          onCancel={() => setCaptureConfirm(false)}
+        />
+        <ConfirmDialog
+          open={voidConfirm}
+          title="Void this authorization"
+          message="The hold on the customer's card is released and the payment can't be captured afterwards."
+          confirmLabel="Void authorization"
+          tone="danger"
+          busy={submitting}
+          onConfirm={() => void handleVoid()}
+          onCancel={() => setVoidConfirm(false)}
+        />
       </RequireRole>
 
       <RefundDrawer txn={txn} onRefunded={load} />
@@ -261,10 +325,10 @@ export function TransactionDetailPage() {
           {events.map((event) => (
             <tr key={event.id}>
               <td>{dateTime(event.occurredAt)}</td>
-              <td>{event.eventType}</td>
+              <td>{statusLabel(event.eventType)}</td>
               <td className="dash-num">{event.amountFils === null ? "—" : bhd(event.amountFils)}</td>
               <td>
-                {event.actorType}
+                {statusLabel(event.actorType)}
                 {event.actorId ? (
                   <div className="dash-muted">
                     <code>{event.actorId}</code>
