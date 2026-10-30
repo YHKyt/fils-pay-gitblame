@@ -166,3 +166,14 @@ test("every seeded void is on the timeline and reaches reporting on the day it h
   );
   assert.equal(stray.rows[0]!.n, "0", "seeded outbox events dated after the seed's own now");
 });
+
+test("the seed output never contains a usable API key", { skip }, async () => {
+  // On the hosted stack the seed job's output is a container log.
+  const rawKeys = seedOutput.match(/fp_(live|test)_[A-Za-z0-9_-]{32}/g) ?? [];
+  assert.deepEqual(rawKeys.map((k) => `${k.slice(0, 12)}...`), [], `${rawKeys.length} raw API key(s) printed`);
+  const prefixes = await pool.query<{ key_prefix: string }>(`SELECT key_prefix FROM api_keys`);
+  assert.ok(prefixes.rows.length > 0);
+  for (const { key_prefix } of prefixes.rows) {
+    assert.ok(seedOutput.includes(key_prefix), `the display-safe prefix ${key_prefix} is still printed`);
+  }
+});

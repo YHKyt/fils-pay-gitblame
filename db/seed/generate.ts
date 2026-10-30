@@ -1061,9 +1061,15 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
       label: "seed default key",
     });
     apiKeyCount += 1;
-    // Dev/test convenience only: the raw key is never stored, so this is
-    // the only place it's ever visible. Fine to print for seed data.
-    console.log(`seed: issued API key for ${merchant.displayName}: ${issued.rawKey}`);
+    // Never the raw key: on the hosted stack this output is the seed job's
+    // container log, and a raw key there is a live credential for anyone
+    // who can read the logs (and NODE_ENV=production issues fp_live_ keys).
+    // The prefix is the display-safe part api_keys stores. An owner issues
+    // a usable key with POST /v1/merchants/:merchantId/api-keys. The
+    // merchant id is printed because the merchant login asks for it.
+    console.log(
+      `seed: ${merchant.displayName}: merchant id ${merchant.merchantId}, API key ${issued.prefix}... issued (not printed)`,
+    );
   }
 
   return {

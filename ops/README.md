@@ -107,8 +107,47 @@ box nobody can complete a browser login as things stand. Options:
 3. **Build a delivery channel** (email via a provider). The real fix; not
    in scope for the handover.
 
-API-key traffic (`Authorization: Bearer fp_...`) needs no OTP; the seed
-prints one key per demo merchant.
+API-key traffic (`Authorization: Bearer fp_...`) needs no OTP. The seed
+issues one key per demo merchant but prints only its display-safe prefix:
+its output is the seed container's log, and with `NODE_ENV=production` a
+raw key there would be a working `fp_live_` credential for anyone who can
+read the logs. To get a key, log in as the merchant's owner and call
+`POST /v1/merchants/{merchantId}/api-keys` (the raw key is in that
+response, once).
+
+## Demo logins (seeded data)
+
+A seeded stack has these accounts. The passwords are the development
+fixtures `SEED_USER_PASSWORD` (every merchant user) and
+`SEED_ADMIN_PASSWORD` (every admin) in `db/seed/generate.ts`; they are
+public in the repository, so a box seeded this way must never hold real
+merchants. Logins still need the one-time code (see above).
+
+| Console | Email | Role |
+|---|---|---|
+| admin (`/admin/`) | `support@filspay.test` | support |
+| admin | `finance@filspay.test` | finance |
+| admin | `superadmin@filspay.test` | super_admin |
+| merchant: Alpha Retail Co | `owner@alpharetail.example`, `finance@alpharetail.example` | owner, finance |
+| merchant: Beta Digital Services | `owner@betadigital.example`, `support@betadigital.example`, `finance@betadigital.example`, `owner@alpharetail.example` | owner, support, finance, owner |
+| merchant: Gamma Hospitality Group (test mode) | `owner@gammahospitality.example`, `finance@gammahospitality.example` | owner, finance |
+| merchant: Delta Wholesale Traders | `owner@deltawholesale.example`, `finance@deltawholesale.example` | owner, finance |
+| merchant: Delta Marketplace Bahrain | `owner@deltamarketplace.example`, `finance@deltamarketplace.example` | owner, finance |
+| merchant: Coral Bay Traders, Palm Grove Retail, Seef Kiosk Partners (marketplace sub-merchants) | `owner@coralbaytraders.example`, `owner@palmgroveretail.example`, `owner@seefkiosk.example` | owner |
+
+The merchant login also asks for the merchant id. The seed prints each
+merchant's id (`seed: <merchant>: merchant id <uuid>, ...`), and the admin
+console shows it on each merchant's page. The data is deterministic: the same seed code always
+produces the same ids.
+
+What the seeded history contains: Alpha, Beta, Gamma and Delta Wholesale
+each have about a month of mixed captures, partial captures,
+authorizations and voids, with a full transaction timeline, settled in one
+closed batch per Asia/Bahrain business day up to 2026-08-31 and an open
+batch for 2026-09-01. Alpha and Beta have fee schedules, and their fees are
+charged at the rate in force at each capture. Delta Wholesale also has 60
+high-volume days. Delta Marketplace has 140 days of captured orders that are
+deliberately left unsettled, for `apps/settlement` to close.
 
 ## Acquirer simulator failure rate
 
