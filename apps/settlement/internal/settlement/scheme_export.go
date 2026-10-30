@@ -65,7 +65,11 @@ type SchemeExportLine struct {
 func LoadSchemeExportLines(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID) ([]SchemeExportLine, error) {
 	rows, err := db.Query(ctx, `
 		SELECT sel.line_sequence, t.acquirer_reference,
-		       COALESCE(sel.amount, sel.amount_fils::numeric / 1000)::text
+		       -- The fallback is cast to the column's own scale: a bare
+		       -- division is unscaled numeric and printed 93270 fils as
+		       -- "93.2700000000000000". amount_fils is a multiple of 10, so
+		       -- the cast is exact.
+		       COALESCE(sel.amount, (sel.amount_fils::numeric / 1000)::numeric(10, 2))::text
 		  FROM scheme_export_lines sel
 		  JOIN transactions t ON t.id = sel.transaction_id
 		 WHERE sel.settlement_batch_id = $1
