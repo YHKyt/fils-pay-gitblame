@@ -11,6 +11,12 @@ export interface SettlementBatchDto {
   grossFils: number;
   feeFils: number;
   netPayoutFils: number;
+  /** Refunds this batch netted off the payout: sum of (amount - fee reversed)
+   *  over the refunds rows it claimed. Positive; 0 when none. */
+  refundDeductionFils: number;
+  /** Negative shortfall carried in from earlier batches (their
+   *  net_payout_fils, so <= 0); 0 when none. */
+  carriedInFils: number;
   closedAt: string | null;
   paidAt: string | null;
 }
@@ -23,9 +29,23 @@ interface SettlementBatchRow {
   gross_fils: string | number;
   fee_fils: string | number;
   net_payout_fils: string | number;
+  refund_deduction_fils: string | number | null;
+  carried_in_fils: string | number | null;
   closed_at: Date | null;
   paid_at: Date | null;
 }
+
+/**
+ * Per-batch refund deduction and carried-in shortfall. Neither is stored on
+ * settlement_batches: CloseBatch stamps the refunds it claims with
+ * settlement_batch_id (claimBatchRefunds, deducting amount - fee_reversed)
+ * and points a negative earlier batch at this one via
+ * carried_forward_to_batch_id (claimCarriedShortfall). Expects alias `sb`.
+ */
+const BATCH_DEDUCTION_COLUMNS = `(SELECT COALESCE(SUM(r.amount_fils - r.fee_reversed_fils), 0)
+               FROM refunds r WHERE r.settlement_batch_id = sb.id) AS refund_deduction_fils,
+            (SELECT COALESCE(SUM(src.net_payout_fils), 0)
+               FROM settlement_batches src WHERE src.carried_forward_to_batch_id = sb.id) AS carried_in_fils`;
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -61,6 +81,8 @@ function serializeBatch(row: SettlementBatchRow): SettlementBatchDto {
     grossFils: Number(row.gross_fils),
     feeFils: Number(row.fee_fils),
     netPayoutFils: Number(row.net_payout_fils),
+    refundDeductionFils: Number(row.refund_deduction_fils ?? 0),
+    carriedInFils: Number(row.carried_in_fils ?? 0),
     closedAt: row.closed_at ? row.closed_at.toISOString() : null,
     paidAt: row.paid_at ? row.paid_at.toISOString() : null,
   };
@@ -121,8 +143,9 @@ export async function listSettlementBatches(
   const decodedCursor = decodeCursor(filters.cursor);
 
   const result = await pool.query<SettlementBatchRow>(
-    `SELECT id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at
-       FROM settlement_batches
+    `SELECT id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at,
+            ${BATCH_DEDUCTION_COLUMNS}
+       FROM settlement_batches sb
       WHERE merchant_id = $1
         AND ($2::date IS NULL OR batch_date >= $2)
         AND ($3::date IS NULL OR batch_date <  $3)
@@ -170,8 +193,9 @@ export async function getSettlementBatch(
   input: { merchantId: string; batchId: string },
 ): Promise<SettlementBatchDetailDto | null> {
   const batchResult = await pool.query<SettlementBatchRow>(
-    `SELECT id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at
-       FROM settlement_batches WHERE id = $1 AND merchant_id = $2`,
+    `SELECT id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at,
+            ${BATCH_DEDUCTION_COLUMNS}
+       FROM settlement_batches sb WHERE id = $1 AND merchant_id = $2`,
     [input.batchId, input.merchantId],
   );
   const row = batchResult.rows[0];

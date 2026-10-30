@@ -14,6 +14,9 @@ export interface MerchantBatchOutcome {
   grossFils: number;
   feeFils: number;
   netPayoutFils: number;
+  /** Refunds netted off the payout; present when the settlement service
+   *  reports it (absent from older builds). */
+  refundDeductionFils?: number;
 }
 
 export interface RunBatchSummary {
@@ -249,15 +252,19 @@ function decodeRunBatchSummary(decoded: Record<string, unknown>): RunBatchSummar
 
   return {
     businessDate: asString(pick(decoded, "BusinessDate", "businessDate")),
-    merchantResults: merchantResults.filter(isRecord).map((row) => ({
-      merchantId: asString(pick(row, "MerchantID", "merchantId", "MerchantId")),
-      batchId: asString(pick(row, "BatchID", "batchId", "BatchId")),
-      alreadyClosed: asBoolean(pick(row, "AlreadyClosed", "alreadyClosed")),
-      alreadyPaid: asBoolean(pick(row, "AlreadyPaid", "alreadyPaid")),
-      grossFils: asNumber(pick(row, "GrossFils", "grossFils")),
-      feeFils: asNumber(pick(row, "FeeFils", "feeFils")),
-      netPayoutFils: asNumber(pick(row, "NetPayoutFils", "netPayoutFils")),
-    })),
+    merchantResults: merchantResults.filter(isRecord).map((row) => {
+      const refundDeduction = pick(row, "RefundDeductionFils", "refundDeductionFils");
+      return {
+        merchantId: asString(pick(row, "MerchantID", "merchantId", "MerchantId")),
+        batchId: asString(pick(row, "BatchID", "batchId", "BatchId")),
+        alreadyClosed: asBoolean(pick(row, "AlreadyClosed", "alreadyClosed")),
+        alreadyPaid: asBoolean(pick(row, "AlreadyPaid", "alreadyPaid")),
+        grossFils: asNumber(pick(row, "GrossFils", "grossFils")),
+        feeFils: asNumber(pick(row, "FeeFils", "feeFils")),
+        netPayoutFils: asNumber(pick(row, "NetPayoutFils", "netPayoutFils")),
+        ...(refundDeduction === undefined ? {} : { refundDeductionFils: asNumber(refundDeduction) }),
+      };
+    }),
   };
 }
 

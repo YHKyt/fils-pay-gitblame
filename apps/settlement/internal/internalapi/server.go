@@ -66,6 +66,8 @@ type merchantBatchOutcomeResponse struct {
 	GrossFils     int64  `json:"grossFils"`
 	FeeFils       int64  `json:"feeFils"`
 	NetPayoutFils int64  `json:"netPayoutFils"`
+	// RefundDeductionFils: refunds netted off this batch's payout. Additive.
+	RefundDeductionFils int64 `json:"refundDeductionFils"`
 }
 
 // runBatchResponse is the JSON projection of settlement.DailyBatchReport.
@@ -291,13 +293,14 @@ func handleRunBatch(lifetime context.Context, pool *pgxpool.Pool) http.Handler {
 		results := make([]merchantBatchOutcomeResponse, 0, len(report.MerchantResults))
 		for _, result := range report.MerchantResults {
 			results = append(results, merchantBatchOutcomeResponse{
-				MerchantID:    result.MerchantID.String(),
-				BatchID:       result.BatchID.String(),
-				AlreadyClosed: result.AlreadyClosed,
-				AlreadyPaid:   result.AlreadyPaid,
-				GrossFils:     int64(result.GrossFils),
-				FeeFils:       int64(result.FeeFils),
-				NetPayoutFils: int64(result.NetPayoutFils),
+				MerchantID:          result.MerchantID.String(),
+				BatchID:             result.BatchID.String(),
+				AlreadyClosed:       result.AlreadyClosed,
+				AlreadyPaid:         result.AlreadyPaid,
+				GrossFils:           int64(result.GrossFils),
+				FeeFils:             int64(result.FeeFils),
+				NetPayoutFils:       int64(result.NetPayoutFils),
+				RefundDeductionFils: int64(result.RefundDeductionFils),
 			})
 		}
 

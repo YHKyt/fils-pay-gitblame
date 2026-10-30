@@ -673,6 +673,7 @@ export function MerchantDetailPage() {
                   <th>Status</th>
                   <th className="admin-num">Gross</th>
                   <th className="admin-num">Fee</th>
+                  <th className="admin-num">Refunds</th>
                   <th className="admin-num">Net payout</th>
                 </tr>
               </thead>
@@ -685,6 +686,9 @@ export function MerchantDetailPage() {
                     </td>
                     <td className="admin-num">{bhd(batch.grossFils)}</td>
                     <td className="admin-num">{bhd(batch.feeFils)}</td>
+                    <td className={`admin-num${(batch.refundDeductionFils ?? 0) > 0 ? " admin-refund" : ""}`}>
+                      {bhd(-(batch.refundDeductionFils ?? 0) || 0)}
+                    </td>
                     <td className="admin-num">{bhd(batch.netPayoutFils)}</td>
                   </tr>
                 ))}

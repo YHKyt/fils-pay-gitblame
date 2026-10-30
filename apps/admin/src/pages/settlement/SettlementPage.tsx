@@ -191,6 +191,7 @@ export function SettlementPage() {
                   <th>Batch</th>
                   <th className="admin-num">Gross</th>
                   <th className="admin-num">Fee</th>
+                  <th className="admin-num">Refunds</th>
                   <th className="admin-num">Net payout</th>
                   <th>Already closed</th>
                   <th>Already paid</th>
@@ -207,6 +208,9 @@ export function SettlementPage() {
                     </td>
                     <td className="admin-num">{bhd(outcome.grossFils)}</td>
                     <td className="admin-num">{bhd(outcome.feeFils)}</td>
+                    <td className={`admin-num${(outcome.refundDeductionFils ?? 0) > 0 ? " admin-refund" : ""}`}>
+                      {bhd(-(outcome.refundDeductionFils ?? 0) || 0)}
+                    </td>
                     <td className="admin-num">{bhd(outcome.netPayoutFils)}</td>
                     <td>{outcome.alreadyClosed ? "Yes" : "No"}</td>
                     <td>{outcome.alreadyPaid ? "Yes" : "No"}</td>

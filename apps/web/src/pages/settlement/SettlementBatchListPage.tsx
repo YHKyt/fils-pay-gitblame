@@ -105,6 +105,7 @@ export function SettlementBatchListPage() {
             <th>Status</th>
             <th className="dash-num">Gross</th>
             <th className="dash-num">Fee</th>
+            <th className="dash-num">Refunds</th>
             <th className="dash-num">Net payout</th>
             <th>Closed</th>
             <th>Paid</th>
@@ -126,6 +127,9 @@ export function SettlementBatchListPage() {
               </td>
               <td className="dash-num">{bhdDisplay(batch.grossFils)}</td>
               <td className="dash-num">{bhdDisplay(batch.feeFils)}</td>
+              <td className={`dash-num${(batch.refundDeductionFils ?? 0) > 0 ? " dash-refund" : ""}`}>
+                {(batch.refundDeductionFils ?? 0) > 0 ? bhdDisplay(-(batch.refundDeductionFils ?? 0)) : bhdDisplay(0)}
+              </td>
               <td className="dash-num">{bhdDisplay(batch.netPayoutFils)}</td>
               <td>{humanDateTime(batch.closedAt)}</td>
               <td>{humanDateTime(batch.paidAt)}</td>
@@ -134,7 +138,7 @@ export function SettlementBatchListPage() {
           {batches.length === 0 && loading ? <SkeletonRows columns={7} /> : null}
           {batches.length === 0 && !loading ? (
             <tr>
-              <td colSpan={7}>No settlement batches match these filters.</td>
+              <td colSpan={8}>No settlement batches match these filters.</td>
             </tr>
           ) : null}
         </tbody>

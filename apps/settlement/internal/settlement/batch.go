@@ -32,8 +32,12 @@ type BatchResult struct {
 	GrossFils     money.Fils
 	FeeFils       money.Fils
 	NetPayoutFils money.Fils
-	EventCount    int
-	LineCount     int
+	// RefundDeductionFils is what this batch's claimed refunds took off the
+	// payout (sum of amount - fee reversed). Reported only; already in
+	// NetPayoutFils.
+	RefundDeductionFils money.Fils
+	EventCount          int
+	LineCount           int
 }
 
 // PayoutResult is PayoutBatch's return value.
@@ -116,21 +120,25 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 	// Step 5: already closed/paid -> idempotent no-op, nothing to undo.
 	if status != "open" {
 		tx.Rollback(ctx) //nolint:errcheck
-		var gross, fee, net int64
+		var gross, fee, net, refundDeduction int64
 		err = db.QueryRow(ctx, `
-			SELECT gross_fils, fee_fils, net_payout_fils FROM settlement_batches WHERE id = $1
-		`, batchID).Scan(&gross, &fee, &net)
+			SELECT sb.gross_fils, sb.fee_fils, sb.net_payout_fils,
+			       (SELECT COALESCE(SUM(r.amount_fils - r.fee_reversed_fils), 0)
+			          FROM refunds r WHERE r.settlement_batch_id = sb.id)
+			  FROM settlement_batches sb WHERE sb.id = $1
+		`, batchID).Scan(&gross, &fee, &net, &refundDeduction)
 		if err != nil {
 			return BatchResult{}, fmt.Errorf("settlement: CloseBatch: read already-closed batch: %w", err)
 		}
 		return BatchResult{
-			BatchID:       batchID,
-			MerchantID:    merchantID,
-			BatchDate:     batchDateOnly,
-			AlreadyClosed: true,
-			GrossFils:     money.Fils(gross),
-			FeeFils:       money.Fils(fee),
-			NetPayoutFils: money.Fils(net),
+			BatchID:             batchID,
+			MerchantID:          merchantID,
+			BatchDate:           batchDateOnly,
+			AlreadyClosed:       true,
+			GrossFils:           money.Fils(gross),
+			FeeFils:             money.Fils(fee),
+			NetPayoutFils:       money.Fils(net),
+			RefundDeductionFils: money.Fils(refundDeduction),
 		}, nil
 	}
 
@@ -359,15 +367,16 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 	}
 
 	return BatchResult{
-		BatchID:       batchID,
-		MerchantID:    merchantID,
-		BatchDate:     batchDateOnly,
-		AlreadyClosed: false,
-		GrossFils:     batchGross,
-		FeeFils:       batchFee,
-		NetPayoutFils: netPayout,
-		EventCount:    len(eventIDs),
-		LineCount:     len(lines),
+		BatchID:             batchID,
+		MerchantID:          merchantID,
+		BatchDate:           batchDateOnly,
+		AlreadyClosed:       false,
+		GrossFils:           batchGross,
+		FeeFils:             batchFee,
+		NetPayoutFils:       netPayout,
+		RefundDeductionFils: refunds.netDeductionFils(),
+		EventCount:          len(eventIDs),
+		LineCount:           len(lines),
 	}, nil
 }
 
@@ -473,6 +482,8 @@ type MerchantBatchOutcome struct {
 	GrossFils     money.Fils
 	FeeFils       money.Fils
 	NetPayoutFils money.Fils
+	// RefundDeductionFils is CloseBatch's figure: refunds netted off the payout.
+	RefundDeductionFils money.Fils
 }
 
 // RunDailyBatch closes and pays out every eligible merchant's batch for
@@ -564,13 +575,14 @@ func RunDailyBatch(ctx context.Context, db *pgxpool.Pool, businessDate time.Time
 		}
 
 		report.MerchantResults = append(report.MerchantResults, MerchantBatchOutcome{
-			MerchantID:    merchantID,
-			BatchID:       closeResult.BatchID,
-			AlreadyClosed: closeResult.AlreadyClosed,
-			AlreadyPaid:   alreadyPaid,
-			GrossFils:     closeResult.GrossFils,
-			FeeFils:       closeResult.FeeFils,
-			NetPayoutFils: closeResult.NetPayoutFils,
+			MerchantID:          merchantID,
+			BatchID:             closeResult.BatchID,
+			AlreadyClosed:       closeResult.AlreadyClosed,
+			AlreadyPaid:         alreadyPaid,
+			GrossFils:           closeResult.GrossFils,
+			FeeFils:             closeResult.FeeFils,
+			NetPayoutFils:       closeResult.NetPayoutFils,
+			RefundDeductionFils: closeResult.RefundDeductionFils,
 		})
 	}
 
