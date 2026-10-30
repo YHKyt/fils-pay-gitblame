@@ -174,15 +174,22 @@ export async function claimIdempotencyKey(
   }
 
   if (existing.status === "failed") {
+    // `AND status = 'failed'`: two retries can both read 'failed' above. The
+    // second UPDATE waits for the first's row lock and then re-checks the
+    // row; without the status condition it re-opened a key the first retry
+    // had just completed (or still holds), and ran the operation twice under
+    // one key (concfuzz: one 2,000 capture request captured 4,000).
     const updateResult = await client.query<IdempotencyKeyDbRow>(
       `UPDATE idempotency_keys SET status = 'in_progress', attempt_count = attempt_count + 1
-       WHERE id = $1
+       WHERE id = $1 AND status = 'failed'
        RETURNING *`,
       [existing.id],
     );
     const updated = updateResult.rows[0];
     if (!updated) {
-      throw new Error("claimIdempotencyKey: update after a failed claim returned no row");
+      // Another retry re-opened the key first: classify again, which now
+      // gives its replay or conflict_in_progress.
+      return claimIdempotencyKey(client, input);
     }
     return { outcome: "retry_after_failure", row: toRow(updated) };
   }
