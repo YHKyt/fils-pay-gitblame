@@ -230,6 +230,10 @@ export interface SettlementBatchDto {
   grossFils: number;
   feeFils: number;
   netPayoutFils: number;
+  /** Refunds netted off this batch's payout (amount - fee reversed), >= 0. */
+  refundDeductionFils: number;
+  /** Shortfall carried in from an earlier negative batch, <= 0. */
+  carriedInFils: number;
   closedAt: string | null;
   paidAt: string | null;
 }

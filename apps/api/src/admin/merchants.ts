@@ -210,6 +210,8 @@ export interface AdminMerchantDetail {
     grossFils: number;
     feeFils: number;
     netPayoutFils: number;
+    /** Refunds this batch netted off the payout (amount - fee reversed). */
+    refundDeductionFils: number;
     closedAt: Date | null;
   }>;
 }
@@ -274,11 +276,14 @@ export async function getMerchantDetailForAdmin(
     gross_fils: string;
     fee_fils: string;
     net_payout_fils: string;
+    refund_deduction_fils: string;
     closed_at: Date | null;
   }>(
     `SELECT id, batch_date::text AS batch_date, status, gross_fils::text AS gross_fils,
-            fee_fils::text AS fee_fils, net_payout_fils::text AS net_payout_fils, closed_at
-       FROM settlement_batches
+            fee_fils::text AS fee_fils, net_payout_fils::text AS net_payout_fils, closed_at,
+            (SELECT COALESCE(SUM(r.amount_fils - r.fee_reversed_fils), 0)::text
+               FROM refunds r WHERE r.settlement_batch_id = sb.id) AS refund_deduction_fils
+       FROM settlement_batches sb
       WHERE merchant_id = $1
       ORDER BY batch_date DESC
       LIMIT 5`,
@@ -321,6 +326,7 @@ export async function getMerchantDetailForAdmin(
       grossFils: Number(row.gross_fils),
       feeFils: Number(row.fee_fils),
       netPayoutFils: Number(row.net_payout_fils),
+      refundDeductionFils: Number(row.refund_deduction_fils),
       closedAt: row.closed_at,
     })),
   };

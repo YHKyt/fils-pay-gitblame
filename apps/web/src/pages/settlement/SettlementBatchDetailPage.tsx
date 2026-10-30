@@ -109,8 +109,22 @@ export function SettlementBatchDetailPage() {
         <dd>{bhdDisplay(batch.grossFils)}</dd>
         <dt>Fee</dt>
         <dd>{bhdDisplay(batch.feeFils)}</dd>
+        <dt>Refunds</dt>
+        <dd className={(batch.refundDeductionFils ?? 0) > 0 ? "dash-refund" : undefined}>
+          {(batch.refundDeductionFils ?? 0) > 0 ? bhdDisplay(-(batch.refundDeductionFils ?? 0)) : bhdDisplay(0)}
+        </dd>
+        {(batch.carriedInFils ?? 0) !== 0 && (
+          <>
+            <dt>Carried in</dt>
+            <dd className="dash-refund">{bhdDisplay(batch.carriedInFils)}</dd>
+          </>
+        )}
         <dt>Net payout</dt>
         <dd>{bhdDisplay(batch.netPayoutFils)}</dd>
+        <dt>How net is made</dt>
+        <dd className="dash-muted">
+          Gross − Fee − Refunds{(batch.carriedInFils ?? 0) !== 0 ? " + Carried in" : ""} = Net payout
+        </dd>
         <dt>Closed at</dt>
         <dd>{dateTime(batch.closedAt)}</dd>
         <dt>Paid at</dt>

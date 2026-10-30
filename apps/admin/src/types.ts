@@ -132,6 +132,8 @@ export interface SettlementBatchSummary {
   grossFils: number;
   feeFils: number;
   netPayoutFils: number;
+  /** Refunds netted off this batch's payout; absent from older API builds. */
+  refundDeductionFils?: number;
   closedAt: string | null;
   createdAt: string;
 }
@@ -203,6 +205,8 @@ export interface SettlementMerchantOutcome {
   grossFils: number;
   feeFils: number;
   netPayoutFils: number;
+  /** Refunds netted off the payout; absent from older settlement builds. */
+  refundDeductionFils?: number;
 }
 
 /** `POST /v1/admin/settlement/run-batch` → the `DailyBatchReport` the Go

@@ -1820,3 +1820,6 @@ body:has(.admin-centered) .admin-centered {
   .admin-detail-panel .admin-dl { grid-template-columns: minmax(0, 1fr); padding: 0.9rem 1rem; }
   .admin-detail-panel .admin-dl dd { padding-top: 0; }
 }
+
+/* Refunds netted off a settlement batch: shown negative, in coral. */
+.admin-num.admin-refund { color: var(--fp-danger-fg); }

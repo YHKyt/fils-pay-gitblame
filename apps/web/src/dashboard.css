@@ -844,6 +844,12 @@ footer.dash-main {
   text-decoration: underline;
 }
 
+/* Refunds netted off a settlement batch: shown negative, in coral. */
+.dash-refund,
+.dash-table td.dash-refund {
+  color: var(--fp-danger);
+}
+
 /* Money / count cells: right-aligned, tabular monospace so digits line up. */
 .dash-num,
 .dash-table th.dash-num,
