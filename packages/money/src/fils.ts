@@ -137,14 +137,17 @@ export function applyRateFils(amount: Fils, rateBasisPoints: number): Fils {
   return toFilsInternal(result, true);
 }
 
-/** Converts a finite, non-negative number with at most `maxDecimals` decimal
- *  digits into a `bigint` scaled by `10^maxDecimals`, via string manipulation
- *  so no floating point multiplication ever touches the value. */
-function scaleToBigInt(value: number, maxDecimals: number): bigint {
-  const fixed = value.toFixed(maxDecimals);
-  const [intPart, fracPart = ""] = fixed.split(".");
-  const digits = `${intPart}${fracPart.padEnd(maxDecimals, "0")}`;
-  return BigInt(digits);
+/** Reads a finite, non-negative number's shortest decimal form (what
+ *  `toString` prints, including exponent forms such as "1e-7" or "1e+21")
+ *  exactly as `digits * 10^exponent`, via string manipulation so no floating
+ *  point multiplication ever touches the value and no digit is dropped. */
+function toDecimalParts(value: number): { digits: bigint; exponent: number } {
+  const match = /^(\d+)(?:\.(\d+))?(?:e([+-]\d+))?$/.exec(value.toString());
+  if (!match) {
+    throw new RangeError(`allocateRemainder: cannot read weight ${value}`);
+  }
+  const frac = match[2] ?? "";
+  return { digits: BigInt(`${match[1]}${frac}`), exponent: Number(match[3] ?? 0) - frac.length };
 }
 
 /**
@@ -172,17 +175,11 @@ export function allocateRemainder(total: Fils, weights: number[]): Fils[] {
 
   // Scale weights to exact integers (via string manipulation, never float
   // multiplication) so every downstream calculation is exact bigint math.
-  // The scale factor doesn't need to be large — it only needs to preserve
-  // however many decimal digits the caller actually supplied.
-  const decimalPlaces = Math.min(
-    9,
-    weights.reduce((max, w) => {
-      const s = w.toString();
-      const dot = s.indexOf(".");
-      return dot === -1 ? max : Math.max(max, s.length - dot - 1);
-    }, 0),
-  );
-  const scaledWeights = weights.map((w) => scaleToBigInt(w, decimalPlaces));
+  // Every weight is brought to the smallest decimal exponent among them, so
+  // every digit the caller supplied is kept (no cap, no rounding).
+  const parts = weights.map(toDecimalParts);
+  const minExponent = Math.min(...parts.map((p) => p.exponent));
+  const scaledWeights = parts.map((p) => p.digits * 10n ** BigInt(p.exponent - minExponent));
   const sumScaled = scaledWeights.reduce((a, b) => a + b, 0n);
 
   if (sumScaled === 0n) {
