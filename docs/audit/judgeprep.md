@@ -27,6 +27,7 @@ failures are JP2, JP3 and JP4 below; none is in this lane's code.
 
 - **What / Why:** the seed writes closed batches with no linked capture events, and RecalculateMDR correctly refuses to re-rate such a batch. On the hosted demo box any recalculation that covers August is a 500.
 - **Status:** `agent/seeddemo` commit `08e1c27` (not merged when this ran) builds one batch per business day from real linked events, which removes the cause. Re-run this check after it merges. Separately, a refusal is not a server error: the internal API could answer 409 for `ErrBatchEventsIncomplete` and the API client could pass a 4xx through. That client is in the admin lane, so it is not changed here.
+- **Second half fixed in `139b9a2`:** the internal API answers `ErrBatchEventsIncomplete` with 409 `batch_events_incomplete` (message names the batch, date, gross and linked total), and `settlementClient.ts` passes a settlement 4xx that carries a coded `{ error, message }` body through as the same status and body (also 422 `business_day_not_over` and the 400 validation codes). 5xx, 401/403 (the API's own service token refused) and an uncoded 4xx (unknown route) stay 500 `settlement_run_failed`. Tests: `internalapi/recalculate_mdr_refusal_test.go` (old: `status = 500, want 409`) and `apps/api/src/admin/settlementClient.passthrough4xx.test.ts` (old: 4 of 6 failed, each a 500 `settlement_run_failed`).
 
 ## JP3. The seed settles the test-mode merchant — Medium (reported, seed lane)
 

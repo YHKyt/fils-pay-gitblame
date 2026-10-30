@@ -89,17 +89,37 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * A 500 `settlement_run_failed` that keeps settlement's decoded error body
+ * (null when it was not a JSON object), so a caller can read what the body
+ * carries beyond `error`/`message` — run-batch's partial report.
+ */
+class SettlementCallFailedError extends AppError {
+  readonly body: Record<string, unknown> | null;
+
+  constructor(message: string, body: Record<string, unknown> | null) {
+    super(500, "settlement_run_failed", message);
+    this.body = body;
+  }
+}
+
+/**
  * One `fetch` against apps/settlement's internal HTTP server, with an
  * `AbortController`-driven timeout and a bearer token.
  *
- * The two failure modes are deliberately distinct:
+ * The failure modes are deliberately distinct:
  *   - the call never completed (connection refused, DNS failure, timeout) ->
  *     502 `settlement_unreachable`. Nothing ran; retrying is safe.
- *   - the call completed and settlement itself reported failure (non-2xx) ->
- *     500 `settlement_run_failed`. Something may have partially run; the
- *     operator needs to look at settlement, not retry blindly.
- * Collapsing these two into one status would tell an operator nothing about
- * which of the two situations they are in.
+ *   - settlement refused the request with a coded 4xx (`{ error, message }`,
+ *     e.g. 409 `batch_events_incomplete`, 422 `business_day_not_over`) ->
+ *     the same status, code and message. A refusal of this request, not a
+ *     server fault; the admin needs the reason.
+ *   - anything else (5xx; 401/403, which mean this API's own service token
+ *     was refused, not the admin's request; an uncoded 4xx such as an
+ *     unknown route) -> 500 `settlement_run_failed`. Something may have
+ *     partially run; the operator needs to look at settlement, not retry
+ *     blindly.
+ * Collapsing these into one status would tell an operator nothing about
+ * which situation they are in.
  */
 async function callSettlementInternal(
   config: SettlementInternalConfig,
@@ -131,16 +151,27 @@ async function callSettlementInternal(
   }
 
   if (!response.ok) {
-    let excerpt = "";
+    let text = "";
     try {
-      excerpt = (await response.text()).slice(0, 500);
+      text = await response.text();
     } catch {
-      excerpt = "";
+      text = "";
     }
-    throw new AppError(
-      500,
-      "settlement_run_failed",
-      `settlement internal call to ${path} returned ${response.status}: ${excerpt}`,
+    let parsed: Record<string, unknown> | null = null;
+    try {
+      const decoded: unknown = JSON.parse(text);
+      parsed = isRecord(decoded) ? decoded : null;
+    } catch {
+      parsed = null;
+    }
+    const code = typeof parsed?.error === "string" ? parsed.error : "";
+    if (response.status >= 400 && response.status < 500 && response.status !== 401 && response.status !== 403 && code !== "") {
+      const message = typeof parsed?.message === "string" && parsed.message !== "" ? parsed.message : code;
+      throw new AppError(response.status, code, message);
+    }
+    throw new SettlementCallFailedError(
+      `settlement internal call to ${path} returned ${response.status}: ${text.slice(0, 500)}`,
+      parsed,
     );
   }
 
@@ -172,11 +203,43 @@ export async function triggerSettlementRunBatch(
     body.merchantId = input.merchantId;
   }
 
-  const decoded = await callSettlementInternal(config, "/internal/run-batch", body);
+  let decoded: unknown;
+  try {
+    decoded = await callSettlementInternal(config, "/internal/run-batch", body);
+  } catch (err) {
+    // RunDailyBatch carries on past a failing merchant, so a 500 can come
+    // with the merchants that were closed and paid anyway. The admin must
+    // see them (re-running is safe, but they need to know what moved), and
+    // the raw-body excerpt cuts off after a few merchants.
+    if (err instanceof SettlementCallFailedError && err.body && Array.isArray(pick(err.body, "merchantResults", "MerchantResults"))) {
+      const partial = decodeRunBatchSummary(err.body);
+      throw new AppError(500, "settlement_run_failed", describePartialRunBatch(input.date, partial, err.body));
+    }
+    throw err;
+  }
   if (!isRecord(decoded)) {
     throw new AppError(500, "settlement_run_failed", "settlement run-batch returned a non-object body");
   }
+  return decodeRunBatchSummary(decoded);
+}
 
+function describePartialRunBatch(date: string, partial: RunBatchSummary, body: Record<string, unknown>): string {
+  const failure = asString(pick(body, "message", "Message")) || asString(pick(body, "error", "Error"));
+  const settled =
+    partial.merchantResults.length === 0
+      ? "no merchant was settled"
+      : `${partial.merchantResults.length} merchant(s) were settled anyway: ` +
+        partial.merchantResults
+          .map(
+            (row) =>
+              `${row.merchantId} (batch ${row.batchId}, net ${row.netPayoutFils} fils` +
+              `${row.alreadyPaid ? ", already paid" : ""})`,
+          )
+          .join("; ");
+  return `settlement run-batch for ${date} failed for at least one merchant: ${failure}. ${settled}`;
+}
+
+function decodeRunBatchSummary(decoded: Record<string, unknown>): RunBatchSummary {
   const rawResults = pick(decoded, "MerchantResults", "merchantResults");
   const merchantResults = Array.isArray(rawResults) ? rawResults : [];
 
