@@ -3,7 +3,8 @@ import { Link } from "react-router-dom";
 import { listMerchants } from "../../api/merchants.js";
 import { bulkApproveKyc } from "../../api/merchantsBulk.js";
 import { describeError } from "../../api/client.js";
-import { date } from "../../format.js";
+import { date, enumLabel } from "../../format.js";
+import { ConfirmAction } from "../../components/ConfirmAction.js";
 import { StatusPill } from "../../components/StatusPill.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import type { AdminMerchantSummary, MerchantOnboardingStatus } from "../../types.js";
@@ -36,12 +37,15 @@ export function MerchantListPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkNotice, setBulkNotice] = useState<string | null>(null);
+  const [confirmingBulk, setConfirmingBulk] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
 
   const load = useCallback(
     async (cursor: string | null) => {
-      // Any change of filter, search or page invalidates the selection, so a
-      // tick made under a previous view can never ride along into a bulk call.
-      setSelectedIds(new Set());
+      // A change of filter or search invalidates the selection, so a tick
+      // made under a previous view can never ride along into a bulk call.
+      // "Load more" (a cursor) keeps it: the earlier rows are still shown.
+      if (cursor === null) setSelectedIds(new Set());
       setLoading(true);
       setError(null);
       try {
@@ -98,18 +102,20 @@ export function MerchantListPage() {
     if (effectiveSelection.length === 0) return;
     setBulkBusy(true);
     setError(null);
+    setBulkError(null);
     setBulkNotice(null);
     try {
       const result = await bulkApproveKyc(effectiveSelection);
       const skippedCount = result.skippedMerchantIds.length;
       setBulkNotice(
-        `Approved KYC for ${result.approvedCount} merchant(s).` +
-          (skippedCount > 0 ? ` ${skippedCount} skipped (no longer under review).` : ""),
+        `Approved KYC for ${result.approvedCount} ${result.approvedCount === 1 ? "merchant" : "merchants"}.` +
+          (skippedCount > 0 ? ` ${skippedCount} skipped because they were no longer under review.` : ""),
       );
       setSelectedIds(new Set());
+      setConfirmingBulk(false);
       await load(null);
     } catch (err) {
-      setError(describeError(err));
+      setBulkError(describeError(err));
     } finally {
       setBulkBusy(false);
     }
@@ -150,20 +156,28 @@ export function MerchantListPage() {
               checked={statuses.includes(status)}
               onChange={() => toggleStatus(status)}
             />
-            {status}
+            {enumLabel(status)}
           </label>
         ))}
       </fieldset>
 
       {error ? <p className="admin-error">{error}</p> : null}
-      {bulkNotice ? <p className="admin-muted">{bulkNotice}</p> : null}
+      {bulkNotice ? <p className="admin-notice">{bulkNotice}</p> : null}
 
       {effectiveSelection.length > 0 ? (
         <div className="admin-form admin-form-inline">
           <span>{effectiveSelection.length} selected</span>
           <RequireRole allow={["finance", "super_admin"]}>
-            <button type="button" disabled={bulkBusy} onClick={() => void approveSelected()}>
-              Bulk approve KYC
+            <button
+              type="button"
+              className="admin-btn-primary"
+              disabled={bulkBusy}
+              onClick={() => {
+                setBulkError(null);
+                setConfirmingBulk(true);
+              }}
+            >
+              Approve KYC for {effectiveSelection.length}
             </button>
           </RequireRole>
           <button type="button" disabled={bulkBusy} onClick={() => setSelectedIds(new Set())}>
@@ -249,20 +263,58 @@ export function MerchantListPage() {
           {merchants.length === 0 && !loading ? (
             <tr>
               <td colSpan={8}>
-                <div className="admin-empty">No merchants match this search.</div>
+                <div className="admin-empty">
+                  <p>{appliedQuery ? `No merchants match "${appliedQuery}".` : "No merchants match these filters."}</p>
+                  {appliedQuery || statuses.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQuery("");
+                        setAppliedQuery("");
+                        setStatuses([]);
+                      }}
+                    >
+                      Clear search and filters
+                    </button>
+                  ) : null}
+                </div>
               </td>
             </tr>
           ) : null}
         </tbody>
       </table></div>
 
-      {loading && merchants.length > 0 ? <p className="admin-loading">Loading...</p> : null}
+      {!loading && merchants.length > 0 ? (
+        <p className="admin-muted">
+          Showing {merchants.length} {merchants.length === 1 ? "merchant" : "merchants"}
+          {nextCursor ? " (more available)" : ""}
+        </p>
+      ) : null}
+      {loading && merchants.length > 0 ? <p className="admin-loading">Loading…</p> : null}
 
       {nextCursor ? (
         <button type="button" disabled={loading} onClick={() => void load(nextCursor)}>
           Load more
         </button>
       ) : null}
+      <ConfirmAction
+        open={confirmingBulk}
+        title={`Approve KYC for ${effectiveSelection.length} ${effectiveSelection.length === 1 ? "merchant" : "merchants"}?`}
+        confirmLabel={`Approve ${effectiveSelection.length}`}
+        busy={bulkBusy}
+        error={bulkError}
+        onCancel={() => setConfirmingBulk(false)}
+        onConfirm={() => void approveSelected()}
+      >
+        <p>They can take live payments immediately.</p>
+        <ul>
+          {merchants
+            .filter((m) => effectiveSelection.includes(m.id))
+            .map((m) => (
+              <li key={m.id}>{m.displayName}</li>
+            ))}
+        </ul>
+      </ConfirmAction>
     </section>
   );
 }

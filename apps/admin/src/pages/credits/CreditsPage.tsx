@@ -8,6 +8,9 @@ import {
 } from "../../api/credits.js";
 import { describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
+import { ConfirmAction } from "../../components/ConfirmAction.js";
+import { enumLabel } from "../../format.js";
+import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import { StatusPill } from "../../components/StatusPill.js";
 import type { CreditRequestDto, CreditRequestStatus } from "../../types.js";
 
@@ -39,17 +42,23 @@ export function CreditsPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [rejectReason, setRejectReason] = useState("");
-  const [pendingReject, setPendingReject] = useState<string | null>(null);
+  const [pendingReject, setPendingReject] = useState<CreditRequestDto | null>(null);
+  const [pendingApprove, setPendingApprove] = useState<CreditRequestDto | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const { admin } = useAdminAuth();
 
   const load = useCallback(async () => {
     setLoadError(null);
+    setLoading(true);
     try {
       const page = await listCreditRequests({ status });
       setItems(page.items ?? []);
       setNextCursor(page.nextCursor);
     } catch (err) {
       setLoadError(describeError(err));
+    } finally {
+      setLoading(false);
     }
   }, [status]);
 
@@ -71,34 +80,32 @@ export function CreditsPage() {
   async function handleApprove(id: string): Promise<void> {
     setBusyId(id);
     setActionError(null);
+    setConfirmError(null);
     setNotice(null);
     try {
       const record = await approveCreditRequest(id);
-      setNotice(
-        `Approved. ${bhd(record.postedAmountFils)} journaled to entry group ${
-          record.ledgerEntryGroupId ?? "(unknown)"
-        }.`,
-      );
+      setNotice(`Approved. ${bhd(record.postedAmountFils)} posted to the merchant's balance.`);
+      setPendingApprove(null);
       await load();
     } catch (err) {
-      setActionError(describeError(err));
+      setConfirmError(describeError(err));
     } finally {
       setBusyId(null);
     }
   }
 
-  async function handleReject(id: string): Promise<void> {
+  async function handleReject(id: string, reason: string): Promise<void> {
     setBusyId(id);
     setActionError(null);
+    setConfirmError(null);
     setNotice(null);
     try {
-      await rejectCreditRequest(id, rejectReason.trim() ? rejectReason.trim() : undefined);
-      setNotice("Credit request rejected. Nothing was journaled.");
+      await rejectCreditRequest(id, reason);
+      setNotice("Credit request rejected. No money was moved.");
       setPendingReject(null);
-      setRejectReason("");
       await load();
     } catch (err) {
-      setActionError(describeError(err));
+      setConfirmError(describeError(err));
     } finally {
       setBusyId(null);
     }
@@ -108,9 +115,8 @@ export function CreditsPage() {
     <section>
       <h1>Merchant credits</h1>
       <p className="admin-muted">
-        Manual credits are journaled to <code>ledger_entries</code> like any other money movement.
-        A credit above the approval limit cannot post until a second <code>finance</code> or{" "}
-        <code>super_admin</code> operator — not the one who raised it — approves it.
+        Manual credits move money like any other entry. Credits above the approval limit need a
+        second finance admin, not the one who raised it, to approve them.
       </p>
 
       <div className="admin-tabs">
@@ -130,8 +136,16 @@ export function CreditsPage() {
       {actionError ? <p className="admin-error">{actionError}</p> : null}
       {notice ? <p className="admin-notice">{notice}</p> : null}
 
-      {items.length === 0 ? (
-        <div className="admin-empty">Nothing here.</div>
+      {loading && items.length === 0 ? (
+        <div aria-busy="true">
+          <div className="admin-skeleton admin-skel-line w-80" />
+          <div className="admin-skeleton admin-skel-line w-60" />
+          <div className="admin-skeleton admin-skel-line w-80" />
+        </div>
+      ) : items.length === 0 ? (
+        <div className="admin-empty">
+          {status === "pending_approval" ? "No credits waiting for approval." : `No ${enumLabel(status).toLowerCase()} credits.`}
+        </div>
       ) : (
         <div className="admin-table-wrap"><table className="admin-table">
           <thead>
@@ -153,11 +167,13 @@ export function CreditsPage() {
                 <td>{item.requestedByDisplayName}</td>
                 <td>
                   <Link to={`/merchants/${item.merchantId}`}>
-                    <code>{item.merchantId.slice(0, 8)}</code>
+                    {(item as CreditRequestDto & { merchantDisplayName?: string }).merchantDisplayName ?? (
+                      <code>{item.merchantId.slice(0, 8)}</code>
+                    )}
                   </Link>
                 </td>
                 <td>
-                  {item.reasonCode}
+                  {enumLabel(item.reasonCode)}
                   {item.memo ? <div className="admin-muted">{item.memo}</div> : null}
                 </td>
                 <td className="admin-num">{bhd(item.baseAmountFils)}</td>
@@ -175,18 +191,28 @@ export function CreditsPage() {
                       allow={["finance", "super_admin"]}
                       fallback={<span className="admin-muted">finance role required</span>}
                     >
+                      {admin?.adminUserId === item.requestedByAdminUserId ? (
+                        <span className="admin-muted">Another admin must approve</span>
+                      ) : (
+                        <button
+                          type="button"
+                          className="admin-btn-primary"
+                          disabled={busyId === item.id}
+                          onClick={() => {
+                            setConfirmError(null);
+                            setPendingApprove(item);
+                          }}
+                        >
+                          Approve
+                        </button>
+                      )}{" "}
                       <button
                         type="button"
-                        className="admin-btn-primary"
                         disabled={busyId === item.id}
-                        onClick={() => void handleApprove(item.id)}
-                      >
-                        Approve
-                      </button>{" "}
-                      <button
-                        type="button"
-                        disabled={busyId === item.id}
-                        onClick={() => setPendingReject(item.id)}
+                        onClick={() => {
+                          setConfirmError(null);
+                          setPendingReject(item);
+                        }}
                       >
                         Reject
                       </button>
@@ -201,40 +227,54 @@ export function CreditsPage() {
         </table></div>
       )}
 
-      {pendingReject ? (
-        <div className="admin-confirm">
+      <ConfirmAction
+        open={pendingApprove !== null}
+        title="Approve this credit?"
+        confirmLabel="Approve and post"
+        busy={pendingApprove !== null && busyId === pendingApprove.id}
+        error={confirmError}
+        onCancel={() => setPendingApprove(null)}
+        onConfirm={() => {
+          if (pendingApprove) void handleApprove(pendingApprove.id);
+        }}
+      >
+        {pendingApprove ? (
+          <dl className="admin-dialog-summary">
+            <dt>Amount posted</dt>
+            <dd>{bhd(pendingApprove.postedAmountFils)}</dd>
+            <dt>Merchant</dt>
+            <dd>
+              {(pendingApprove as CreditRequestDto & { merchantDisplayName?: string }).merchantDisplayName ??
+                pendingApprove.merchantId}
+            </dd>
+            <dt>Reason</dt>
+            <dd>{enumLabel(pendingApprove.reasonCode)}</dd>
+            <dt>Requested by</dt>
+            <dd>{pendingApprove.requestedByDisplayName}</dd>
+          </dl>
+        ) : null}
+      </ConfirmAction>
+
+      <ConfirmAction
+        open={pendingReject !== null}
+        title="Reject this credit request?"
+        confirmLabel="Reject credit"
+        danger
+        busy={pendingReject !== null && busyId === pendingReject.id}
+        error={confirmError}
+        reason={{ label: "Reason (required, recorded in the audit log)", minLength: 3 }}
+        onCancel={() => setPendingReject(null)}
+        onConfirm={(reason) => {
+          if (pendingReject) void handleReject(pendingReject.id, reason);
+        }}
+      >
+        {pendingReject ? (
           <p>
-            <strong>Reject this credit request?</strong> Nothing is journaled, and the request
-            cannot be approved afterwards.
+            No money moves, and the request of {bhd(pendingReject.postedAmountFils)} can&apos;t be
+            approved afterwards.
           </p>
-          <label>
-            Reason (optional — recorded in the admin audit log)
-            <input
-              type="text"
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-            />
-          </label>
-          <button
-            type="button"
-            className="admin-btn-danger"
-            disabled={busyId === pendingReject}
-            onClick={() => void handleReject(pendingReject)}
-          >
-            Yes, reject it
-          </button>{" "}
-          <button
-            type="button"
-            className="admin-btn-ghost"
-            onClick={() => {
-              setPendingReject(null);
-              setRejectReason("");
-            }}
-          >
-            Cancel
-          </button>
-        </div>
-      ) : null}
+        ) : null}
+      </ConfirmAction>
 
       {nextCursor ? (
         <p>
