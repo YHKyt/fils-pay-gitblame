@@ -77,6 +77,14 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
       if (amountFils === undefined || !card) {
         throw new BadRequestError("invalid_request", "amountFils and card are required");
       }
+      // Checked before the acquirer is called. Postgres TEXT cannot hold
+      // U+0000, so a NUL reference used to fail the transactions INSERT only
+      // after the acquirer had approved: the card was authorized, the request
+      // rolled back to a 500 with no transaction row, and every retry placed
+      // another authorization on the card.
+      if (reference !== undefined && reference !== null && (typeof reference !== "string" || reference.includes("\u0000"))) {
+        throw new BadRequestError("invalid_request", "reference must be a string without NUL characters");
+      }
 
       const input: AuthorizeInput = {
         merchantId: request.apiKeyAuth!.merchantId,
