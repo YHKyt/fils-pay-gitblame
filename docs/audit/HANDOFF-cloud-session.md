@@ -128,7 +128,7 @@ Verification after the merge (fresh database): `npm test` **759 pass, 0 fail**; 
 - Old `idempotency_keys.request_hash` rows written before `0c34a1e` still hold the old card-bearing hashes. Overwriting them is safe; that is a data change for the owner to decide.
 - A same-key retry that spans the deploy gets 422 instead of a replay (once).
 - Dispatcher Step A still scans the whole outbox on each pass. A safe watermark design is in `perfload.md` 2a.
-- Archive replay loads the whole archive into memory.
+- ~~Archive replay loads the whole archive into memory.~~ Fixed on b/archive-stream: archive create and restore are each one INSERT ... SELECT inside Postgres.
 - perfload 1: authorize, capture and link pay hold a pool connection across the acquirer call.
 - No hosted URL yet. The submission is a PR against `MJ5-byte/fils-pay`.
 

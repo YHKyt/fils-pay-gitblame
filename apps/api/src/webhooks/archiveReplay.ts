@@ -2,7 +2,6 @@ import type { Pool } from "pg";
 import { insertAdminAuditLog } from "../adminAudit/log.js";
 import { withTransaction } from "../db/withTransaction.js";
 import { ConflictError, NotFoundError } from "../lib/errors.js";
-import { insertReplayDeliveryRow } from "./replay.js";
 
 export interface ArchivedDeliveryEntry {
   deliveryId: string;
@@ -38,53 +37,37 @@ export async function createWebhookDeliveryArchive(
       throw new NotFoundError("webhook_endpoint_not_found");
     }
 
-    const rows = await client.query<{
-      id: string;
-      outbox_event_id: string;
-      event_type: string;
-      payload: Record<string, unknown>;
-      created_at: Date;
-    }>(
-      `SELECT id, outbox_event_id, event_type, payload, created_at
-         FROM webhook_deliveries
-        WHERE endpoint_id = $1 AND created_at >= $2 AND created_at < $3
-        ORDER BY created_at ASC`,
-      [input.endpointId, input.from, input.to],
-    );
-
-    const entries: ArchivedDeliveryEntry[] = rows.rows.map((r) => ({
-      deliveryId: r.id,
-      outboxEventId: r.outbox_event_id,
-      eventType: r.event_type,
-      payload: r.payload,
-      createdAt: r.created_at.toISOString(),
-    }));
-
-    const inserted = await client.query<{ id: string }>(
+    // Built inside Postgres (one row out, not one per delivery), so a large
+    // window never sits in the API process. Entries keep capture order and
+    // the shape of ArchivedDeliveryEntry; createdAt is ISO 8601 in UTC with
+    // milliseconds, as Date.toISOString() wrote it.
+    const inserted = await client.query<{ id: string; delivery_count: number }>(
       `INSERT INTO webhook_delivery_archives
           (endpoint_id, merchant_id, created_by_admin_user_id, from_created_at, to_created_at, delivery_count, archive_payload)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id`,
-      [
-        input.endpointId,
-        input.merchantId,
-        input.adminUserId,
-        input.from,
-        input.to,
-        entries.length,
-        JSON.stringify(entries),
-      ],
+       SELECT $1, $2, $3, $4, $5, count(*)::int,
+              COALESCE(jsonb_agg(jsonb_build_object(
+                'deliveryId', d.id,
+                'outboxEventId', d.outbox_event_id::text,
+                'eventType', d.event_type,
+                'payload', d.payload,
+                'createdAt', to_char(d.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+              ) ORDER BY d.created_at ASC), '[]'::jsonb)::text
+         FROM webhook_deliveries d
+        WHERE d.endpoint_id = $1 AND d.created_at >= $4 AND d.created_at < $5
+       RETURNING id, delivery_count`,
+      [input.endpointId, input.merchantId, input.adminUserId, input.from, input.to],
     );
+    const deliveryCount = inserted.rows[0]!.delivery_count;
 
     await insertAdminAuditLog(client, {
       adminUserId: input.adminUserId,
       action: "webhook_delivery_archive_create",
       targetType: "webhook_endpoint",
       targetId: input.endpointId,
-      metadata: { merchantId: input.merchantId, deliveryCount: entries.length },
+      metadata: { merchantId: input.merchantId, deliveryCount },
     });
 
-    return { archiveId: inserted.rows[0]!.id, deliveryCount: entries.length };
+    return { archiveId: inserted.rows[0]!.id, deliveryCount };
   });
 }
 
@@ -117,8 +100,8 @@ export async function replayWebhookDeliveryArchive(
   input: { merchantId: string; archiveId: string; targetEndpointId: string; adminUserId: string },
 ): Promise<{ replayedCount: number }> {
   return withTransaction(pool, async (client) => {
-    const archiveResult = await client.query<{ archive_payload: string }>(
-      `SELECT archive_payload FROM webhook_delivery_archives WHERE id = $1 AND merchant_id = $2`,
+    const archiveResult = await client.query<{ id: string }>(
+      `SELECT id FROM webhook_delivery_archives WHERE id = $1 AND merchant_id = $2`,
       [input.archiveId, input.merchantId],
     );
     const archiveRow = archiveResult.rows[0];
@@ -138,21 +121,30 @@ export async function replayWebhookDeliveryArchive(
       throw new ConflictError("endpoint_disabled");
     }
 
-    const entries = JSON.parse(archiveRow.archive_payload) as ArchivedDeliveryEntry[];
-
-    let replayedCount = 0;
-    for (const entry of entries) {
-      await insertReplayDeliveryRow(client, {
-        id: entry.deliveryId,
-        endpointId: input.targetEndpointId,
-        outboxEventId: entry.outboxEventId,
-        eventType: entry.eventType,
-        // The archived envelope's `id` is the original delivery_event_id.
-        deliveryEventId: String(entry.payload.id),
-        payload: entry.payload,
-      });
-      replayedCount++;
-    }
+    // Expanded and inserted inside Postgres, in archive (capture) order: the
+    // archive is one JSON document with no row cap, and parsing it in the
+    // API process, then inserting one row per round trip, held the whole
+    // archive in memory for the length of the transaction. Each row is what
+    // insertReplayDeliveryRow writes for one entry: the archived envelope's
+    // `id` is the original delivery_event_id, kept as is.
+    const inserted = await client.query(
+      `INSERT INTO webhook_deliveries
+          (endpoint_id, outbox_event_id, event_type, delivery_event_id, payload, status, next_attempt_at, replay_of_delivery_id)
+       SELECT $2::uuid,
+              (e->>'outboxEventId')::bigint,
+              e->>'eventType',
+              (e->'payload'->>'id')::uuid,
+              (e->'payload') || jsonb_build_object('id', e->'payload'->>'id'),
+              'pending',
+              now(),
+              (e->>'deliveryId')::uuid
+         FROM webhook_delivery_archives a,
+              jsonb_array_elements(a.archive_payload::jsonb) WITH ORDINALITY AS x(e, n)
+        WHERE a.id = $1
+        ORDER BY x.n`,
+      [input.archiveId, input.targetEndpointId],
+    );
+    const replayedCount = inserted.rowCount ?? 0;
 
     await insertAdminAuditLog(client, {
       adminUserId: input.adminUserId,
