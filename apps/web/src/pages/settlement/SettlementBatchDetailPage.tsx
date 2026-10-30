@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getSettlementBatch, getSettlementBatchTransactions } from "../../api/settlement.js";
 import { ApiError, describeError } from "../../api/client.js";
-import { bhd, dash, dateTime, statusLabel } from "../../format.js";
+import { bhd, dash, dateTime, humanDate, shortId, statusLabel } from "../../format.js";
+import { usePageTitle } from "../../hooks/usePageTitle.js";
 import type { SettlementBatchDetailDto, SettlementBatchTransactionDto } from "../../types.js";
 
 type LoadState =
@@ -27,6 +28,7 @@ export function SettlementBatchDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [lines, setLines] = useState<SettlementBatchTransactionDto[]>([]);
+  usePageTitle(state.kind === "loaded" ? `Settlement ${humanDate(state.batch.batchDate)}` : "Settlement");
 
   useEffect(() => {
     if (!id) {
@@ -89,9 +91,11 @@ export function SettlementBatchDetailPage() {
           <p className="dash-eyebrow">
             <Link to="/dashboard/settlement">Settlements</Link> / Batch
           </p>
-          <h1>Settlement batch {batch.batchDate}</h1>
+          <h1>
+            Settlement {humanDate(batch.batchDate)} <span className="dash-ref-sub">{shortId(batch.id)}</span>
+          </h1>
           <p className="dash-muted dash-id-line">
-            <code>{batch.id}</code>
+            <code title="Batch ID">{batch.id}</code>
           </p>
         </div>
         <span className={`dash-status dash-status-${batch.status}`}>{statusLabel(batch.status)}</span>
@@ -114,7 +118,7 @@ export function SettlementBatchDetailPage() {
         <dd>{batch.paidAt ? dateTime(batch.paidAt) : "Not paid yet"}</dd>
         <dt>Included transactions</dt>
         <dd>{batch.includedTransactionCount}</dd>
-        <dt>Capture events in this batch</dt>
+        <dt>Payments in batch</dt>
         <dd>
           {batch.includedEventCount}
           {batch.includedEventCount !== batch.includedTransactionCount ? (
@@ -133,12 +137,13 @@ export function SettlementBatchDetailPage() {
         <thead>
           <tr>
             <th className="dash-num">Line</th>
-            <th>Transaction</th>
-            <th>Reference</th>
+            <th>Payment</th>
             <th>Status</th>
             <th className="dash-num">Authorized</th>
             <th className="dash-num">Captured</th>
-            <th className="dash-num">Scheme amount</th>
+            <th className="dash-num" title="Card networks round to 2 decimals, so this can differ by up to 9 fils.">
+              Scheme amount ⓘ
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -146,11 +151,13 @@ export function SettlementBatchDetailPage() {
             <tr key={`${line.transactionId}-${line.lineSequence}`}>
               <td className="dash-num">{line.lineSequence}</td>
               <td>
-                <Link to={`/dashboard/transactions/${line.transactionId}`}>
-                  <code>{line.transactionId}</code>
+                <Link className="dash-ref-main" to={`/dashboard/transactions/${line.transactionId}`}>
+                  {line.reference ? dash(line.reference) : shortId(line.transactionId)}
                 </Link>
+                <span className="dash-ref-sub" title={line.transactionId}>
+                  {shortId(line.transactionId)}
+                </span>
               </td>
-              <td>{dash(line.reference)}</td>
               <td>
                 <span className={`dash-status dash-status-${line.status}`}>{statusLabel(line.status)}</span>
               </td>
@@ -161,15 +168,13 @@ export function SettlementBatchDetailPage() {
           ))}
           {lines.length === 0 ? (
             <tr>
-              <td colSpan={7}>No scheme export lines in this batch.</td>
+              <td colSpan={6}>No scheme export lines in this batch.</td>
             </tr>
           ) : null}
         </tbody>
       </table></div>
       <p className="dash-muted">
-        The scheme amount is the card-network export figure, quantized to two
-        decimal places at that boundary — it can be up to 9 fils below the
-        captured amount by design.
+        Scheme amount: card networks round to 2 decimals, so it can be up to 9 fils below the captured amount.
       </p>
 
       <p>

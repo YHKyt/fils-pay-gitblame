@@ -10,7 +10,38 @@ import { formatBhd, toFils } from "@filspay/money";
 // amountFils (transaction_events' sign convention) and a reconciliation gap
 // can be negative, so a negative must render ("-1.500 BHD"), not throw.
 export function bhd(amountFils: number): string {
-  return `${formatBhd(toFils(amountFils, { allowNegative: true }))} BHD`;
+  return `${groupThousands(formatBhd(toFils(amountFils, { allowNegative: true })))} BHD`;
+}
+
+/** Adds thousands separators to the whole-dinar part of a formatted
+ *  amount (`136518.147` becomes `136,518.147`). Pure string work on the
+ *  output of `formatBhd`, so the money value itself is never re-derived. */
+export function groupThousands(formatted: string): string {
+  const match = /^(-?)(\d+)(\.\d+)?$/.exec(formatted);
+  if (!match) return formatted;
+  const [, sign, whole, frac = ""] = match;
+  return `${sign}${whole!.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${frac}`;
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** A plain calendar date (`2026-10-29`, already a Bahrain business day) as
+ *  `29 Oct 2026`. String work only, no zone conversion. */
+export function humanDate(date: string | null | undefined): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(date ?? "");
+  if (!match) return dash(date);
+  return `${Number(match[3])} ${MONTHS[Number(match[2]) - 1] ?? match[2]} ${match[1]}`;
+}
+
+/** First 8 characters of a UUID, upper-cased, for a human-scale reference
+ *  (`#3F2A91C0`). The full id stays available as secondary text. */
+export function shortId(id: string): string {
+  return `#${id.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
+}
+
+/** Sets the browser tab title for a dashboard or checkout page. */
+export function pageTitle(name: string): string {
+  return `${name} · FilsPay`;
 }
 
 /** A machine status (`partially_refunded`) as a readable label
