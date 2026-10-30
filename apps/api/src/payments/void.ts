@@ -64,6 +64,15 @@ export async function voidTransaction(pool: Pool, input: VoidInput): Promise<Voi
       return { statusCode: 409, body, alreadyVoided: false };
     }
 
+    // A capture whose acquirer call threw may have captured the card
+    // (capture.ts, 0123). Voiding locally would leave the customer charged
+    // with nothing on the merchant's books. A capture of the same amount
+    // resolves it (the acquirer replays its answer); a refund can follow.
+    const unresolved = await client.query(`SELECT 1 FROM capture_attempts_unresolved WHERE transaction_id = $1`, [txn.id]);
+    if (unresolved.rows.length > 0) {
+      return { statusCode: 409, body: { error: "capture_outcome_unknown" }, alreadyVoided: false };
+    }
+
     const updateResult = await client.query<TransactionRow>(
       `UPDATE transactions SET status = 'voided' WHERE id = $1 RETURNING *`,
       [txn.id],

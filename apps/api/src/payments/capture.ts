@@ -68,6 +68,18 @@ export interface CaptureResult {
   body: unknown;
 }
 
+/** Returned from inside the transaction when the acquirer call threw, so the
+ *  unresolved-attempt record commits before the error is rethrown. */
+interface CaptureThrew {
+  threw: unknown;
+}
+
+interface UnresolvedCaptureRow {
+  idempotency_key_id: string;
+  amount_fils: string | number;
+  acquirer_idempotency_key: string;
+}
+
 interface LockedTransactionRow {
   id: string;
   merchant_id: string;
@@ -102,7 +114,7 @@ export async function captureTransaction(
   // transaction would replay the first transaction's response.
   const requestHash = hashRequest({ transactionId: input.transactionId, amountFils: input.amountFils ?? null });
 
-  return withTransaction(pool, async (client) => {
+  const outcome = await withTransaction<CaptureResult | CaptureThrew>(pool, async (client) => {
     const claim = await claimIdempotencyKey(client, {
       merchantId: input.merchantId,
       endpoint: ENDPOINT,
@@ -199,22 +211,72 @@ export async function captureTransaction(
     const effectiveMdrBps = await getEffectiveMdrBps(client, input.merchantId, new Date(), merchant.mdr_bps);
     const volumeTierBonusBps = await getVolumeTierBonusBps(client);
 
+    // An earlier capture of this transaction whose acquirer call threw: the
+    // acquirer may have captured it (0123). Only a capture of that same
+    // amount may go on, and it resends that attempt's acquirer key, so the
+    // acquirer replays its answer instead of capturing a second time.
+    // Anything else would act on an outcome nobody knows.
+    const unresolvedResult = await client.query<UnresolvedCaptureRow>(
+      `SELECT idempotency_key_id, amount_fils, acquirer_idempotency_key
+         FROM capture_attempts_unresolved WHERE transaction_id = $1`,
+      [txn.id],
+    );
+    const unresolved = unresolvedResult.rows[0];
+    if (unresolved && compareFils(requestedAmount, toFils(Number(unresolved.amount_fils))) !== 0) {
+      const body = { error: "capture_outcome_unknown", pendingCaptureFils: toFils(Number(unresolved.amount_fils)) };
+      // Not final: once the pending capture is resolved this request may
+      // be valid, so the key stays retryable.
+      await failIdempotencyKey(client, claim.row.id, { statusCode: 409, body });
+      return { statusCode: 409, body };
+    }
+    const acquirerKey = unresolved ? unresolved.acquirer_idempotency_key : acquirerIdempotencyKey(claim.row);
+    // Completes the claim of this call and, when it resolves an earlier
+    // thrown attempt, that attempt's claim too, so a retry of the first key
+    // replays this answer instead of capturing again.
+    const completeClaims = async (result: { statusCode: number; body: unknown; resourceId?: string }) => {
+      await completeIdempotencyKey(client, claim.row.id, result);
+      if (unresolved && unresolved.idempotency_key_id !== claim.row.id) {
+        await completeIdempotencyKey(client, unresolved.idempotency_key_id, result);
+      }
+    };
+
     // Call the acquirer — awaited here, with the row lock from above still
     // held (same client, same open transaction). No other process can
     // read-lock, write-lock, or update this transaction row while this
     // call is in flight.
-    const acquirerResult = await acquirer.capture({
-      acquirerReference: txn.acquirer_reference,
-      amountFils: requestedAmount,
-      idempotencyKey: acquirerIdempotencyKey(claim.row),
-    });
+    let acquirerResult: Awaited<ReturnType<AcquirerSimulator["capture"]>>;
+    try {
+      acquirerResult = await acquirer.capture({
+        acquirerReference: txn.acquirer_reference,
+        amountFils: requestedAmount,
+        idempotencyKey: acquirerKey,
+      });
+    } catch (err) {
+      // Outcome unknown. Record it before the row lock is released, in this
+      // transaction (which now commits instead of rolling back), so that a
+      // void or a capture waiting on the lock sees it. The claim is marked
+      // failed: a same-key retry runs again and resends acquirerKey.
+      if (!unresolved) {
+        await client.query(
+          `INSERT INTO capture_attempts_unresolved (transaction_id, idempotency_key_id, amount_fils, acquirer_idempotency_key)
+           VALUES ($1, $2, $3, $4)`,
+          [txn.id, claim.row.id, requestedAmount, acquirerKey],
+        );
+      }
+      await failIdempotencyKey(client, claim.row.id, { statusCode: 502, body: { error: "capture_outcome_unknown" } });
+      return { threw: err };
+    }
+    // The acquirer answered: whatever was pending is resolved by it.
+    if (unresolved) {
+      await client.query(`DELETE FROM capture_attempts_unresolved WHERE transaction_id = $1`, [txn.id]);
+    }
 
     if (acquirerResult.outcome === "declined") {
       // Note: AcquirerCaptureResult carries no
       // declineReason field the way AcquirerAuthorizeResult does — capture
       // declines are reported by outcome alone.
       const body = { error: "card_captured_declined" };
-      await completeIdempotencyKey(client, claim.row.id, { statusCode: 402, body });
+      await completeClaims({ statusCode: 402, body });
       return { statusCode: 402, body };
     }
     if (acquirerResult.outcome === "error") {
@@ -325,7 +387,11 @@ export async function captureTransaction(
     });
 
     const body = serializeTransaction(updatedTxn);
-    await completeIdempotencyKey(client, claim.row.id, { statusCode: 200, body, resourceId: txn.id });
+    await completeClaims({ statusCode: 200, body, resourceId: txn.id });
     return { statusCode: 200, body };
   });
+  if ("threw" in outcome) {
+    throw outcome.threw;
+  }
+  return outcome;
 }
