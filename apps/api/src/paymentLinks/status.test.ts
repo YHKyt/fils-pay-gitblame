@@ -76,3 +76,10 @@ test("derivePublicStatus: stored 'paid' whose transaction is captured -> 'paid'"
     "paid",
   );
 });
+
+// Regression: an abandoned reservation on a link past expires_at read
+// 'active' here while pay refused it, so the customer could never finish.
+test("derivePublicStatus: stored 'reserved' past the timeout on an expired link -> 'expired'", () => {
+  const reservedAt = new Date(Date.now() - 120_000);
+  assert.equal(derivePublicStatus({ status: "reserved", expiresAt: PAST, reservedAt }, TIMEOUT_SECONDS), "expired");
+});

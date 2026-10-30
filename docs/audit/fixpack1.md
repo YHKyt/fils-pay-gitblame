@@ -47,3 +47,14 @@ regression test that fails on the old code and passes on the fix.
 - **Breaks:** Orphan authorizations (funds held on the card for the 7-day window) and confused customers.
 - **Fix:** A small pure helper decides when an answer ends the attempt: 5xx, 429 and the two in-flight 409s keep the key; declines, `already_paid`, `canceled`, `expired` rotate it. Same rule as the dashboard's `isDefinitiveFailure`, plus the checkout's own 409 code.
 - **Test:** Unit test on the helper (fails on the old code, where the rule did not exist).
+
+## FX5 Expired link with an abandoned reservation: pay says 'processing' forever, read says 'active' — MEDIUM
+
+**Where:** `apps/api/src/paymentLinks/status.ts` (`derivePublicStatus`), `pay.ts` (`classifyClaimFailure`).
+**Evidence:** `pay.doubleCharge.test.ts` "an expired link with an abandoned reservation answers 410 and reads 'expired'" and `status.test.ts` "stored 'reserved' past the timeout on an expired link": old code answers pay `409 payment_link_processing` and the public read `active`.
+
+- **What:** A link left `reserved` by a crashed attempt self-heals to claimable after the reservation timeout. If it also passed `expires_at`, the claim UPDATE refuses it (expired), but the classifier only checked expiry for `active` rows, so it reported "processing"; the public helper reported the lapsed reservation as `active` without looking at expiry.
+- **Why:** Both paths treated "reservation lapsed" as "active" and forgot that an active link can be expired.
+- **Breaks:** The checkout shows a payable form whose every Pay answers "a payment is already being processed"; the customer can never get the true answer (expired).
+- **Fix:** A lapsed reservation on an expired link reads `expired` and pay answers `410 payment_link_expired`. A reservation still inside its timeout keeps `processing`, since that attempt may still finish.
+- **Test:** One DB test, one unit test.

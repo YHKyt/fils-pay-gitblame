@@ -241,3 +241,23 @@ test("a capture that throws after the acquirer approved cannot be followed by a 
     await pool.end();
   }
 });
+
+test("an expired link with an abandoned reservation answers 410 and reads 'expired'", { skip: !databaseUrl }, async () => {
+  const pool = new Pool({ connectionString: databaseUrl, max: 5 });
+  try {
+    const { token, linkId } = await linkFixture(pool);
+    await pool.query(
+      `UPDATE payment_links SET status = 'reserved', reserved_at = now() - interval '10 minutes',
+              expires_at = now() - interval '1 minute' WHERE id = $1`,
+      [linkId],
+    );
+    const res = await payPaymentLink(pool, gatedAcquirer().acquirer, config, { token, card: CARD_A, idempotencyKey: randomUUID() });
+    const pub = await getPublicPaymentLink(pool, token, config.paymentLinkReservationTimeoutSeconds);
+
+    assert.equal(res.statusCode, 410, JSON.stringify(res.body));
+    assert.deepEqual(res.body, { error: "payment_link_expired" });
+    assert.equal(pub?.status, "expired");
+  } finally {
+    await pool.end();
+  }
+});

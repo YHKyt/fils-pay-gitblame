@@ -30,6 +30,7 @@ interface ClaimedLinkRow {
 interface LinkStatusRow {
   status: string;
   expires_at: Date;
+  reserved_at: Date | null;
   transaction_status: string | null;
 }
 
@@ -247,7 +248,7 @@ async function classifyClaimFailure(
   expiryCheckTime: Date,
 ): Promise<PayPaymentLinkResult> {
   const result = await pool.query<LinkStatusRow>(
-    `SELECT pl.status, pl.expires_at, t.status AS transaction_status
+    `SELECT pl.status, pl.expires_at, pl.reserved_at, t.status AS transaction_status
        FROM payment_links pl
        LEFT JOIN transactions t ON t.id = pl.transaction_id
       WHERE pl.token = $1`,
@@ -270,6 +271,16 @@ async function classifyClaimFailure(
     return { statusCode: 409, body: { error: "payment_link_canceled" } };
   }
   if (row.status === "active" && row.expires_at.getTime() <= expiryCheckTime.getTime()) {
+    return { statusCode: 410, body: { error: "payment_link_expired" } };
+  }
+  if (
+    row.status === "reserved" &&
+    row.expires_at.getTime() <= expiryCheckTime.getTime() &&
+    !(row.reserved_at && row.reserved_at.getTime() > expiryCheckTime.getTime() - reservationTimeoutSeconds * 1000)
+  ) {
+    // An abandoned reservation on a link that has since expired: nobody is
+    // paying it and nobody can. Answering 'processing' here kept the
+    // customer retrying forever while the public read said 'active'.
     return { statusCode: 410, body: { error: "payment_link_expired" } };
   }
   if (row.status === "reserved") {

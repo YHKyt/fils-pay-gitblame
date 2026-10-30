@@ -42,5 +42,7 @@ export function derivePublicStatus(
   // row.status === 'reserved'
   const reservedAtMs = row.reservedAt?.getTime() ?? 0;
   const stillReserved = reservedAtMs > Date.now() - reservationTimeoutSeconds * 1000;
-  return stillReserved ? "processing" : "active";
+  if (stillReserved) return "processing";
+  // A lapsed reservation is claimable again only while the link is in date.
+  return row.expiresAt.getTime() <= Date.now() ? "expired" : "active";
 }
