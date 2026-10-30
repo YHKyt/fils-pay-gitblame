@@ -10,6 +10,8 @@
  * answer the caller clears the attempt, and the next submit starts a new
  * intent.
  */
+import { uuid } from "./uuid.js";
+
 export interface IdempotentAttempt {
   key: string;
   /** Canonical form of the request the key was sent with. */
@@ -21,7 +23,7 @@ export interface IdempotentAttempt {
 export function attemptFor(
   previous: IdempotentAttempt | null,
   request: string,
-  mintKey: () => string = () => crypto.randomUUID(),
+  mintKey: () => string = uuid,
 ): IdempotentAttempt {
   if (previous && previous.request === request) return previous;
   return { key: mintKey(), request };

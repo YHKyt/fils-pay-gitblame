@@ -6,6 +6,7 @@ import { ApiError } from "../../api/client.js";
 import { bahrainDateTime } from "../../format.js";
 import type { PaymentLinkPublicDto, SimulatedCardInput } from "../../types.js";
 import { endsCheckoutAttempt, isOutcomeUnknown, resolveLostPayment } from "../../utils/checkoutRecovery.js";
+import { uuid } from "../../utils/uuid.js";
 import { Logo } from "../../components/Logo.js";
 import { ThemeToggle } from "../../components/ThemeToggle.js";
 import "./CheckoutPage.css";
@@ -262,11 +263,11 @@ export function CheckoutPage() {
   // if the request reached the server but the response was lost, the retry
   // replays that payment instead of charging the card a second time. It is
   // rotated only once the server has given a definitive answer.
-  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey, setIdempotencyKey] = useState(() => uuid());
   // Different card details = a different payment (the server would reject
   // the old key with a different body as a reused key).
   useEffect(() => {
-    setIdempotencyKey(crypto.randomUUID());
+    setIdempotencyKey(uuid());
   }, [card]);
 
   // FH: memory leak — this effect never aborts the fetch on unmount (React warning in console?)
@@ -343,7 +344,7 @@ export function CheckoutPage() {
         // A decline or other definitive answer ends this attempt; "try
         // again" (e.g. with another card) is a new one. 5xx and an
         // in-flight 409 keep the key.
-        if (endsCheckoutAttempt(err)) setIdempotencyKey(crypto.randomUUID());
+        if (endsCheckoutAttempt(err)) setIdempotencyKey(uuid());
         if (statusCode === 402) {
           const stageLabel = body.stage === "capture" ? "Your payment could not be completed." : "Your card was declined.";
           setPayState({ kind: "declined", message: stageLabel, retryable: true });
