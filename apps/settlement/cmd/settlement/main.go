@@ -123,10 +123,11 @@ func main() {
 			onlyMerchant = &id
 		}
 
-		report, err := settlement.RunDailyBatch(ctx, pool, businessDate, onlyMerchant)
-		if err != nil {
-			log.Fatalf("settlement run-batch: %v", err)
-		}
+		// RunDailyBatch keeps going past a failing merchant and returns the
+		// report with the joined failures. Report and notify what was paid
+		// before exiting non-zero, or a partial failure hides every payout
+		// that did happen.
+		report, runErr := settlement.RunDailyBatch(ctx, pool, businessDate, onlyMerchant)
 		fmt.Printf("run-batch: business date %s, %d merchant(s) processed\n", *dateFlag, len(report.MerchantResults))
 		for _, r := range report.MerchantResults {
 			fmt.Printf("  merchant=%s batch=%s alreadyClosed=%v alreadyPaid=%v gross=%d fee=%d netPayout=%d\n",
@@ -143,6 +144,9 @@ func main() {
 			log.Fatalf("settlement run-batch: enqueue payout notifications: %v", err)
 		}
 		fmt.Printf("run-batch: enqueued %d settlement.paid event(s)\n", enqueued)
+		if runErr != nil {
+			log.Fatalf("settlement run-batch: %v", runErr)
+		}
 
 	// YA: CLI rebuild goes from ledger_entries. the admin button goes somewhere else, see internalapi
 	// MK: same thing, different source. both fine.
