@@ -1784,3 +1784,7 @@ body:has(.admin-centered) .admin-centered {
 }
 .impersonation-banner-countdown { font-variant-numeric: tabular-nums; }
 .impersonation-banner button.impersonation-banner-exit { font-size: 1rem; padding: 0.55rem 1.1rem; }
+.admin-import-preview { margin: 0.5rem 0 0.25rem; min-width: 0; }
+.admin-import-preview tr.is-error td { background: var(--fp-danger-bg, #fdecee); }
+.admin-error-text { color: var(--fp-danger-fg, #a3122a); font-weight: 600; }
+.admin-table tfoot th { border-top: 2px solid var(--fp-border-strong); font-weight: 700; }
