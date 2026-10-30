@@ -142,7 +142,7 @@ function CheckoutAside({ link }: { link: PaymentLinkPublicDto | null }) {
                 <dd>Bahraini dinar (BHD)</dd>
               </div>
               <div className="checkout-order-total">
-                <dt>Total due</dt>
+                <dt>Total</dt>
                 <dd>{formatBhd(toFils(link.amountFils))} BHD</dd>
               </div>
             </dl>
