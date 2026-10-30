@@ -140,3 +140,54 @@ test("a period with a partial refund still explains to zero", async () => {
   assert.equal(report.gapFils, 0, JSON.stringify(report));
   assert.equal(report.explained, true);
 });
+
+/** One balanced ledger group: merchant_payable against a counter-account. */
+async function payableLeg(merchantId: string, direction: "debit" | "credit", amountFils: number, counter: string, at: string) {
+  const other = direction === "debit" ? "credit" : "debit";
+  await pool.query(
+    `INSERT INTO ledger_entries (entry_group_id, merchant_id, account_id, direction, amount_fils, occurred_at, description)
+     VALUES ($1, $2, 'merchant_payable', $3, $5, $6, 'test'), ($1, $2, $7, $4, $5, $6, 'test')`,
+    [randomUUID(), merchantId, direction, other, amountFils, at, counter],
+  );
+}
+
+test("a negative batch carried into a later batch in the same period is not counted twice", async () => {
+  const { merchantId, rawKey } = await merchant(250);
+
+  // 2026-04-01: a 100,000 refund of an earlier capture (2,500 fee reversed).
+  // Its batch closes at -97,500, pays nothing, and the shortfall is carried.
+  await payableLeg(merchantId, "debit", 100_000, "card_scheme_clearing", "2026-04-01T09:00:00Z");
+  await payableLeg(merchantId, "credit", 2_500, "platform_fee_revenue", "2026-04-01T09:00:00Z");
+  // 2026-04-03: a 100,000 capture at 2.50%. Its batch deducts the carried
+  // shortfall: 97,500 - 97,500 = 0.
+  await payableLeg(merchantId, "credit", 100_000, "card_scheme_clearing", "2026-04-03T09:00:00Z");
+  await payableLeg(merchantId, "debit", 2_500, "platform_fee_revenue", "2026-04-03T09:00:00Z");
+
+  const d3 = await pool.query<{ id: string }>(
+    `INSERT INTO settlement_batches (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at)
+     VALUES ($1, '2026-04-03', 'closed', 100000, 2500, 0, now()) RETURNING id`,
+    [merchantId],
+  );
+  await pool.query(
+    `INSERT INTO settlement_batches (merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at, paid_at, carried_forward_to_batch_id)
+     VALUES ($1, '2026-04-01', 'paid', 0, 0, -97500, now(), now(), $2)`,
+    [merchantId, d3.rows[0]!.id],
+  );
+
+  const expectations: Array<[string, string, number]> = [
+    ["2026-04-01", "2026-04-05", 0], // both batches: the shortfall once
+    ["2026-04-01", "2026-04-02", -97_500], // the refund day alone
+    ["2026-04-03", "2026-04-04", 97_500], // the capture day alone
+  ];
+  for (const [from, to, ledger] of expectations) {
+    const res = await app.inject({
+      method: "GET",
+      url: `/v1/settlement/reconciliation?from=${from}&to=${to}`,
+      headers: { authorization: `Bearer ${rawKey}` },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    const report = res.json() as { ledgerMerchantPayableNetFils: number; gapFils: number };
+    assert.equal(report.ledgerMerchantPayableNetFils, ledger);
+    assert.equal(report.gapFils, 0, `${from}..${to}: ${JSON.stringify(report)}`);
+  }
+});

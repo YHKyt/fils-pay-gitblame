@@ -296,10 +296,19 @@ export async function getReconciliationReport(
       [input.merchantId, windowStart, windowEnd],
     ),
     pool.query<{ total: string }>(
-      `SELECT COALESCE(SUM(net_payout_fils), 0) AS total
-         FROM settlement_batches
-        WHERE merchant_id = $1 AND batch_date >= $2 AND batch_date < $3
-          AND status IN ('closed', 'paid')`,
+      // A batch's net includes any negative shortfall it took over from an
+      // earlier batch (carried_forward_to_batch_id, 0090). That shortfall is
+      // the earlier batch's ledger activity, already counted in that batch's
+      // own net, so take it back out: each batch contributes only its own day.
+      `SELECT COALESCE(SUM(sb.net_payout_fils - COALESCE(carried.fils, 0)), 0) AS total
+         FROM settlement_batches sb
+         LEFT JOIN LATERAL (
+           SELECT SUM(src.net_payout_fils) AS fils
+             FROM settlement_batches src
+            WHERE src.carried_forward_to_batch_id = sb.id
+         ) carried ON true
+        WHERE sb.merchant_id = $1 AND sb.batch_date >= $2 AND sb.batch_date < $3
+          AND sb.status IN ('closed', 'paid')`,
       [input.merchantId, input.from, input.to],
     ),
     pool.query<{ amount_fils: string | number; fee_fils: string | null; discount_applied: boolean }>(
