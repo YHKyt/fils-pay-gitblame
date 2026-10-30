@@ -7,9 +7,15 @@ import type { QueryableClient } from "@filspay/events";
  * The position is (xact_id, id): every outbox row at or before it has been
  * applied. See db/migrations/0096 for why id alone is not a safe position.
  */
-export interface ConsumerCursor {
+export interface CursorPosition {
   lastProcessedXactId: bigint;
   lastProcessedId: bigint;
+}
+
+export interface ConsumerCursor extends CursorPosition {
+  /** Rows with an id at or below this were applied by the id-only consumer
+   *  and are never applied again, whatever their xact_id. */
+  idFloor: bigint;
 }
 
 /**
@@ -18,6 +24,7 @@ export interface ConsumerCursor {
 interface CursorRow {
   last_processed_xact_id: string | number;
   last_processed_id: string | number;
+  id_floor: string | number;
 }
 
 /**
@@ -30,6 +37,10 @@ interface CursorRow {
  * here until the first commits, then reads the position the first one
  * advanced to, so no event is applied twice. The listener's `running` flag
  * only serializes passes inside one process.
+ *
+ * While last_processed_xact_id is still '0', last_processed_id is a
+ * watermark written by the id-only consumer (before 0096, or an old worker
+ * still running during the deploy), so it is the floor.
  */
 export async function lockCursor(client: QueryableClient, consumerName: string): Promise<ConsumerCursor> {
   await client.query(
@@ -40,7 +51,8 @@ export async function lockCursor(client: QueryableClient, consumerName: string):
   );
 
   const result = (await client.query(
-    `SELECT last_processed_xact_id, last_processed_id
+    `SELECT last_processed_xact_id, last_processed_id,
+            CASE WHEN last_processed_xact_id = '0' THEN last_processed_id ELSE id_floor END AS id_floor
        FROM reporting_outbox_cursor
       WHERE consumer_name = $1
       FOR UPDATE`,
@@ -51,21 +63,24 @@ export async function lockCursor(client: QueryableClient, consumerName: string):
   return {
     lastProcessedXactId: row ? BigInt(row.last_processed_xact_id) : 0n,
     lastProcessedId: row ? BigInt(row.last_processed_id) : 0n,
+    idFloor: row ? BigInt(row.id_floor) : 0n,
   };
 }
 
 /**
  * Moves the position forward, never backwards: the WHERE clause is the
- * two-column form of GREATEST(current, new).
+ * two-column form of GREATEST(current, new). The first move off a '0'
+ * position keeps the id-only watermark as id_floor.
  */
 export async function advanceCursor(
   client: QueryableClient,
   consumerName: string,
-  position: ConsumerCursor,
+  position: CursorPosition,
 ): Promise<void> {
   await client.query(
     `UPDATE reporting_outbox_cursor
-        SET last_processed_xact_id = $2::xid8, last_processed_id = $3, updated_at = now()
+        SET id_floor = CASE WHEN last_processed_xact_id = '0' THEN last_processed_id ELSE id_floor END,
+            last_processed_xact_id = $2::xid8, last_processed_id = $3, updated_at = now()
       WHERE consumer_name = $1
         AND (last_processed_xact_id, last_processed_id) < ($2::xid8, $3::bigint)`,
     [consumerName, position.lastProcessedXactId.toString(), position.lastProcessedId.toString()],
@@ -80,7 +95,7 @@ export async function resetCursor(client: QueryableClient, consumerName: string)
     `INSERT INTO reporting_outbox_cursor (consumer_name, last_processed_id, updated_at)
      VALUES ($1, 0, now())
      ON CONFLICT (consumer_name) DO UPDATE
-       SET last_processed_xact_id = '0', last_processed_id = 0, updated_at = now()`,
+       SET last_processed_xact_id = '0', last_processed_id = 0, id_floor = 0, updated_at = now()`,
     [consumerName],
   );
 }

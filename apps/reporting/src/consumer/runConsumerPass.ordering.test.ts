@@ -7,6 +7,8 @@
  * - The cursor was read without a lock, so two concurrent passes (the
  *   RUNBOOK's "safe" catch-up beside the live worker) both applied the same
  *   events.
+ * - Across the deploy, the id watermark an old worker leaves behind must
+ *   keep protecting what it applied.
  *
  * Requires DATABASE_URL to point at a real, migrated Postgres.
  */
@@ -16,6 +18,7 @@ import { test } from "node:test";
 import { Pool } from "pg";
 import { enqueueEvent, type NewOutboxEvent } from "@filspay/events";
 import { toBahrainDateString } from "../bahrainDate.js";
+import { applyEvent } from "./applyEvent.js";
 import { runConsumerPass } from "./runConsumerPass.js";
 import { drainPast } from "./testSupport.js";
 
@@ -155,4 +158,62 @@ test("a watermark written by the id-only consumer carries over: ids at or below 
 
   assert.equal(await capturedCount(appliedMerchant), appliedBefore, "an event at or below the old watermark is not applied again");
   assert.equal(await capturedCount(pendingMerchant), 1, "an event after it is applied");
+});
+
+test("an event the id-only consumer applied is not applied again once the cursor moves to commit order", async () => {
+  const seenMerchant = await createMerchant("seen-by-old-worker");
+  const unseenMerchant = await createMerchant("unseen-by-old-worker");
+  const warmup = await enqueueEvent(pool, captured(await createMerchant("warmup"), 1));
+  await drainPast(pool, config, [warmup.id]);
+
+  // An older transaction takes its xact id first but inserts its event last,
+  // so its event has the higher id and the lower xact_id.
+  const older = await pool.connect();
+  let seen: Awaited<ReturnType<typeof enqueueEvent>>;
+  let unseen: Awaited<ReturnType<typeof enqueueEvent>>;
+  try {
+    await older.query("BEGIN");
+    await older.query("SELECT pg_current_xact_id()");
+    seen = await enqueueEvent(pool, captured(seenMerchant, 6_000));
+    unseen = await enqueueEvent(older, captured(unseenMerchant, 7_000));
+    await older.query("COMMIT");
+  } catch (err) {
+    await older.query("ROLLBACK").catch(() => {});
+    throw err;
+  } finally {
+    older.release();
+  }
+  const xacts = await pool.query<{ id: string; xact_id: string }>(
+    `SELECT id::text, xact_id::text FROM outbox_events WHERE id = ANY($1::bigint[])`,
+    [[seen.id.toString(), unseen.id.toString()]],
+  );
+  const xactOf = new Map(xacts.rows.map((r) => [r.id, BigInt(r.xact_id)]));
+  assert.ok(unseen.id > seen.id, "sanity: the older transaction's event has the higher id");
+  assert.ok(xactOf.get(unseen.id.toString())! < xactOf.get(seen.id.toString())!, "sanity: ...and the lower xact_id");
+
+  // An old worker, still running between the migration and its restart,
+  // consumes by id: it applies `seen` and writes only an id watermark.
+  const oldWorker = await pool.connect();
+  try {
+    await oldWorker.query("BEGIN");
+    await applyEvent(oldWorker, {
+      id: seen.id,
+      event_type: seen.eventType,
+      aggregate_id: seen.aggregateId,
+      payload: seen.payload,
+      created_at: seen.createdAt,
+    });
+    await oldWorker.query(
+      `UPDATE reporting_outbox_cursor SET last_processed_xact_id = '0', last_processed_id = $1 WHERE consumer_name = 'reporting'`,
+      [seen.id.toString()],
+    );
+    await oldWorker.query("COMMIT");
+  } finally {
+    oldWorker.release();
+  }
+
+  await drainPast(pool, config, [seen.id, unseen.id]);
+
+  assert.equal(await capturedCount(unseenMerchant), 1, "the event above the old watermark is applied");
+  assert.equal(await capturedCount(seenMerchant), 1, "the event the old worker applied is not applied a second time");
 });

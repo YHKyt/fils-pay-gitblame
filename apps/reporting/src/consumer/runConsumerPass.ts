@@ -56,21 +56,22 @@ export async function runConsumerPass(
   return withTransaction(pool, async (client) => {
     const cursor = await lockCursor(client, CONSUMER_NAME);
 
-    // While the cursor's xact_id is still '0' it is a position written by the
-    // id-only consumer (before 0096, or an old worker still running during a
-    // deploy): every id up to it was already applied, whatever its xact_id.
+    // idFloor: every id up to the id-only consumer's last watermark (before
+    // 0096, or an old worker still running during the deploy) was already
+    // applied, whatever its xact_id.
     const eventsResult = await client.query<OutboxEventRow & { xact_id: string }>(
       `SELECT id, event_type, aggregate_id, payload, created_at, xact_id
          FROM outbox_events
         WHERE (xact_id, id) > ($1::xid8, $2::bigint)
-          AND ($1::xid8 <> '0' OR id > $2::bigint)
+          AND id > $3::bigint
           AND xact_id < pg_snapshot_xmin(pg_current_snapshot())
-          AND event_type = ANY($3::text[])
+          AND event_type = ANY($4::text[])
         ORDER BY xact_id ASC, id ASC
-        LIMIT $4`,
+        LIMIT $5`,
       [
         cursor.lastProcessedXactId.toString(),
         cursor.lastProcessedId.toString(),
+        cursor.idFloor.toString(),
         REPORTING_EVENT_TYPES,
         config.consumerBatchLimit,
       ],

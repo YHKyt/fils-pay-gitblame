@@ -18,7 +18,16 @@ ALTER TABLE outbox_events ALTER COLUMN xact_id SET DEFAULT pg_current_xact_id();
 
 CREATE INDEX idx_outbox_events_xact_id_id ON outbox_events (xact_id, id);
 
--- The reporting cursor becomes a (xact_id, id) position. An existing
--- watermark N carries over as ('0', N): the same legacy rows count as
--- consumed as before.
-ALTER TABLE reporting_outbox_cursor ADD COLUMN last_processed_xact_id xid8 NOT NULL DEFAULT '0';
+-- The reporting cursor becomes a (xact_id, id) position.
+--
+-- last_processed_xact_id: an existing watermark N carries over as ('0', N),
+-- so the same legacy rows count as consumed as before.
+--
+-- id_floor: rows at or below this id are never applied again. Until this
+-- deploy finishes, an old worker can still consume rows that already carry
+-- a real xact_id, by id. When the new consumer first moves the cursor off
+-- '0', it keeps that id watermark here; without it, a row the old worker
+-- already applied could sort after the new position and be applied twice.
+ALTER TABLE reporting_outbox_cursor
+  ADD COLUMN last_processed_xact_id xid8 NOT NULL DEFAULT '0',
+  ADD COLUMN id_floor BIGINT NOT NULL DEFAULT 0;
