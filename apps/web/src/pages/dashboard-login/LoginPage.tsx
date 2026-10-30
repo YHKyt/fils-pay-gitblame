@@ -10,6 +10,7 @@ import {
 import type { DashboardLoginResponse } from "../../types.js";
 import { bahrainTime } from "../../format.js";
 import { Logo } from "../../components/Logo.js";
+import { safeReturnPath } from "../../utils/safeReturnPath.js";
 import "../../dashboard.css";
 
 type Step = { kind: "credentials" } | { kind: "otp"; challenge: DashboardLoginResponse };
@@ -46,7 +47,7 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const redirectTo = (location.state as { from?: string } | null)?.from ?? "/dashboard/overview";
+  const redirectTo = safeReturnPath((location.state as { from?: unknown } | null)?.from, "/dashboard/overview");
 
   if (status === "authenticated") {
     return <Navigate to={redirectTo} replace />;

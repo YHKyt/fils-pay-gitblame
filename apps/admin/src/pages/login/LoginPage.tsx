@@ -4,6 +4,7 @@ import { login, resendOtp, verifyOtp } from "../../api/auth.js";
 import { describeError } from "../../api/client.js";
 import { time } from "../../format.js";
 import { Brand } from "../../components/Brand.js";
+import { safeReturnPath } from "../../utils/safeReturnPath.js";
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import type { AdminLoginResponse } from "../../types.js";
 
@@ -31,8 +32,7 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const redirectTo =
-    (location.state as { from?: string } | null)?.from ?? "/merchants";
+  const redirectTo = safeReturnPath((location.state as { from?: unknown } | null)?.from, "/merchants");
 
   if (status === "authenticated") {
     return <Navigate to={redirectTo} replace />;
