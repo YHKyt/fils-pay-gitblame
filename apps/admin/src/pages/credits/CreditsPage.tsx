@@ -6,6 +6,8 @@ import {
   listCreditRequests,
   rejectCreditRequest,
 } from "../../api/credits.js";
+import { listMerchants } from "../../api/merchants.js";
+import { creditReasonText, merchantName, shortId } from "./creditLabels.js";
 import { describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { ConfirmAction } from "../../components/ConfirmAction.js";
@@ -47,6 +49,36 @@ export function CreditsPage() {
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const { admin } = useAdminAuth();
+  const [merchantNames, setMerchantNames] = useState<ReadonlyMap<string, string>>(new Map());
+
+  // Credit rows carry only the merchant id; resolve each new id to its
+  // display name once (exact-id match on the merchants list) and cache it.
+  useEffect(() => {
+    const missing = [...new Set(items.map((item) => item.merchantId))].filter(
+      (id) => !merchantNames.has(id),
+    );
+    if (missing.length === 0) return;
+    let cancelled = false;
+    void Promise.all(
+      missing.map(async (id) => {
+        try {
+          const page = await listMerchants({ q: id, limit: 1 });
+          const match = page.merchants.find((merchant) => merchant.id === id);
+          return match ? ([id, match.displayName] as const) : null;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((pairs) => {
+      if (cancelled) return;
+      const found = pairs.filter((pair): pair is readonly [string, string] => pair !== null);
+      if (found.length === 0) return;
+      setMerchantNames((current) => new Map([...current, ...found]));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [items, merchantNames]);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -167,14 +199,16 @@ export function CreditsPage() {
                 <td>{item.requestedByDisplayName}</td>
                 <td>
                   <Link to={`/merchants/${item.merchantId}`}>
-                    {(item as CreditRequestDto & { merchantDisplayName?: string }).merchantDisplayName ?? (
-                      <code>{item.merchantId.slice(0, 8)}</code>
-                    )}
+                    {merchantName(merchantNames, item.merchantId) ?? <code>{shortId(item.merchantId)}</code>}
                   </Link>
+                  {merchantName(merchantNames, item.merchantId) ? (
+                    <div className="admin-muted">
+                      <code>{shortId(item.merchantId)}</code>
+                    </div>
+                  ) : null}
                 </td>
                 <td>
-                  {enumLabel(item.reasonCode)}
-                  {item.memo ? <div className="admin-muted">{item.memo}</div> : null}
+                  {creditReasonText(item.reasonCode, item.memo)}
                 </td>
                 <td className="admin-num">{bhd(item.baseAmountFils)}</td>
                 <td className="admin-num">
@@ -244,11 +278,12 @@ export function CreditsPage() {
             <dd>{bhd(pendingApprove.postedAmountFils)}</dd>
             <dt>Merchant</dt>
             <dd>
-              {(pendingApprove as CreditRequestDto & { merchantDisplayName?: string }).merchantDisplayName ??
-                pendingApprove.merchantId}
+              {merchantName(merchantNames, pendingApprove.merchantId) ?? (
+                <code>{shortId(pendingApprove.merchantId)}</code>
+              )}
             </dd>
             <dt>Reason</dt>
-            <dd>{enumLabel(pendingApprove.reasonCode)}</dd>
+            <dd>{creditReasonText(pendingApprove.reasonCode, pendingApprove.memo)}</dd>
             <dt>Requested by</dt>
             <dd>{pendingApprove.requestedByDisplayName}</dd>
           </dl>
