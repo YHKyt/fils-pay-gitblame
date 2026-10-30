@@ -1,8 +1,8 @@
 # Team briefing: FilsPay handover (team "git blame")
 
 For YHKyt and aalbalushi, to read before Saturday's case review, and for the judges.
-State described: integration branch `fix/money-parsing` at `ccfd615` (upstream handover ends at `8b58b0f`).
-Everything below can be checked in `docs/audit/*.md` and in `git log --no-merges 8b58b0f..fix/money-parsing` (186 commits at `ccfd615`: 118 by YHKyt, 68 by aalbalushi).
+State described: integration branch `fix/money-parsing` at `148de39` (upstream handover ends at `8b58b0f`).
+Everything below can be checked in `docs/audit/*.md` and in `git log --no-merges 8b58b0f..fix/money-parsing` (339 commits at `148de39`: 252 by YHKyt, 87 by aalbalushi).
 
 **Caveats to know before anything else** (updated after the final merges)
 
@@ -74,9 +74,10 @@ Counted from every write-up in `docs/audit/`, using the per-file numbers in the 
 | Fix round F3 (`fixf3.md`, FC1-FC4) | 0 | 1 | 2 | 1 | 4 |
 | Hosting hardening (`hostharden.md`, HH1-HH3 and HH5; HH4 is sizing config) | 0 | 2 | 2 | 0 | 4 |
 | Capacity index (migration 0125, `hostharden.md` "Reported, not fixed", fixed in `5583a87`) | 0 | 1 | 0 | 0 | 1 |
-| **Total** | **15** | **75** | **75** | **40** | **205** |
+| Security hardening (adversarial sweep, `security-hardening.md`, SEC1-SEC2) | 0 | 0 | 2 | 0 | 2 |
+| **Total** | **15** | **75** | **77** | **40** | **207** |
 
-Added after the last fix batches: fixf1, fixf2, fixf3, hostharden and the capacity index (18 findings). Not counted there: FB6 (docs only), HH4 (box sizing config, no failing test), and every fixfp item. fixfp (FP1-FP6) restores base behaviour (limit clamp, PAN with spaces, public link fields, webhook replay roles, KYC `submitted`) or refines an earlier fix of ours (idempotent CSV re-upload), so it adds nothing; S7, M7 (recalculation), AD1 and AM1 were reviewed and kept, not new fixes. The strict count (merging the four shared-root-cause fixes) is 201.
+Added after the last fix batches: fixf1, fixf2, fixf3, hostharden, the capacity index and the two security-hardening findings (20 findings). Not counted there: FB6 (docs only), HH4 (box sizing config, no failing test), and every fixfp item. fixfp (FP1-FP6) restores base behaviour (limit clamp, PAN with spaces, public link fields, webhook replay roles, KYC `submitted`) or refines an earlier fix of ours (idempotent CSV re-upload), so it adds nothing; S7, M7 (recalculation), AD1 and AM1 were reviewed and kept, not new fixes. The strict count (merging the four shared-root-cause fixes) is 203.
 
 Duplicates are counted once: JP3 is SD5, JP5 is the zero-net payout item in `eventsbus.md`, the out-of-order consumer item in `sqlhunt.md` is RP1, and the one-merchant-stops-the-run item in `settleguards.md` is `settlerun.md`. Not counted: R1 (the feature), S8 (a review with no change), items with no severity or still open (see the README), and unrated "fixed in" notes inside reported-only sections.
 
@@ -245,7 +246,7 @@ For each finding: what broke and why, how we fixed it with the smallest change, 
 14. **WF1 / O1: the hosted app could not be used, and a redeploy wiped it (Critical / High, `webflows.md`, `opsfix.md`)**
     - The dashboard called the API cross-origin with credentials, and the API has no CORS: every login failed at the preflight. Separately, compose ran the seed on every `up`, and the seed `TRUNCATE … CASCADE`s merchants, ledger and admins.
     - We fixed it with one origin (nginx serves web and admin and proxies `/v1`) instead of adding credentialed CORS, and a seed guard that skips a populated database unless `SEED_RESET=1`.
-    - Proof: `sameOrigin.test.ts`, `db/seed/guard.test.ts`, and the black-box judge suite on a clean stack (91/91).
+    - Proof: `sameOrigin.test.ts`, `db/seed/guard.test.ts`, and the black-box judge suite on a clean stack (170 passed / 0 failed / 1 expected skip).
 
 15. **M12: scheme file over-reports; residue never journalled (Medium, finance memo)**
     - The line `amount` was the untruncated gross as a float, rounded half-up by Postgres into `numeric(10,2)`, while we booked the truncated fils. That is why it was "always over, never under".
@@ -293,8 +294,8 @@ For each finding: what broke and why, how we fixed it with the smallest change, 
 10. **Read models.** Transactions DTO `refundedFils`; the reporting consumer applies `refund.succeeded` (RP4); `refund_merchant_summary` is a live view (0104, Q1).
 11. **UI.** `RefundDrawer` is mounted on the transaction detail page. It keeps one key per refund *intent* (B5a), is shown for `partially_refunded` too, and its maximum is captured − refunded.
 12. **Settlement.** The next close deducts the refund from the merchant's payout (`3aadad7`); a negative day is carried forward (0090).
-13. **Not yet** (say so if asked):
-    - A retry after the acquirer call *throws* uses a new acquirer idempotency key, so a refund that went through can be paid twice (F4 open risk).
+13. **Fixed since the draft** (F4, superseded open risk): a retry after the acquirer call *throws* now keeps the reservation and resends the *same* acquirer key, so a refund that went through cannot be paid twice (fixpack1 FX3 `5b29ee5`; `UnknownOutcomeMarker`). The earlier "uses a new acquirer key, open risk" wording is superseded.
+14. **Not yet** (say so if asked):
     - Refund validation errors use `{ ok, code }` instead of `{ error, message }` (`apihygiene.md`, reported).
 
 ### 4.2 How to demo it (local stack, about 4 minutes)
@@ -419,11 +420,8 @@ Do a dry run before Saturday. Seed logins are in `db/seed/fixtures/merchants.ts`
 
 19. **How did you choose severity?** By money and access impact. Critical: money moved or charged wrongly at scale, or account takeover. High: wrong money for affected merchants, an authorization bypass, or nothing can run. Medium: reconciliation or reliability. Low: hardening.
 
-20. **What would you do next?**
-    - Merge `agent/settlebal` (the cache moves with the ledger), which the nightly refresh depends on.
-    - Make a refund retry after a thrown acquirer call reuse the same acquirer idempotency key (F4).
-    - Add `stop_grace_period` to the settlement service so the 30 s drain can finish (G3).
-    - Rate-limit admin login.
+20. **What would you do next?** (`agent/settlebal`, the F4 same-key retry and G3's `stop_grace_period` are already merged, so they are off this list.)
+    - Add a per-IP throttle on admin login (the per-account lockout is already in).
     - Rotate the acquirer callback secret that was committed to git history (H1).
     - Correct ADMIN.md and delete the planted AI files, then add a CI check for hidden unicode and AI-config changes.
 
@@ -443,8 +441,8 @@ Do a dry run before Saturday. Seed logins are in `db/seed/fixtures/merchants.ts`
 
 | Time | Who | What to say or show |
 |---|---|---|
-| 0:00-1:00 | Y | Team "git blame". "We audited, fixed 182 written-up findings plus 9 smaller fixes, built refunds, solved the mystery. Almost every fix has a test that fails before and passes after, and we list the ones that don't." |
-| 1:00-2:30 | A | The scoreboard table (2.1): 15 Critical, 69 High. Then the case-file table (2.2): every memo, incident and handwritten item maps to a commit. Name the honest gaps (settlebal not merged under the nightly refresh, F4 retry risk). |
+| 0:00-1:00 | Y | Team "git blame". "We audited, fixed 207 written-up findings plus 9 smaller commit-only fixes, built refunds, solved the mystery. Almost every fix has a test that fails before and passes after, and we list the ones that don't." |
+| 1:00-2:30 | A | The scoreboard table (2.1): 15 Critical, 75 High. Then the case-file table (2.2): every memo, incident and handwritten item maps to a commit. Name the honest gaps (settlebal is now merged; call out any residual). |
 | 2:30-6:30 | A | **FP-300 live** (4.2, steps 2-9): capture 10,001 fils → partial refund 3,333 → replay with the same key → over-refund 422 → concurrent race gives one success → ledger rows net to zero → timeline → `refund.succeeded` outbox row. |
 | 6:30-9:00 | Y | **Money bugs**: CSV 10× (show the two-line parser cause), float32 payout (one-line fix), split largest remainder (1001 → 1002 before), 135K → 7K Rebuild (wrong source), scheme "always over" (rounded vs truncated). Run one test live, e.g. `cd apps/settlement && go test ./internal/settlement/ -run TestNetPayableFils_ExactForLargeBatches -v`. |
 | 9:00-10:30 | A | **Security bugs**: OTP bypass (one predicate), link charged twice (finalize before capture, gated-acquirer test), unsigned callbacks (raw-body HMAC, 300 s window). |
@@ -457,7 +455,7 @@ Do a dry run before Saturday. Seed logins are in `db/seed/fixtures/merchants.ts`
 | Time | Who | Line |
 |---|---|---|
 | 0:00-0:30 | Y | "FilsPay lost money in ways finance could see but nobody could explain. We explained every one, and fixed it with the smallest change that works." |
-| 0:30-1:15 | A | "Fourteen critical bugs, including login without the OTP, one link charging a customer twice, any merchant refunding anyone, and forged bank callbacks. Each one now has a test that proves it is closed." |
+| 0:30-1:15 | A | "Fifteen critical bugs, including login without the OTP, one link charging a customer twice, any merchant refunding anyone, and forged bank callbacks. Each one now has a test that proves it is closed." |
 | 1:15-1:50 | Y | "The money now adds up to the fils: CSV import 10× off, float32 payouts, splits that lost fils, a balance button that turned 135K into 7K. All of them are integer and exact again." |
 | 1:50-2:25 | A | "Refunds, the feature that 'touches everything', now work end to end: safe under races and retries, a balanced ledger, exact fee reversal, the refund deducted from the payout, the timeline, the reports and a signed webhook." |
 | 2:25-3:00 | Y | "We used AI heavily, but never blindly. The repo was booby-trapped with AI rule files that protect the bugs. Our agents treated them as evidence, not orders, and nothing counted until a test proved it. And the mystery: Yousif wasn't taken, he was erased. Every warning he left was a real bug." |

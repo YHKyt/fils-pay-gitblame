@@ -14,7 +14,7 @@ ratings such as "Medium-High"; they are listed as written).
 
 | File | IDs | What it covers | Findings |
 |---|---|---|---|
-| [BRIEFING.md](BRIEFING.md) | — | Team briefing for the case review and the judges: scoreboard, case-file coverage map, top findings, FP-300 demo, judge Q&A. Its scoreboard is recounted over every write-up in this table (205). | summary only |
+| [BRIEFING.md](BRIEFING.md) | — | Team briefing for the case review and the judges: scoreboard, case-file coverage map, top findings, FP-300 demo, judge Q&A. Its scoreboard is recounted over every write-up in this table (207). | summary only |
 | [money-and-settlement.md](money-and-settlement.md) | M1–M17 | Money parsing, payouts, splits, balance rebuild, MDR, daily close, counters, fee display, scheme residue, March sweep, sandbox merchants, reporting wedge, hold janitor, refunded-status recompute, fresh-database boot | 17 (3 Critical, 8 High, 5 Medium, 1 Low) |
 | [api-security-and-refunds.md](api-security-and-refunds.md) | S1–S9, R1–R7, W1–W4, H1, P1–P2, T1 | Auth and OTP, impersonation, FP-300 refunds (built as R1), webhooks, payment links, hosting, test isolation | 22 fixed (6 Critical, 11 High, 4 Medium, 1 Low) + the FP-300 feature (R1); S8 is a review with no change |
 | ↳ same file, "Sweep findings" | A1–A9 (admin plane), M1–M13 (merchant plane) | Table-form sweep of the admin and merchant surfaces | 9 + 13 |
@@ -51,11 +51,12 @@ ratings such as "Medium-High"; they are listed as written).
 | [fixf3.md](fixf3.md) | FC1-FC4 | Fix round F3: legacy card-hash redaction, credit form rate label, seed discount fee, unknown capture outcome | 4 (1 High, 2 Medium, 1 Low) |
 | [fixfp.md](fixfp.md) | FP1-FP6 | False-positive remediation: limit clamp, PAN with spaces, link fields, replay roles, KYC states restored; idempotent CSV re-upload; kept items | 0 (restores base behaviour or refines earlier fixes) |
 | [hostharden.md](hostharden.md) | HH1-HH5 + capacity index | Hosted-box hardening: seed deadlock, pool error listener, edge limits, sizing, healthchecks; checkout index 0125 | 5 (3 High, 2 Medium: HH1-3, HH5 and the index); HH4 not counted |
+| [security-hardening.md](security-hardening.md) | SEC1-SEC2 | Adversarial security sweep (app + hosted config): anti-framing/CSP baseline headers on the HTML, dev-OTP-expose forced off in production | 2 (2 Medium) |
 | [HANDOFF-cloud-session.md](HANDOFF-cloud-session.md) | — | Handoff notes of the cloud session: merged branches, open items | reference, not counted |
 | [mystery-timeline.md](mystery-timeline.md) | rows 1–24 | The vanished developer: timeline, the three transmissions, and the 24 clues that point to real bugs, each with its fix status | mystery deliverable |
 | [ai-config-traps.md](ai-config-traps.md) | claim rows | Claim-by-claim check of the planted `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, the ONBOARDING canary and AI-citing code comments | reference, no fixes of its own |
 
-Fixed findings across the write-ups: 17 + 22 + 9 + 13 + 20 + 5 + 5 + 2 + 3 + 5 + 4 + 2 + 2 + 5 + 2 + 2 + 5 + 8 + 3 + 7 + 3 + 4 + 3 + 4 + 1 + 5 + 11 + 2 + 3 + 5 + 3 + 2 + 4 + 5 + 4 + 4 + 1 = **205** (15 Critical, 75 High, 75 Medium, 40 Low; in-between ratings count at the higher level), plus the FP-300 feature.
+Fixed findings across the write-ups: 17 + 22 + 9 + 13 + 20 + 5 + 5 + 2 + 3 + 5 + 4 + 2 + 2 + 5 + 2 + 2 + 5 + 8 + 3 + 7 + 3 + 4 + 3 + 4 + 1 + 5 + 11 + 2 + 3 + 5 + 3 + 2 + 4 + 5 + 4 + 4 + 1 + 2 = **207** (15 Critical, 75 High, 77 Medium, 40 Low; in-between ratings count at the higher level), plus the FP-300 feature.
 
 Counted once: a bug that two write-ups describe is one finding (judgeprep JP3 = seeddemo SD5, JP5 = eventsbus zero-net payout item, the sqlhunt out-of-order consumer item = RP1, the settleguards one-merchant item = settlerun). Not counted: R1 (feature), S8 (review, no change), items still open or decided against (adminmoney daily cap, apihygiene refund error shape, concfuzz residual, opsfix O7, and the reported-only lists), and "fixed in" notes that carry no severity of their own.
 

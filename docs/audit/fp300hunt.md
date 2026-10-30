@@ -112,8 +112,10 @@ retry with the same key hit 409 `request_in_progress` forever.
   reservation also lets a refund under a different key take the same amount.
   This follows from the code and was not reproduced with a test. The safe fix
   is to keep the acquirer key stable across retries of one claim (or keep the
-  reservation and leave the key for reconciliation on a throw). `agent/fixpack1`
-  was meant to address this; it is not on `fix/money-parsing` at `d68585e`.
+  reservation and leave the key for reconciliation on a throw). **Superseded:**
+  this is exactly what fixpack1 FX3 (`5b29ee5`) now does — `agent/fixpack1` is
+  merged on `fix/money-parsing`, the reservation is kept and the same acquirer
+  key is resent, so the open risk no longer stands.
 
 ## F5. Reconciliation ignores unbatched refunds, so every period with a refund reports a gap — High
 
