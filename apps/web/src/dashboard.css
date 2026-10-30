@@ -846,7 +846,8 @@ footer.dash-main {
 
 /* Money / count cells: right-aligned, tabular monospace so digits line up. */
 .dash-num,
-.dash-table th.dash-num {
+.dash-table th.dash-num,
+.dash-table td.dash-num {
   text-align: right;
   font-family: var(--fp-mono);
   font-variant-numeric: tabular-nums;
