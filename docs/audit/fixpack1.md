@@ -69,3 +69,14 @@ regression test that fails on the old code and passes on the fix.
 - **Breaks:** 500s on a public endpoint, and the thrown authorize leaves the link `reserved` until the reservation timeout, blocking real payers for 60 s per malformed request.
 - **Fix:** The same 12-19 digit string check as authorize, answering `400 invalid_card` before the link is claimed.
 - **Test:** Six malformed cards give 400 and the link stays `active` and payable.
+
+## FX7 NUL characters, out-of-range time zones and bad signup values answer 500 — LOW-MEDIUM
+
+**Where:** new `apps/api/src/plugins/rejectNul.ts` (registered in `app.ts`), `plugins/errorHandler.ts` (`isPgInvalidInput`), `routes/reporting.ts` (`assertValidReportFilter`), `routes/businessProfile.ts` (signup).
+**Evidence:** `routes/inputHygiene.test.ts`: on the old code a NUL gave 500 on payment-link reference/description, API key label, business profile PATCH, webhook url, saved filter name and body, signup legal name and email, the report filter; `+275760-09-13T00:00:00Z` in a report filter and a report cursor with offset `+99` gave 500 (Postgres 22009); signup `businessType: "corp"` (23514) and `country: "BHR"` (22001) gave 500.
+
+- **What:** Postgres `text`/`jsonb` cannot hold U+0000 (22021 / 22P05). Routes validated types and lengths but not NUL; apitxn and the refund route added per-field NUL checks for their own fields only. JavaScript's `Date` accepts the extended year and odd offsets that Postgres then rejects with 22009, which the error handler did not map. Signup did not apply the PATCH route's businessType and country rules.
+- **Why:** Each surface needed its own check, and new fields kept missing it.
+- **Breaks:** 500s (and error-log noise) on public and merchant endpoints from a single byte; monitoring cannot tell them from real crashes.
+- **Fix:** One `preValidation` hook rejects a NUL anywhere in params, query or JSON body with `400 invalid_request`; the JSON-encoded report filter is checked after it is parsed. 22009 joins 22007/22008 in the narrow "invalid input reached the database" net (400). Signup applies the same businessType set and two-letter country rule as PATCH. Signup is in B's onboarding lane; the hunk is a two-check validation only.
+- **Test:** One test per surface type (body field on each route, query value, JSON-in-query, 22009 filter and cursor, signup values), plus a unit test on `containsNul`.

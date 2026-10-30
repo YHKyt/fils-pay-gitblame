@@ -51,7 +51,7 @@ export function errorHandler(
 
   // Safety net for request input that reached SQL unvalidated: a
   // non-UUID id (22P02 raised by string_to_uuid) or an unparseable
-  // timestamp (22007 / 22008). Routes validate these up front; this only
+  // timestamp (22007 / 22008 / 22009). Routes validate these up front; this only
   // keeps a missed one from reading as a crash. Deliberately narrow: 22P02
   // from any other type (e.g. NaN into a bigint money column) is a server
   // bug and stays a 500.
@@ -78,6 +78,10 @@ export function notFoundHandler(_request: FastifyRequest, reply: FastifyReply): 
 function isPgInvalidInput(err: unknown): boolean {
   const { code, routine } = err as { code?: unknown; routine?: unknown };
   if (code === "22007" || code === "22008") return true; // invalid_datetime_format / datetime_field_overflow
+  // invalid_time_zone_displacement_value: a client timestamp such as
+  // "+275760-09-13T00:00:00Z" or a cursor offset "+99" that JS accepts but
+  // Postgres cannot place in a time zone.
+  if (code === "22009") return true;
   return code === "22P02" && routine === "string_to_uuid";
 }
 

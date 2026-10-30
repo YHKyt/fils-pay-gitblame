@@ -4,6 +4,7 @@ import type { Config } from "./config.js";
 import { createAcquirerSimulator } from "./acquirer/simulator.js";
 import { cookiesPlugin } from "./plugins/cookies.js";
 import { multipartPlugin } from "./plugins/multipart.js";
+import { rejectNulPlugin } from "./plugins/rejectNul.js";
 import { errorHandler, notFoundHandler } from "./plugins/errorHandler.js";
 import { requestLogSerializer } from "./lib/requestLogging.js";
 import { healthRoutes } from "./routes/health.js";
@@ -61,6 +62,7 @@ export function buildApp(config: Config, pool: Pool, options: BuildAppOptions = 
 
   app.register(cookiesPlugin);
   app.register(multipartPlugin, { config });
+  app.register(rejectNulPlugin);
   app.setErrorHandler(errorHandler);
   app.setNotFoundHandler(notFoundHandler);
 
