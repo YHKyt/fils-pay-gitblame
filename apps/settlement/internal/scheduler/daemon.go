@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/filspay/settlement/internal/config"
+	"github.com/filspay/settlement/internal/ledger"
 	"github.com/filspay/settlement/internal/settlement"
 )
 
@@ -49,6 +50,11 @@ func Run(ctx context.Context, db *pgxpool.Pool, cfg config.Config) {
 	// any past date, processed or not.
 	// am: runs on boot before the delay check, so a restart at 00:05 closes early. saw it once
 	runIfDue(ctx, db, cfg.DaemonRunDelayMinutes)
+	// Bahrain business-day start of the last successful nightly balance
+	// refresh. In memory only: a restart after 02:00 refreshes once more,
+	// which is harmless because the refresh overwrites, it never adds.
+	var lastBalanceRefresh time.Time
+	lastBalanceRefresh = refreshBalancesIfDue(ctx, db, time.Now(), lastBalanceRefresh)
 
 	for {
 		select {
@@ -57,6 +63,7 @@ func Run(ctx context.Context, db *pgxpool.Pool, cfg config.Config) {
 			return
 		case <-ticker.C:
 			runIfDue(ctx, db, cfg.DaemonRunDelayMinutes)
+			lastBalanceRefresh = refreshBalancesIfDue(ctx, db, time.Now(), lastBalanceRefresh)
 		}
 	}
 }
@@ -96,10 +103,13 @@ func runIfDue(ctx context.Context, db *pgxpool.Pool, runDelayMinutes int) {
 	// am: logs show the close ~03:15 local not 00:15?? whatever, it runs. yalla
 	businessDate := todayStart.AddDate(0, 0, -1)
 
+	// RunDailyBatch settles every merchant it can and returns the failures
+	// joined together, so an error here does not mean nothing was paid: the
+	// failed merchants are retried on the next tick, and the notifications
+	// below still go out for the batches that did reach 'paid'.
 	report, err := settlement.RunDailyBatch(ctx, db, businessDate, nil)
 	if err != nil {
-		log.Printf("settlement daemon: RunDailyBatch(%s) failed: %v", businessDate.Format("2006-01-02"), err)
-		return
+		log.Printf("settlement daemon: RunDailyBatch(%s) failed for some merchant(s): %v", businessDate.Format("2006-01-02"), err)
 	}
 	log.Printf("settlement daemon: RunDailyBatch(%s) processed %d merchant(s)", businessDate.Format("2006-01-02"), len(report.MerchantResults))
 
@@ -119,4 +129,42 @@ func runIfDue(ctx context.Context, db *pgxpool.Pool, runDelayMinutes int) {
 	}
 
 	logNextRunEstimate(now)
+}
+
+// balanceRefreshAfter is how long after Bahrain midnight the nightly
+// balance-cache refresh runs (02:00 Asia/Bahrain), as ARCHITECTURE.md and
+// ADMIN.md describe.
+const balanceRefreshAfter = 2 * time.Hour
+
+// refreshBalancesIfDue runs the nightly balance-cache refresh at most once
+// per Bahrain business day, on the first wake at or after 02:00 Bahrain
+// time. lastDone is the business-day start of the last successful refresh;
+// the returned value replaces it. A failed refresh keeps lastDone, so the
+// next wake retries.
+//
+// It calls ledger.RefreshBalanceCache, the same refresh as the console's
+// "Rebuild cached balances" button, which sets cached_payable_fils to each
+// merchant's merchant_payable ledger balance. The refresh overwrites the
+// cache, so running it again cannot double-count; it is only correct while
+// every merchant_payable posting moves the cache by the same amount, which
+// is the cache definition the balances package follows.
+func refreshBalancesIfDue(ctx context.Context, db *pgxpool.Pool, now, lastDone time.Time) time.Time {
+	now = now.In(settlement.BusinessLocation())
+	todayStart, _ := settlement.BusinessDayWindow(now)
+	if now.Before(todayStart.Add(balanceRefreshAfter)) || !lastDone.Before(todayStart) {
+		return lastDone
+	}
+	diffs, err := ledger.RefreshBalanceCache(ctx, db)
+	if err != nil {
+		log.Printf("settlement daemon: nightly balance refresh failed: %v", err)
+		return lastDone
+	}
+	changed := 0
+	for _, d := range diffs {
+		if d.Changed() {
+			changed++
+		}
+	}
+	log.Printf("settlement daemon: nightly balance refresh: %d merchant(s), %d changed", len(diffs), changed)
+	return todayStart
 }
