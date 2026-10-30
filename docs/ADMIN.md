@@ -8,7 +8,7 @@ three roles:
 |---|---|
 | **support** | look things up, replay webhooks, view as a merchant, issue small credits |
 | **finance** | everything support can do, plus anything that touches money or settlement |
-| **super_admin** | everything, including making changes while viewing as a merchant |
+| **super_admin** | everything; viewing as a merchant is read-only for every role, super_admin included |
 
 You'll only see the buttons your role can use. Everything you do here is
 written to the admin audit log.
