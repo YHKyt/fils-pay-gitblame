@@ -11,6 +11,7 @@ import { bahrainDate, creditFeeReversalLabel, date, dateTime } from "../../forma
 import { attemptFor, isDefinitiveFailure, type IdempotentAttempt } from "../../utils/idempotencyIntent.js";
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
+import { StatusPill } from "../../components/StatusPill.js";
 import type { AdminMerchantDetail, CreditReasonCode, RotatedApiKey } from "../../types.js";
 
 function bhd(fils: number): string {
@@ -266,11 +267,17 @@ export function MerchantDetailPage() {
       <h2>Profile</h2>
       <dl className="admin-dl">
         <dt>Status</dt>
-        <dd>{merchant.status}</dd>
+        <dd>
+          <StatusPill value={merchant.status} />
+        </dd>
         <dt>Onboarding status</dt>
-        <dd>{merchant.onboardingStatus}</dd>
+        <dd>
+          <StatusPill value={merchant.onboardingStatus} />
+        </dd>
         <dt>KYC</dt>
-        <dd>{merchant.kycPassed ? "passed" : "not passed"}</dd>
+        <dd>
+          <StatusPill value={merchant.kycPassed ? "passed" : "not passed"} />
+        </dd>
         <dt>MDR</dt>
         <dd>
           {(merchant.mdrBps / 100).toFixed(2)}% ({merchant.mdrBps} bps)
@@ -282,7 +289,9 @@ export function MerchantDetailPage() {
             : "no negotiated schedule on file (uses MDR above)"}
         </dd>
         <dt>Mode</dt>
-        <dd>{merchant.testMode ? "test" : "live"}</dd>
+        <dd>
+          <StatusPill value={merchant.testMode ? "test" : "live"} />
+        </dd>
         <dt>Created</dt>
         <dd>{dateTime(merchant.createdAt)}</dd>
         {profile ? (
@@ -354,6 +363,7 @@ export function MerchantDetailPage() {
           <div>
             <button
               type="button"
+              className="admin-btn-primary"
               disabled={busy || !adjustDeltaFils.trim() || !adjustReason.trim()}
               onClick={() => void handleAdjustBalance()}
             >
@@ -453,10 +463,20 @@ export function MerchantDetailPage() {
             <textarea value={kycNotes} onChange={(e) => setKycNotes(e.target.value)} rows={3} />
           </label>
           <div>
-            <button type="button" disabled={busy} onClick={() => void handleKycReview("approved")}>
+            <button
+              type="button"
+              className="admin-btn-primary"
+              disabled={busy}
+              onClick={() => void handleKycReview("approved")}
+            >
               Approve KYC
             </button>{" "}
-            <button type="button" disabled={busy} onClick={() => void handleKycReview("rejected")}>
+            <button
+              type="button"
+              className="admin-btn-danger"
+              disabled={busy}
+              onClick={() => void handleKycReview("rejected")}
+            >
               Reject KYC
             </button>
           </div>
@@ -480,7 +500,9 @@ export function MerchantDetailPage() {
           <tbody>
             {kycReviews.map((review) => (
               <tr key={review.id}>
-                <td>{review.outcome}</td>
+                <td>
+                  <StatusPill value={review.outcome} />
+                </td>
                 <td>{review.reviewerIdentifier}</td>
                 <td>{review.notes ?? "-"}</td>
                 <td>{dateTime(review.reviewedAt)}</td>
@@ -567,11 +589,17 @@ export function MerchantDetailPage() {
               onChange={(e) => setRotationLabel(e.target.value)}
             />
           </label>
-          <button type="button" disabled={busy} onClick={() => void handleRotate(pendingRotation)}>
+          <button
+            type="button"
+            className="admin-btn-danger"
+            disabled={busy}
+            onClick={() => void handleRotate(pendingRotation)}
+          >
             {busy ? "Rotating..." : "Yes, rotate it"}
           </button>{" "}
           <button
             type="button"
+            className="admin-btn-ghost"
             onClick={() => {
               setPendingRotation(null);
               setRotationLabel("");
@@ -599,7 +627,9 @@ export function MerchantDetailPage() {
             {webhookEndpoints.map((endpoint) => (
               <tr key={endpoint.id}>
                 <td>{endpoint.url}</td>
-                <td>{endpoint.status}</td>
+                <td>
+                  <StatusPill value={endpoint.status} />
+                </td>
                 <td>
                   <code>{endpoint.secretPrefix}</code>
                 </td>
@@ -622,19 +652,21 @@ export function MerchantDetailPage() {
             <tr>
               <th>Date</th>
               <th>Status</th>
-              <th>Gross</th>
-              <th>Fee</th>
-              <th>Net payout</th>
+              <th className="admin-num">Gross</th>
+              <th className="admin-num">Fee</th>
+              <th className="admin-num">Net payout</th>
             </tr>
           </thead>
           <tbody>
             {batches.map((batch) => (
               <tr key={batch.id}>
                 <td>{batch.batchDate}</td>
-                <td>{batch.status}</td>
-                <td>{bhd(batch.grossFils)}</td>
-                <td>{bhd(batch.feeFils)}</td>
-                <td>{bhd(batch.netPayoutFils)}</td>
+                <td>
+                  <StatusPill value={batch.status} />
+                </td>
+                <td className="admin-num">{bhd(batch.grossFils)}</td>
+                <td className="admin-num">{bhd(batch.feeFils)}</td>
+                <td className="admin-num">{bhd(batch.netPayoutFils)}</td>
               </tr>
             ))}
           </tbody>
@@ -655,18 +687,32 @@ export function MerchantDetailPage() {
           </p>
         }
       >
-        <button type="button" disabled={busy} onClick={() => void handleRecomputeStatuses()}>
+        <button
+          type="button"
+          className="admin-btn-primary"
+          disabled={busy}
+          onClick={() => void handleRecomputeStatuses()}
+        >
           {busy ? "Working..." : "Recompute statuses"}
         </button>
       </RequireRole>
 
       <h2>View as merchant</h2>
+      <div className="admin-readonly-banner">
+        Read-only impersonation: you see the dashboard exactly as this merchant&apos;s support role
+        does, and a banner stays on screen until you exit.
+      </div>
       <p className="admin-muted">
         Starts a short-lived, audited impersonation grant. It always acts with this merchant&apos;s
         least-privileged <code>support</code> role — never with your admin role — and it expires on
         its own. A banner stays on screen until you exit it.
       </p>
-      <button type="button" disabled={busy} onClick={() => void handleImpersonate()}>
+      <button
+        type="button"
+        className="admin-btn-primary"
+        disabled={busy}
+        onClick={() => void handleImpersonate()}
+      >
         View as merchant
       </button>
       {impersonationUrl ? (

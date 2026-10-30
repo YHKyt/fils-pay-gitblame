@@ -10,6 +10,7 @@ import {
 import { describeError } from "../../api/client.js";
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
+import { StatusPill } from "../../components/StatusPill.js";
 import type {
   AdjustmentImportRowDetail,
   AdjustmentImportStatus,
@@ -182,7 +183,7 @@ export function AdjustmentImportPage() {
       <h2>Past imports</h2>
       {listError ? <p className="admin-error">{listError}</p> : null}
       {imports.length === 0 ? (
-        <p className="admin-muted">No imports yet.</p>
+        <div className="admin-empty">No imports yet.</div>
       ) : (
         <table className="admin-table">
           <thead>
@@ -199,7 +200,7 @@ export function AdjustmentImportPage() {
               <tr key={item.id}>
                 <td>{item.createdAt}</td>
                 <td>
-                  {STATUS_LABEL[item.status]}
+                  <StatusPill value={item.status} label={STATUS_LABEL[item.status]} />
                   {item.appliedAt ? <div className="admin-muted">posted {item.appliedAt}</div> : null}
                 </td>
                 <td>{item.originalFilename}</td>
@@ -216,6 +217,7 @@ export function AdjustmentImportPage() {
                       ) : (
                         <button
                           type="button"
+                          className="admin-btn-primary"
                           disabled={busy}
                           onClick={() => void handleDecision(item.id, "approve")}
                         >
@@ -224,6 +226,7 @@ export function AdjustmentImportPage() {
                       )}{" "}
                       <button
                         type="button"
+                        className="admin-btn-danger"
                         disabled={busy}
                         onClick={() => void handleDecision(item.id, "reject")}
                       >
@@ -246,22 +249,22 @@ export function AdjustmentImportPage() {
           <table className="admin-table">
             <thead>
               <tr>
-                <th>#</th>
+                <th className="admin-num">#</th>
                 <th>Merchant</th>
-                <th>CSV amount</th>
-                <th>Posted</th>
+                <th className="admin-num">CSV amount</th>
+                <th className="admin-num">Posted</th>
                 <th>Reason</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
                 <tr key={row.rowNumber}>
-                  <td>{row.rowNumber}</td>
+                  <td className="admin-num">{row.rowNumber}</td>
                   <td>{row.merchantId}</td>
-                  <td>
+                  <td className="admin-num">
                     <code>{row.rawAmountText}</code>
                   </td>
-                  <td>{bhd(row.parsedAmountFils)}</td>
+                  <td className="admin-num">{bhd(row.parsedAmountFils)}</td>
                   <td>{row.reason ?? ""}</td>
                 </tr>
               ))}

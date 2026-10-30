@@ -4,6 +4,7 @@ import { listMerchants } from "../../api/merchants.js";
 import { bulkApproveKyc } from "../../api/merchantsBulk.js";
 import { describeError } from "../../api/client.js";
 import { date } from "../../format.js";
+import { StatusPill } from "../../components/StatusPill.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import type { AdminMerchantSummary, MerchantOnboardingStatus } from "../../types.js";
 
@@ -187,9 +188,9 @@ export function MerchantListPage() {
             <th>Status</th>
             <th>Onboarding</th>
             <th>KYC</th>
-            <th>MDR</th>
+            <th className="admin-num">MDR</th>
             <th>Mode</th>
-            <th>Created</th>
+            <th className="admin-num">Created</th>
           </tr>
         </thead>
         <tbody>
@@ -210,23 +211,33 @@ export function MerchantListPage() {
                   <code>{merchant.id}</code>
                 </div>
               </td>
-              <td>{merchant.status}</td>
-              <td>{merchant.onboardingStatus}</td>
-              <td>{merchant.kycPassed ? "passed" : "not passed"}</td>
-              <td>{(merchant.mdrBps / 100).toFixed(2)}%</td>
-              <td>{merchant.testMode ? "test" : "live"}</td>
-              <td>{date(merchant.createdAt)}</td>
+              <td>
+                <StatusPill value={merchant.status} />
+              </td>
+              <td>
+                <StatusPill value={merchant.onboardingStatus} />
+              </td>
+              <td>
+                <StatusPill value={merchant.kycPassed ? "passed" : "not passed"} />
+              </td>
+              <td className="admin-num">{(merchant.mdrBps / 100).toFixed(2)}%</td>
+              <td>
+                <StatusPill value={merchant.testMode ? "test" : "live"} />
+              </td>
+              <td className="admin-num">{date(merchant.createdAt)}</td>
             </tr>
           ))}
           {merchants.length === 0 && !loading ? (
             <tr>
-              <td colSpan={8}>No merchants match this search.</td>
+              <td colSpan={8}>
+                <div className="admin-empty">No merchants match this search.</div>
+              </td>
             </tr>
           ) : null}
         </tbody>
       </table>
 
-      {loading ? <p>Loading...</p> : null}
+      {loading ? <p className="admin-loading">Loading...</p> : null}
 
       {nextCursor ? (
         <button type="button" disabled={loading} onClick={() => void load(nextCursor)}>
