@@ -85,6 +85,11 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
       if (reference !== undefined && reference !== null && (typeof reference !== "string" || reference.includes("\u0000"))) {
         throw new BadRequestError("invalid_request", "reference must be a string without NUL characters");
       }
+      // The acquirer reads card.pan as a string; anything else threw a
+      // TypeError there and answered 500.
+      if (typeof card !== "object" || Array.isArray(card) || typeof card.pan !== "string" || !/^\d{12,19}$/.test(card.pan)) {
+        throw new BadRequestError("invalid_card", "card.pan must be a string of 12 to 19 digits");
+      }
 
       const input: AuthorizeInput = {
         merchantId: request.apiKeyAuth!.merchantId,
