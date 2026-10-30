@@ -10,7 +10,20 @@ export interface RebuildAnalyticsSummary {
 const REPORTING_CONSUMER = "reporting";
 
 /** Truncates and repopulates the two rollup tables
- *  (merchant_daily_volume, merchant_payout_trends) from source.
+ *  (merchant_daily_volume, merchant_payout_trends) by replaying the outbox.
+ *
+ *  The rollups are the reporting consumer's read model: apps/reporting
+ *  builds them only from outbox_events (consumer/applyEvent.ts), live and in
+ *  its own `rebuild` replay. This is the same fold as one statement: the
+ *  same event types, the same payload fields, the Asia/Bahrain day of the
+ *  outbox row, and a trend row only for a batch that has a
+ *  settlement.batch_closed event, with the last such payload (RecalculateMDR
+ *  re-announces corrected figures) and the batch's current status and
+ *  paid_at (applyBatchClosed and settlement.paid read them from the batch).
+ *  It used to aggregate transaction_events, refunds and every
+ *  settlement_batches row instead, so open batches, which the consumer never
+ *  sees, appeared in the trends, and any history recorded without its
+ *  outbox event counted differently from the consumer.
  *
  *  The rollups are also fed incrementally by the reporting consumer, so the
  *  rebuild must tell the consumer which events it has already counted, in
@@ -36,34 +49,40 @@ export async function refreshAnalyticsRollups(client: PoolClient): Promise<Rebui
     `WITH trends AS (
        INSERT INTO merchant_payout_trends
            (merchant_id, settlement_batch_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, paid_at, last_updated_at)
-        SELECT merchant_id, id, batch_date, status, gross_fils, fee_fils, net_payout_fils, paid_at, now()
-          FROM settlement_batches
+        SELECT closed.merchant_id, closed.batch_id, closed.batch_date, sb.status,
+               closed.gross_fils, closed.fee_fils, closed.net_payout_fils, sb.paid_at, now()
+          FROM (
+            -- applyBatchClosed upserts per (merchantId, batchId), so the last
+            -- event in the consumer's (xact_id, id) order wins.
+            SELECT DISTINCT ON ((o.payload->>'merchantId')::uuid, (o.payload->>'batchId')::uuid)
+                   (o.payload->>'merchantId')::uuid AS merchant_id,
+                   (o.payload->>'batchId')::uuid AS batch_id,
+                   (o.payload->>'batchDate')::date AS batch_date,
+                   (o.payload->>'grossFils')::bigint AS gross_fils,
+                   (o.payload->>'feeFils')::bigint AS fee_fils,
+                   (o.payload->>'netPayoutFils')::bigint AS net_payout_fils
+              FROM outbox_events o
+             WHERE o.event_type = 'settlement.batch_closed'
+             ORDER BY (o.payload->>'merchantId')::uuid, (o.payload->>'batchId')::uuid, o.xact_id DESC, o.id DESC
+          ) closed
+          -- No batch row, no trend row, as in applyBatchClosed.
+          JOIN settlement_batches sb ON sb.id = closed.batch_id
         RETURNING 1
      ), volume AS (
        INSERT INTO merchant_daily_volume
            (merchant_id, volume_date, captured_count, captured_gross_fils, voided_count,
             refund_count, refund_gross_fils, last_updated_at)
-        SELECT merchant_id, volume_date, SUM(captured_count), SUM(captured_gross_fils), SUM(voided_count),
-               SUM(refund_count), SUM(refund_gross_fils), now()
-          FROM (
-            SELECT t.merchant_id,
-                   (te.occurred_at AT TIME ZONE 'Asia/Bahrain')::date AS volume_date,
-                   COUNT(*) FILTER (WHERE te.event_type IN ('captured', 'partially_captured')) AS captured_count,
-                   COALESCE(SUM(te.amount_fils) FILTER (WHERE te.event_type IN ('captured', 'partially_captured')), 0) AS captured_gross_fils,
-                   COUNT(*) FILTER (WHERE te.event_type = 'voided') AS voided_count,
-                   0 AS refund_count,
-                   0 AS refund_gross_fils
-              FROM transaction_events te
-              JOIN transactions t ON t.id = te.transaction_id
-             WHERE te.event_type IN ('captured', 'partially_captured', 'voided')
-             GROUP BY 1, 2
-            UNION ALL
-            SELECT r.merchant_id, (r.occurred_at AT TIME ZONE 'Asia/Bahrain')::date, 0, 0, 0, COUNT(*), SUM(r.amount_fils)
-              FROM refunds r
-             WHERE r.status = 'succeeded'
-             GROUP BY 1, 2
-          ) per_source
-         GROUP BY merchant_id, volume_date
+        SELECT (o.payload->>'merchantId')::uuid,
+               (o.created_at AT TIME ZONE 'Asia/Bahrain')::date,
+               COUNT(*) FILTER (WHERE o.event_type = 'transaction.captured'),
+               COALESCE(SUM((o.payload->>'amountCapturedFils')::bigint) FILTER (WHERE o.event_type = 'transaction.captured'), 0),
+               COUNT(*) FILTER (WHERE o.event_type = 'transaction.voided'),
+               COUNT(*) FILTER (WHERE o.event_type = 'refund.succeeded'),
+               COALESCE(SUM((o.payload->>'amountFils')::bigint) FILTER (WHERE o.event_type = 'refund.succeeded'), 0),
+               now()
+          FROM outbox_events o
+         WHERE o.event_type IN ('transaction.captured', 'transaction.voided', 'refund.succeeded')
+         GROUP BY 1, 2
         RETURNING 1
      ), horizon AS (
        SELECT pg_current_snapshot() AS snap
