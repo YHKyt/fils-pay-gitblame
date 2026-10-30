@@ -69,6 +69,16 @@ type runBatchResponse struct {
 	MerchantResults []merchantBatchOutcomeResponse `json:"merchantResults"`
 }
 
+// runBatchFailedResponse is run-batch's 500 body: the usual error fields
+// plus the merchants RunDailyBatch did close and pay before (or after) the
+// ones that failed.
+type runBatchFailedResponse struct {
+	Error           string                         `json:"error"`
+	Message         string                         `json:"message"`
+	BusinessDate    string                         `json:"businessDate"`
+	MerchantResults []merchantBatchOutcomeResponse `json:"merchantResults"`
+}
+
 // rebuildDiffResponse is the JSON projection of ledger.RebuildDiff.
 //
 // After is the ledger-derived balance, the same figure
@@ -246,11 +256,6 @@ func handleRunBatch(pool *pgxpool.Pool) http.Handler {
 		}
 
 		report, err := settlement.RunDailyBatch(r.Context(), pool, businessDate, onlyMerchant)
-		if err != nil {
-			log.Printf("settlement internal api: run-batch(%s) failed: %v", body.Date, err)
-			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "run_batch_failed"})
-			return
-		}
 
 		results := make([]merchantBatchOutcomeResponse, 0, len(report.MerchantResults))
 		for _, result := range report.MerchantResults {
@@ -263,6 +268,21 @@ func handleRunBatch(pool *pgxpool.Pool) http.Handler {
 				FeeFils:       int64(result.FeeFils),
 				NetPayoutFils: int64(result.NetPayoutFils),
 			})
+		}
+
+		// RunDailyBatch settles every merchant it can and returns the
+		// failures joined, alongside the report of those it did settle.
+		// Still a 500 (part of the run failed), but with that report:
+		// without it the admin cannot tell who was already paid.
+		if err != nil {
+			log.Printf("settlement internal api: run-batch(%s) failed: %v", body.Date, err)
+			writeJSON(w, http.StatusInternalServerError, runBatchFailedResponse{
+				Error:           "run_batch_failed",
+				Message:         err.Error(),
+				BusinessDate:    body.Date,
+				MerchantResults: results,
+			})
+			return
 		}
 
 		writeJSON(w, http.StatusOK, runBatchResponse{
