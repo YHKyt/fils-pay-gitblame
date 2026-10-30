@@ -35,6 +35,15 @@ func RefreshBalanceCache(ctx context.Context, db *pgxpool.Pool) (map[uuid.UUID]R
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 
+	// Wait for in-flight cache moves (capture, refund, payout, credit) to
+	// commit before reading the ledger, and hold new ones until this rebuild
+	// commits, so they add on top of it. Without the lock, the aggregate below
+	// missed a move still in flight and the write replaced it with the older
+	// figure. Plain reads of merchant_balances are not blocked.
+	if _, err := tx.Exec(ctx, `LOCK TABLE merchant_balances IN SHARE ROW EXCLUSIVE MODE`); err != nil {
+		return nil, fmt.Errorf("ledger: RefreshBalanceCache: lock merchant_balances: %w", err)
+	}
+
 	rows, err := tx.Query(ctx, `
 		WITH payable AS (
 			SELECT merchant_id,

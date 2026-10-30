@@ -333,6 +333,14 @@ export async function processRefund(
         [entryGroupId, prepared.merchantId, prepared.transactionId, feeReversedFils],
       );
     }
+    // merchant_balances caches merchant_payable (ADR-0004): same move as the legs above.
+    await client.query(
+      `INSERT INTO merchant_balances (merchant_id, cached_payable_fils, updated_at)
+       VALUES ($1, $2, now())
+       ON CONFLICT (merchant_id) DO UPDATE
+         SET cached_payable_fils = merchant_balances.cached_payable_fils + EXCLUDED.cached_payable_fils, updated_at = now()`,
+      [prepared.merchantId, subtractFils(feeReversedFils, prepared.requestedAmount)],
+    );
 
     // The timeline records what this refund did to the captured amount, so
     // it stays readable regardless of what the status column ends up

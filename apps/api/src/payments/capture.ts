@@ -277,6 +277,15 @@ export async function captureTransaction(
         [entryGroupId, input.merchantId, txn.id, feeFils],
       );
     }
+    // merchant_balances caches merchant_payable (ADR-0004), so it moves with
+    // the legs above in this transaction, as credits and payouts already do.
+    await client.query(
+      `INSERT INTO merchant_balances (merchant_id, cached_payable_fils, updated_at)
+       VALUES ($1, $2, now())
+       ON CONFLICT (merchant_id) DO UPDATE
+         SET cached_payable_fils = merchant_balances.cached_payable_fils + EXCLUDED.cached_payable_fils, updated_at = now()`,
+      [input.merchantId, subtractFils(requestedAmount, feeFils)],
+    );
 
     // Hold lifecycle: released exactly when nothing remains outstanding.
     if (fullyCaptured) {
