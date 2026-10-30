@@ -86,3 +86,18 @@ Checks marked `(DB)` read Postgres directly and run only with `DATABASE_URL`
   expects `422 business_day_not_over` for today.
 - The suite writes data (payment links, refunds, API keys); run it against
   a disposable or freshly seeded instance.
+
+## Load and abuse tests (`load/`)
+
+Used for `docs/audit/hostharden.md`; local stacks only (they need
+`DATABASE_URL`, and they write thousands of links and payments).
+
+- `load/checkout-sweep.mjs <public origin> <api loopback origin> <seconds> <users,...> [out.json]`:
+  each user reads a payment link and pays it; after each step every payment
+  is checked in the database. Prints checkouts/s, p50/p95/p99, errors.
+- `load/abuse-probes.mjs <host> <port> [all|slow|body|flood]`: slowloris,
+  oversized bodies on the public routes, and single-address floods of
+  login, signup, pay, `/v1` and `/healthz`.
+- `load/money-invariants.sql`: ledger balance, paid links without a
+  capture, double captures, captures without ledger entries, refunds above
+  captured, after a load or crash test.

@@ -46,7 +46,7 @@ How it was run: `docker compose -p hh -f ops/docker-compose.yml -f ops/compose.b
 
 **Where:** `ops/nginx.web.conf`, `ops/nginx.main.conf` (new), `ops/Dockerfile.web`.
 
-**Evidence:** the same probes (`hh-abuse.mjs`, 100 loops for 15 s from one address; a separate client reads a payment link straight from the api every 250 ms) against the old config (`git show fix/money-parsing:ops/nginx.web.conf` in a second nginx on the same stack) and the new one:
+**Evidence:** the same probes (`ops/e2e/load/abuse-probes.mjs`, 100 loops for 15 s from one address; a separate client reads a payment link straight from the api every 250 ms) against the old config (`git show fix/money-parsing:ops/nginx.web.conf` in a second nginx on the same stack) and the new one:
 
 | Probe | Old config | New config |
 |---|---|---|
@@ -95,7 +95,7 @@ The judge suite before and after: 173 passed, 0 failed, 0 skipped, and nginx log
 
 ## Capacity (the checkout scenario)
 
-Each virtual user loops: `GET /v1/payment-links/:token` (the checkout page's read), then `POST /v1/payment-links/:token/pay` with a fresh Idempotency-Key, on a link nobody else pays, through the public origin, for 30 s per step. After every step the database is checked: each 200 has exactly one captured transaction for the full amount, the link records it, no link has two captures, and every ledger group balances.
+`ops/e2e/load/checkout-sweep.mjs`. Each virtual user loops: `GET /v1/payment-links/:token` (the checkout page's read), then `POST /v1/payment-links/:token/pay` with a fresh Idempotency-Key, on a link nobody else pays, through the public origin, for 30 s per step. After every step the database is checked: each 200 has exactly one captured transaction for the full amount, the link records it, no link has two captures, and every ledger group balances.
 
 Final configuration, fresh data (the seed plus the steps before it):
 
@@ -132,7 +132,7 @@ The p95 in the mixes is the logins (argon2 on 0.5 vCPU) and the pays; dashboard 
 
 ## Overload, restart and recovery
 
-Each test ran the 40-user checkout load for 60 s and broke one thing 20 s in; a poller watched the containers and the public origin every second. Afterwards the database was checked (`hh-invariants.sql`): unbalanced ledger groups, paid links without a matching capture, links with two captures, captured transactions without ledger entries, refunds above captured.
+Each test ran the 40-user checkout load for 60 s and broke one thing 20 s in; a poller watched the containers and the public origin every second. Afterwards the database was checked (`ops/e2e/load/money-invariants.sql`): unbalanced ledger groups, paid links without a matching capture, links with two captures, captured transactions without ledger entries, refunds above captured.
 
 | Break | Restart | Back after | What clients saw meanwhile | Money rows |
 |---|---|---|---|---|
