@@ -12,6 +12,7 @@ import { bahrainTime } from "../../format.js";
 import { Logo } from "../../components/Logo.js";
 import { safeReturnPath } from "../../utils/safeReturnPath.js";
 import "../../dashboard.css";
+import "./LoginPage.css";
 
 type Step = { kind: "credentials" } | { kind: "otp"; challenge: DashboardLoginResponse };
 
@@ -124,16 +125,53 @@ export function LoginPage() {
   }
 
   return (
-    <div className="dash-login-bg">
-    <main className="dash-centered">
-      <div className="dash-login-logo">
-        <Logo tone="ink" size={34} />
+    <div className="mlogin-root">
+    <aside className="mlogin-brand">
+      <div className="mlogin-brand-inner">
+        <Logo tone="light" size={40} />
+        <div className="mlogin-brand-copy">
+          <p className="mlogin-kicker">Merchant dashboard</p>
+          <p className="mlogin-headline">
+            Payments, settled <em>in Bahrain.</em>
+          </p>
+          <ul className="mlogin-points">
+            <li>
+              <span className="mlogin-point-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" focusable="false">
+                  <path d="M4 12.5l5 5L20 6.5" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+              <span>Accept cards and payment links in BHD, to the fils.</span>
+            </li>
+            <li>
+              <span className="mlogin-point-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" focusable="false">
+                  <path d="M4 17l5-5 4 4 7-8" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+              <span>Daily settlement with every fee shown line by line.</span>
+            </li>
+            <li>
+              <span className="mlogin-point-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" focusable="false">
+                  <rect x="5" y="10.5" width="14" height="9.5" rx="2.2" stroke="currentColor" strokeWidth="2" />
+                  <path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" stroke="currentColor" strokeWidth="2" />
+                </svg>
+              </span>
+              <span>Two-step sign-in protects every account.</span>
+            </li>
+          </ul>
+        </div>
+        <p className="mlogin-foot">FilsPay · Pearl of the Gulf</p>
       </div>
-      <h1>{step.kind === "otp" ? "Check your code" : "Merchant dashboard"}</h1>
+    </aside>
+    <main className="mlogin-main">
+    <div className="mlogin-card">
+      <h1>{step.kind === "otp" ? "Check your code" : "Sign in"}</h1>
       <p className="dash-muted dash-login-tagline">
         {step.kind === "otp"
           ? "A one-time code keeps your account secure."
-          : "The pearl of Gulf payments. Sign in to your FilsPay account."}
+          : "Welcome back. Sign in to your FilsPay merchant account."}
       </p>
 
       {sessionExpired && step.kind === "credentials" && !error ? (
@@ -229,6 +267,7 @@ export function LoginPage() {
           </button>
         </form>
       )}
+    </div>
     </main>
     </div>
   );

@@ -575,6 +575,7 @@ body {
   background: color-mix(in srgb, var(--fp-surface) 70%, var(--fp-bg));
 }
 .checkout-receipt dt {
+  white-space: nowrap;
   font-size: 0.85rem;
   color: var(--fp-muted);
 }
@@ -615,6 +616,7 @@ body {
 }
 .checkout-check-svg {
   display: block;
+  overflow: visible;
   width: 100%;
   height: 100%;
 }
@@ -622,7 +624,6 @@ body {
   fill: var(--fp-accent-soft);
   stroke: var(--fp-gold);
   stroke-width: 3;
-  filter: drop-shadow(0 3px 10px rgba(var(--fp-accent-rgb), 0.45));
 }
 .checkout-check-tick {
   fill: none;
