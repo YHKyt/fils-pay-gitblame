@@ -522,7 +522,10 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
           }
           closedDayCaptures.set(day, dayCaptures);
         };
-        if (fixture.marketplaceBusinessDays === undefined) {
+        // A test-mode merchant is never settled: CloseBatch refuses it
+        // (ErrMerchantNotEligible) and skips test-mode transactions, so its
+        // captures stay on the timeline with no batch.
+        if (fixture.marketplaceBusinessDays === undefined && !fixture.testMode) {
           for (const txn of transactions) {
             if (txn.capturedFils <= 0) continue;
             addClosedDayCapture(txn.occurredAt, {
@@ -711,12 +714,14 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
           }
         }
 
-        await client.query(
-          `INSERT INTO settlement_batches (id, merchant_id, batch_date, status)
-           VALUES ($1, $2, $3, 'open')`,
-          [rng.uuid(), merchantId, openBatchDate],
-        );
-        settlementBatchCount += 1;
+        if (!fixture.testMode) {
+          await client.query(
+            `INSERT INTO settlement_batches (id, merchant_id, batch_date, status)
+             VALUES ($1, $2, $3, 'open')`,
+            [rng.uuid(), merchantId, openBatchDate],
+          );
+          settlementBatchCount += 1;
+        }
 
         // The timeline a real authorize and capture leave on each standard
         // transaction (authorize.ts, capture.ts). The capture event carries

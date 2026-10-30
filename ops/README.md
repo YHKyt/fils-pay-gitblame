@@ -144,7 +144,8 @@ What the seeded history contains: Alpha, Beta, Gamma and Delta Wholesale
 each have about a month of mixed captures, partial captures,
 authorizations and voids, with a full transaction timeline, settled in one
 closed batch per Asia/Bahrain business day up to 2026-08-31 and an open
-batch for 2026-09-01. Alpha and Beta have fee schedules, and their fees are
+batch for 2026-09-01. Gamma is a test-mode merchant, so (as on the live
+platform) it has no settlement batches at all. Alpha and Beta have fee schedules, and their fees are
 charged at the rate in force at each capture. Delta Wholesale also has 60
 high-volume days. Delta Marketplace has 140 days of captured orders that are
 deliberately left unsettled, for `apps/settlement` to close.

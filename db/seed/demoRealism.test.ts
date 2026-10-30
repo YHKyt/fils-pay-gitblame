@@ -177,3 +177,15 @@ test("the seed output never contains a usable API key", { skip }, async () => {
     assert.ok(seedOutput.includes(key_prefix), `the display-safe prefix ${key_prefix} is still printed`);
   }
 });
+
+test("a test-mode merchant has no settlement history", { skip }, async () => {
+  // CloseBatch refuses a test-mode merchant and never settles a test-mode
+  // transaction, so no run of apps/settlement can leave one a batch.
+  const batches = await pool.query<{ display_name: string; batches: string; gross: string }>(
+    `SELECT m.display_name, COUNT(sb.id)::text AS batches, COALESCE(SUM(sb.gross_fils), 0)::text AS gross
+       FROM merchants m JOIN settlement_batches sb ON sb.merchant_id = m.id
+      WHERE m.test_mode
+      GROUP BY m.display_name`,
+  );
+  assert.deepEqual(batches.rows.map((b) => `${b.display_name}: ${b.batches} batch(es), gross ${b.gross}`), []);
+});
