@@ -22,3 +22,13 @@ regression test that fails on the old code and passes with the fix.
 - **Breaks:** a captured transaction with nothing refunded reads `refunded` in the dashboard, list filters, exports and reporting. `refundValidation` refuses `refunded`, so the merchant can no longer refund the customer at all. Before the fix both the `declined` and `error` cases ended `status = 'refunded'`, `refunded_fils = 0`.
 - **Fix:** when the reservation is released, re-derive the status from what is left in `refunded_fils` and apply it only if it moves the row *down* the refund side (refunded > partially_refunded > captured/partially_captured). It never pushes a status up (another refund may still be in flight) and never touches statuses outside the refund lifecycle (chargeback, voided).
 - **Test:** `apps/api/src/payments/refundDeclineAfterRecompute.test.ts` (declined and error). Before: `refunded`. After: `captured`, and a new refund of the full amount succeeds.
+
+## HA3. Voiding a link payment whose capture timed out leaves the link "paid" — Medium
+
+**Where:** `apps/api/src/payments/void.ts`, with `apps/api/src/paymentLinks/pay.ts` (capture-throw path)
+
+- **What:** when the capture step of a link payment throws (an acquirer timeout, so the outcome is unknown), `pay.ts` deliberately keeps the link `paid` against its still-authorized transaction. It reads `processing` "until the merchant captures or voids the authorization". A merchant void only voided the transaction. The link stayed `paid` with a voided transaction.
+- **Why:** nothing tied the void back to the link. `derivePublicStatus` reports `paid` for any `paid` link whose transaction is no longer `authorized`.
+- **Breaks:** the checkout and the merchant's link list say **paid** although nothing was charged, so a merchant can ship goods for a payment that never happened. The customer cannot pay (409 `payment_link_already_paid`), and the merchant cannot cancel the link (`not_cancelable`, status paid). Nothing can recover the link.
+- **Fix:** `voidTransaction` hands back any link finalized to the transaction it voids (`paid` -> `active`, `paid_at`/`transaction_id` cleared), in the same transaction as the void. This is what `pay.ts` already does when its own capture fails. Links of other attempts are not bound to the voided transaction, so they are unaffected.
+- **Test:** `apps/api/src/paymentLinks/pay.voidProcessing.test.ts`. Before: public status `paid` after the void. After: the link is `active`, and a new payment captures once.
