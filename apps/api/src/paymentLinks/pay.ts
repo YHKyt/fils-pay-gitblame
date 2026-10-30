@@ -32,6 +32,7 @@ interface LinkStatusRow {
   expires_at: Date;
   reserved_at: Date | null;
   transaction_status: string | null;
+  captured_attempt: boolean;
 }
 
 /**
@@ -42,6 +43,25 @@ interface LinkStatusRow {
  */
 export function expiryReferenceTime(_submittedAt?: string): Date {
   return new Date();
+}
+
+/**
+ * True when an earlier pay attempt's authorization of this link (found by its
+ * `paylink:<link id>:<key>:authorize` idempotency key) has been captured. An
+ * attempt whose capture met an acquirer error reopens the link but keeps its
+ * authorization, and the merchant can capture that authorization by hand:
+ * the link is then paid even though its row says 'active'. `exceptKeyParam`
+ * names the SQL parameter holding the caller's own Idempotency-Key, whose
+ * attempt a same-key retry may still finalize.
+ */
+function capturedAttemptExists(link: string, exceptKeyParam?: string): string {
+  const exceptOwn = exceptKeyParam ? ` AND k.key <> 'paylink:' || ${link}.id || ':' || ${exceptKeyParam} || ':authorize'` : "";
+  return `EXISTS (
+    SELECT 1 FROM idempotency_keys k JOIN transactions t ON t.id = k.resource_id
+     WHERE k.merchant_id = ${link}.merchant_id
+       AND k.endpoint = 'transactions.authorize'
+       AND k.key LIKE 'paylink:' || ${link}.id || ':%:authorize'
+       AND t.captured_fils > 0${exceptOwn})`;
 }
 
 /**
@@ -79,8 +99,9 @@ export async function payPaymentLink(
              OR (status = 'reserved' AND reserved_at < now() - ($2 || ' seconds')::interval)
             )
         AND expires_at > $3
+        AND NOT ${capturedAttemptExists("payment_links", "$4")}
       RETURNING id, merchant_id, amount_fils, reference, reserved_at::text AS reserved_at`,
-    [input.token, config.paymentLinkReservationTimeoutSeconds, expiryCheckTime],
+    [input.token, config.paymentLinkReservationTimeoutSeconds, expiryCheckTime, input.idempotencyKey],
   );
 
   const claimedRow = claimResult.rows[0];
@@ -161,9 +182,12 @@ export async function payPaymentLink(
 
   if (captureResult.statusCode !== 200) {
     // Nothing was captured: hand the link back so the customer can retry.
+    // Unless the merchant captured this authorization by hand in the
+    // meantime (the capture then answers not_capturable): the link is paid.
     await pool.query(
       `UPDATE payment_links SET status = 'active', paid_at = NULL, transaction_id = NULL
-        WHERE id = $1 AND status = 'paid' AND transaction_id = $2`,
+        WHERE id = $1 AND status = 'paid' AND transaction_id = $2
+          AND NOT EXISTS (SELECT 1 FROM transactions WHERE id = $2 AND captured_fils > 0)`,
       [link.id, txnId],
     );
     // A declined capture leaves an authorization nobody will ever capture:
@@ -177,6 +201,13 @@ export async function payPaymentLink(
       body: { stage: "capture", ...(captureResult.body as Record<string, unknown>) },
     };
   }
+
+  // An earlier attempt whose capture met an acquirer error kept its
+  // authorization for a same-key retry. The link is paid now, so that
+  // retry can never capture it: release it rather than leave the first
+  // customer's funds on hold, capturable as a second charge for one link.
+  // Best effort: the payment itself has already succeeded.
+  await voidOtherLinkAuthorizations(pool, link, txnId).catch(() => undefined);
 
   return {
     statusCode: 200,
@@ -221,6 +252,32 @@ async function loseFinalizeRace(
 }
 
 /**
+ * Voids every authorization a pay attempt on this link created, except
+ * `keepTxnId` (null: all of them). Attempts are found through their
+ * authorize idempotency keys (`paylink:<link id>:<key>:authorize`).
+ * voidTransaction leaves anything that is no longer 'authorized' alone.
+ */
+export async function voidOtherLinkAuthorizations(
+  pool: Pool,
+  link: { id: string; merchantId: string },
+  keepTxnId: string | null,
+): Promise<void> {
+  const result = await pool.query<{ resource_id: string }>(
+    `SELECT resource_id FROM idempotency_keys
+      WHERE merchant_id = $1 AND endpoint = 'transactions.authorize' AND key LIKE $2
+        AND resource_id IS NOT NULL AND resource_id IS DISTINCT FROM $3::uuid`,
+    [link.merchantId, `paylink:${link.id}:%:authorize`, keepTxnId],
+  );
+  for (const row of result.rows) {
+    await voidTransaction(pool, {
+      transactionId: row.resource_id,
+      merchantId: link.merchantId,
+      actor: { type: "system", id: link.id },
+    });
+  }
+}
+
+/**
  * Used by the authorize decline branch above. Guarded by the lease token
  * for the same reason as the finalize UPDATE: this request only ever
  * releases the reservation it itself holds.
@@ -248,7 +305,8 @@ async function classifyClaimFailure(
   expiryCheckTime: Date,
 ): Promise<PayPaymentLinkResult> {
   const result = await pool.query<LinkStatusRow>(
-    `SELECT pl.status, pl.expires_at, pl.reserved_at, t.status AS transaction_status
+    `SELECT pl.status, pl.expires_at, pl.reserved_at, t.status AS transaction_status,
+            ${capturedAttemptExists("pl")} AS captured_attempt
        FROM payment_links pl
        LEFT JOIN transactions t ON t.id = pl.transaction_id
       WHERE pl.token = $1`,
@@ -258,6 +316,9 @@ async function classifyClaimFailure(
 
   if (!row) {
     return { statusCode: 404, body: { error: "payment_link_not_found" } };
+  }
+  if (row.captured_attempt && (row.status === "active" || row.status === "reserved")) {
+    return { statusCode: 409, body: { error: "payment_link_already_paid" } };
   }
   if (row.status === "paid" && row.transaction_status === "authorized") {
     // Finalized but not yet captured (capture running, or its outcome is
