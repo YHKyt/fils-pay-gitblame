@@ -112,6 +112,9 @@ services:
       ACQUIRER_FAILURE_RATE: ${ACQUIRER_FAILURE_RATE:-0}
       # Off unless ops/.env turns it on. See ops/README.md, "Logging in".
       OTP_DEV_EXPOSE: ${OTP_DEV_EXPOSE:-false}
+      # Password lockout (auth/loginLockout.ts). Raise on a box under automated tests.
+      LOGIN_MAX_FAILED_ATTEMPTS: ${LOGIN_MAX_FAILED_ATTEMPTS:-10}
+      LOGIN_LOCKOUT_MINUTES: ${LOGIN_LOCKOUT_MINUTES:-15}
       # Take the client address from nginx's X-Forwarded-For (sessions record
       # it). Only private-range peers are trusted: the compose network.
       TRUST_PROXY: loopback,linklocal,uniquelocal
