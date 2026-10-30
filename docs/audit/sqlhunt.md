@@ -33,13 +33,14 @@ repeated.
 
 - `outbox_events.id` is a sequence value taken at INSERT, not at COMMIT, and the API, the settlement worker and every concurrent request write the outbox. A slower transaction that took a lower id becomes visible after the cursor has passed it, and is skipped forever. The "ids are monotonic" comment in the consumer is true of allocation, not of visibility.
 
-### Admin "Rebuild analytics" is a second implementation that disagrees with the consumer — Medium (admin)
+### Admin "Rebuild analytics" is a second implementation that disagrees with the consumer — Medium (admin) — fixed in `6cb4837`
 
 **Where:** `apps/api/src/admin/reportingRebuild.ts`, `apps/api/src/routes/admin.ts` (`POST /v1/admin/reporting/rebuild`).
 
 **Evidence:** on the seeded database the live rollup holds 4 `merchant_daily_volume` rows / 5 captures / 1,236,975 fils and 4 payout-trend rows; the rebuild query produces 201 rows / 1,423 captures / 1,236,483,286 fils and 68 payout-trend rows.
 
 - The route comment says the rebuild "replays the outbox from the start"; the code instead re-aggregates `transaction_events` and copies every `settlement_batches` row (open batches included) and does not touch `reporting_outbox_cursor`. Outbox events the consumer has not reached yet are counted once by the rebuild and again when the consumer applies them. The CLI `reporting rebuild` (truncate, reset cursor, replay) is the consistent one.
+- **Fixed in `6cb4837`:** RP3 (`reporting.md`) had already stopped the double count: the rebuild moves the cursor and stores its snapshot. The seed now writes outbox events for its history (seeddemo SD2/SD3), so on a fresh seed the volume rollup agreed both ways (256 rows / 1,527 captures / 1,245,818,113 fils). But the rebuild still copied every `settlement_batches` row, giving 98 trend rows (3 of them open) against the consumer's 95. It now aggregates `outbox_events` the way `applyEvent.ts` applies them: the same event types and payload fields, the Asia/Bahrain day of the outbox row, and the last `settlement.batch_closed` per batch with the batch's current status and `paid_at`. It keeps the single statement and the cursor move. On the reseeded database the rebuild equals the live rollup, and it still does after another consumer pass. Test: `apps/api/src/admin/reportingRebuild.parity.test.ts`. It fails before the fix, because the open batch appears as a trend row, and passes after.
 
 ### Smaller items seen, not changed
 - `db/seed/fixtures/production_seed.sql` (50k lines, "production-equivalent", referenced by nothing) cannot load on the current schema: `transaction_events_event_type_check` rejects its `refund.succeeded` rows. It also marks rows `refunded` with `captured_fils = 0`.

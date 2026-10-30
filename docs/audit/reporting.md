@@ -45,7 +45,7 @@ Branch `agent/reporting`, migration `0096_outbox_commit_order_cursor.sql`. Each 
 - **Fix:**
   - Add `refund_count` / `refund_gross_fils` columns, with an exact backfill of the refund events the cursor has already passed.
   - The applier uses `payload.amountFils` and buckets by the Asia/Bahrain date of the outbox row.
-  - The admin rebuild fills the columns from `refunds` (succeeded only).
+  - The admin rebuild fills the columns from `refunds` (succeeded only). Since `6cb4837` it reads the `refund.succeeded` outbox events instead, as the consumer does (see `sqlhunt.md`).
   - `getVolumes` returns `refundCount` / `refundGrossFils` as new fields; existing fields are unchanged.
 - **Test:** `applyEvent.refund.test.ts`: a refund at 22:30 UTC on 1 Mar lands on 2026-03-02 as 1 refund / 1,250 fils. `reportingRebuild.test.ts` has a refund case.
 
