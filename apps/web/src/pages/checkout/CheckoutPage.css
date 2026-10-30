@@ -249,20 +249,7 @@ body {
   gap: 0.6rem;
 }
 .checkout-form-row label {
-  flex: 1 1 0;
-  min-width: 0;
-}
-.checkout-form input {
-  width: 100%;
-  min-width: 0;
-}
-/* The card keeps its padding in every state (declined included): nothing
-   inside may push it wider than the column. */
-.checkout-card > * {
-  max-width: 100%;
-}
-.checkout-card .checkout-error {
-  overflow-wrap: anywhere;
+  flex: 1;
 }
 
 .checkout-form button {
