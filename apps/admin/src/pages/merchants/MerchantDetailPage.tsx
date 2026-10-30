@@ -554,7 +554,7 @@ export function MerchantDetailPage() {
       {kycReviews.length === 0 ? (
         <p className="admin-muted">No reviews recorded.</p>
       ) : (
-        <table className="admin-table">
+        <div className="admin-table-wrap"><table className="admin-table">
           <thead>
             <tr>
               <th>Outcome</th>
@@ -575,7 +575,7 @@ export function MerchantDetailPage() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
 
       <h2>API keys</h2>
@@ -601,7 +601,7 @@ export function MerchantDetailPage() {
       {apiKeys.length === 0 ? (
         <p className="admin-muted">No API keys.</p>
       ) : (
-        <table className="admin-table">
+        <div className="admin-table-wrap"><table className="admin-table">
           <thead>
             <tr>
               <th>Prefix</th>
@@ -637,7 +637,7 @@ export function MerchantDetailPage() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
 
       {pendingRotation ? (
@@ -680,7 +680,7 @@ export function MerchantDetailPage() {
       {webhookEndpoints.length === 0 ? (
         <p className="admin-muted">No endpoints registered.</p>
       ) : (
-        <table className="admin-table">
+        <div className="admin-table-wrap"><table className="admin-table">
           <thead>
             <tr>
               <th>URL</th>
@@ -703,7 +703,7 @@ export function MerchantDetailPage() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
       <p>
         <Link to={`/webhooks/${merchant.id}`}>Replay a batch of deliveries for this merchant</Link>
@@ -713,7 +713,7 @@ export function MerchantDetailPage() {
       {batches.length === 0 ? (
         <p className="admin-muted">No batches yet.</p>
       ) : (
-        <table className="admin-table">
+        <div className="admin-table-wrap"><table className="admin-table">
           <thead>
             <tr>
               <th>Date</th>
@@ -736,7 +736,7 @@ export function MerchantDetailPage() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
 
       <h2>Recompute transaction statuses</h2>

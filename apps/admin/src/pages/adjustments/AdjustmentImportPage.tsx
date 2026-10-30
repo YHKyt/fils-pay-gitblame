@@ -8,6 +8,7 @@ import {
   uploadAdjustmentImport,
 } from "../../api/adjustmentImports.js";
 import { describeError } from "../../api/client.js";
+import { dateTime } from "../../format.js";
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { StatusPill } from "../../components/StatusPill.js";
@@ -185,7 +186,7 @@ export function AdjustmentImportPage() {
       {imports.length === 0 ? (
         <div className="admin-empty">No imports yet.</div>
       ) : (
-        <table className="admin-table">
+        <div className="admin-table-wrap"><table className="admin-table">
           <thead>
             <tr>
               <th>Uploaded</th>
@@ -198,10 +199,10 @@ export function AdjustmentImportPage() {
           <tbody>
             {imports.map((item) => (
               <tr key={item.id}>
-                <td>{item.createdAt}</td>
+                <td>{dateTime(item.createdAt)}</td>
                 <td>
                   <StatusPill value={item.status} label={STATUS_LABEL[item.status]} />
-                  {item.appliedAt ? <div className="admin-muted">posted {item.appliedAt}</div> : null}
+                  {item.appliedAt ? <div className="admin-muted">Posted {dateTime(item.appliedAt)}</div> : null}
                 </td>
                 <td>{item.originalFilename}</td>
                 <td>{item.rowCount}</td>
@@ -238,7 +239,7 @@ export function AdjustmentImportPage() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
 
       {rowsError ? <p className="admin-error">{rowsError}</p> : null}
@@ -246,7 +247,7 @@ export function AdjustmentImportPage() {
       {openImportId ? (
         <div>
           <h3>Rows</h3>
-          <table className="admin-table">
+          <div className="admin-table-wrap"><table className="admin-table">
             <thead>
               <tr>
                 <th className="admin-num">#</th>
@@ -269,7 +270,7 @@ export function AdjustmentImportPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </div>
       ) : null}
     </section>

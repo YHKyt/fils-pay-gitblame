@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { RouterProvider } from "react-router-dom";
 import { AdminAuthProvider } from "./auth/AdminAuthContext.js";
 import { router } from "./router.js";
+import { SessionExpiredNotice } from "./components/SessionExpiredNotice.js";
 // Fonts, all bundled offline via @fontsource (Vite emits the woff2 locally —
 // no CDN, no network fetch at runtime), and only the weights the "Pearl of
 // the Gulf" admin identity actually uses:
@@ -29,6 +30,7 @@ if (!rootElement) {
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <AdminAuthProvider>
+      <SessionExpiredNotice />
       <RouterProvider router={router} />
     </AdminAuthProvider>
   </React.StrictMode>,

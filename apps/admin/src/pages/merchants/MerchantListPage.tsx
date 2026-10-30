@@ -172,7 +172,7 @@ export function MerchantListPage() {
         </div>
       ) : null}
 
-      <table className="admin-table">
+      <div className="admin-table-wrap"><table className="admin-table">
         <thead>
           <tr>
             <th>
@@ -254,7 +254,7 @@ export function MerchantListPage() {
             </tr>
           ) : null}
         </tbody>
-      </table>
+      </table></div>
 
       {loading && merchants.length > 0 ? <p className="admin-loading">Loading...</p> : null}
 

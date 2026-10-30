@@ -229,8 +229,15 @@
   box-sizing: border-box;
 }
 
+html {
+  min-height: 100%;
+  background: var(--fp-app-bg);
+}
+
 body {
   margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
   font-family: var(--fp-font);
   font-size: 15px;
   line-height: 1.5;
@@ -612,6 +619,9 @@ h3 {
   z-index: 1;
 }
 body:has(.admin-centered) {
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  background-size: 100% 100%;
   background:
     radial-gradient(55% 45% at 12% 0%, rgba(200, 162, 75, 0.12), transparent 60%),
     radial-gradient(60% 50% at 100% 100%, rgba(14, 74, 81, 0.12), transparent 58%),
@@ -885,7 +895,6 @@ button[type="submit"]:hover:not(:disabled),
   align-items: center;
   gap: 0.4rem;
   font-size: 0.9rem;
-  text-transform: capitalize;
 }
 
 /* ---------------------------------------------------------------- cards */
@@ -987,7 +996,6 @@ button[type="submit"]:hover:not(:disabled),
   background: var(--fp-surface);
   border: 1px solid var(--fp-border);
   border-radius: var(--fp-radius);
-  overflow: hidden;
   font-size: 0.9rem;
   box-shadow: var(--fp-shadow-sm);
 }
@@ -1114,7 +1122,6 @@ button[type="submit"]:hover:not(:disabled),
   line-height: 1.4;
   white-space: nowrap;
   border: 1px solid transparent;
-  text-transform: capitalize;
 }
 .admin-pill::before {
   content: "";
@@ -1448,11 +1455,6 @@ button[type="submit"]:hover:not(:disabled),
   h1 { font-size: 1.6rem; }
   /* Any wide table scrolls inside its own frame rather than stretching the
      page — admin is desktop-first but must never clip on a tablet/phone. */
-  .admin-table {
-    display: block;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
   .admin-dl {
     grid-template-columns: 1fr;
     gap: 0;
@@ -1478,4 +1480,183 @@ button[type="submit"]:hover:not(:disabled),
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ------------------------------------------------- audit fixes (Oct 30) */
+
+/* The aurora gradient must cover the whole viewport once, never tile. The
+   longhands after the shorthand above are re-stated here so they win. */
+body:has(.admin-centered) {
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  background-size: 100% 100%;
+  min-height: 100dvh;
+}
+
+/* Every table scrolls inside its own frame at every width (no clipping at
+   721-1200px). The frame also scrolls vertically, so the sticky header
+   sticks to the frame's own top edge. */
+.admin-table-wrap {
+  margin: 1rem 0;
+  max-width: 100%;
+  max-height: min(75vh, 52rem);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--fp-border);
+  border-radius: var(--fp-radius);
+  box-shadow: var(--fp-shadow-sm);
+  background: var(--fp-surface);
+}
+.admin-table-wrap > .admin-table {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.admin-table-wrap > .admin-table thead th {
+  top: 0;
+}
+.admin-notice .admin-table-wrap {
+  max-height: 24rem;
+}
+
+/* Danger button: white on the lighter coral was ~3.4:1. */
+.admin-btn-danger {
+  color: #fff;
+  background: #c23a2b;
+  border-color: #c23a2b;
+}
+.admin-btn-danger:hover:not(:disabled) {
+  color: #fff;
+  background: #a83224;
+  border-color: #a83224;
+}
+
+/* Shared confirm dialog. */
+.admin-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(8, 22, 24, 0.55);
+  backdrop-filter: blur(2px);
+}
+.admin-dialog {
+  width: min(34rem, 100%);
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+  padding: 1.5rem 1.6rem 1.3rem;
+  background: var(--fp-surface);
+  color: var(--fp-text);
+  border: 1px solid var(--fp-border);
+  border-radius: var(--fp-radius-lg);
+  box-shadow: var(--fp-shadow-lg);
+}
+.admin-dialog h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.2rem;
+}
+.admin-dialog-body p {
+  margin: 0 0 0.6rem;
+}
+.admin-dialog-body ul {
+  margin: 0 0 0.6rem;
+  padding-left: 1.2rem;
+  max-height: 12rem;
+  overflow: auto;
+}
+.admin-dialog-warning {
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--fp-radius-sm);
+  background: color-mix(in srgb, #c23a2b 12%, transparent);
+  color: var(--fp-ink);
+  font-weight: 600;
+}
+.admin-dialog-summary {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.3rem 1rem;
+  margin: 0 0 0.75rem;
+}
+.admin-dialog-summary dt {
+  color: var(--fp-muted);
+}
+.admin-dialog-summary dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.admin-dialog-reason {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+  font-weight: 600;
+}
+.admin-dialog-reason textarea,
+.admin-confirm input,
+.admin-confirm textarea {
+  font: inherit;
+  padding: 0.5rem 0.6rem;
+  color: var(--fp-text);
+  background: var(--fp-surface);
+  border: 1px solid var(--fp-border-strong);
+  border-radius: var(--fp-radius-sm);
+}
+.admin-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 1.1rem;
+}
+
+/* Money input with a fixed "BHD" suffix and a live preview line. */
+.admin-money-input {
+  display: flex;
+  align-items: stretch;
+}
+.admin-money-input input {
+  flex: 1;
+  min-width: 0;
+  border-top-right-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+}
+.admin-money-input span {
+  display: flex;
+  align-items: center;
+  padding: 0 0.7rem;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--fp-muted);
+  background: var(--fp-surface-2);
+  border: 1px solid var(--fp-border-strong);
+  border-left: 0;
+  border-radius: 0 var(--fp-radius-sm) var(--fp-radius-sm) 0;
+}
+.admin-money-preview {
+  font-size: 0.85rem;
+  color: var(--fp-muted);
+  font-weight: 500;
+}
+.admin-money-preview.is-error {
+  color: #c23a2b;
+}
+
+.admin-session-expired {
+  position: fixed;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  max-width: calc(100% - 2rem);
+  padding: 0.7rem 1.1rem;
+  border-radius: var(--fp-radius);
+  background: var(--fp-surface);
+  color: var(--fp-ink);
+  border: 1px solid var(--fp-border-strong);
+  border-left: 4px solid #c8a24b;
+  box-shadow: var(--fp-shadow-lg);
+  font-weight: 600;
 }

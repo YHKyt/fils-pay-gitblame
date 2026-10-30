@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAdminAuth } from "../auth/AdminAuthContext.js";
 import { WEB_BASE_URL } from "../api/client.js";
+import { enumLabel } from "../format.js";
 import { ImpersonationBanner } from "./ImpersonationBanner.js";
 import { Brand } from "./Brand.js";
 import { ThemeToggle } from "./ThemeToggle.js";
@@ -34,7 +35,7 @@ export function AdminLayout() {
         <div className="admin-identity">
           {admin ? (
             <span className="admin-identity-email">
-              {admin.email} <span className="admin-role-chip">{admin.role}</span>
+              {admin.email} <span className="admin-role-chip">{enumLabel(admin.role)}</span>
             </span>
           ) : null}
           <ThemeToggle />

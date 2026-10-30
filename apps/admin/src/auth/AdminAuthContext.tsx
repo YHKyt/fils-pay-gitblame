@@ -9,6 +9,7 @@ import {
 } from "../api/impersonation.js";
 import type { ActiveImpersonation } from "../api/impersonation.js";
 import type { AdminMe } from "../types.js";
+import { UNAUTHORIZED_EVENT } from "../api/client.js";
 import { forgetGrantAfterEndFailure } from "./impersonationExit.js";
 
 export type AdminAuthStatus = "loading" | "authenticated" | "anonymous";
@@ -28,6 +29,9 @@ export interface AdminAuthValue {
    *  On failure the record is kept (and the error rethrown) unless the
    *  server answered 404, i.e. the grant is already gone. */
   exitImpersonation: () => Promise<void>;
+  /** True after a 401 mid-use dropped the operator to the login screen;
+   *  cleared on the next successful sign-in. */
+  sessionExpired: boolean;
 }
 
 const AdminAuthReactContext = createContext<AdminAuthValue | null>(null);
@@ -48,11 +52,14 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     readActiveImpersonation(),
   );
 
+  const [sessionExpired, setSessionExpired] = useState(false);
+
   const refresh = useCallback(async () => {
     try {
       const current = await fetchMe();
       setAdmin(current);
       setStatus("authenticated");
+      setSessionExpired(false);
     } catch {
       // Any failure — 401, a revoked session, the API being down — lands the
       // operator on the login screen rather than a half-rendered console.
@@ -64,6 +71,21 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // A 401 from any data route means the session ended under the operator
+  // (idle timeout, revoked elsewhere). Drop to anonymous so the route guard
+  // redirects to the login screen instead of leaving a dead console.
+  useEffect(() => {
+    function onUnauthorized(): void {
+      setAdmin(null);
+      setStatus((previous) => {
+        if (previous === "authenticated") setSessionExpired(true);
+        return "anonymous";
+      });
+    }
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+  }, []);
 
   // An impersonation grant has a short, server-enforced lifetime
   // (config.impersonationTtlMinutes, default 15). Re-read the local record
@@ -134,8 +156,9 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
       impersonation,
       rememberImpersonation,
       exitImpersonation,
+      sessionExpired,
     }),
-    [status, admin, refresh, signOut, impersonation, rememberImpersonation, exitImpersonation],
+    [status, admin, refresh, signOut, impersonation, rememberImpersonation, exitImpersonation, sessionExpired],
   );
 
   return <AdminAuthReactContext.Provider value={value}>{children}</AdminAuthReactContext.Provider>;

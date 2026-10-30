@@ -133,7 +133,7 @@ export function CreditsPage() {
       {items.length === 0 ? (
         <div className="admin-empty">Nothing here.</div>
       ) : (
-        <table className="admin-table">
+        <div className="admin-table-wrap"><table className="admin-table">
           <thead>
             <tr>
               <th>Requested by</th>
@@ -198,7 +198,7 @@ export function CreditsPage() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
 
       {pendingReject ? (

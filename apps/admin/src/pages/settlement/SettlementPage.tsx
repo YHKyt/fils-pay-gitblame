@@ -169,7 +169,7 @@ export function SettlementPage() {
             {runResults.length === 1 ? "" : "s"} processed.
           </p>
           {runResults.length > 0 ? (
-            <table className="admin-table">
+            <div className="admin-table-wrap"><table className="admin-table">
               <thead>
                 <tr>
                   <th>Merchant</th>
@@ -198,7 +198,7 @@ export function SettlementPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           ) : null}
         </div>
       ) : null}
@@ -256,7 +256,7 @@ export function SettlementPage() {
             {(rebuildResult.changed ?? []).length} changed.
           </p>
           {(rebuildResult.changed ?? []).length > 0 ? (
-            <table className="admin-table">
+            <div className="admin-table-wrap"><table className="admin-table">
               <thead>
                 <tr>
                   <th>Merchant</th>
@@ -275,7 +275,7 @@ export function SettlementPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           ) : (
             <p className="admin-muted">Every cached balance already matched the ledger.</p>
           )}
@@ -386,7 +386,7 @@ export function SettlementPage() {
             change.
           </p>
           {mdrAdjusted.length > 0 ? (
-            <table className="admin-table">
+            <div className="admin-table-wrap"><table className="admin-table">
               <thead>
                 <tr>
                   <th>Batch date</th>
@@ -409,7 +409,7 @@ export function SettlementPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           ) : (
             <p className="admin-muted">Every batch in range already matched the current rate.</p>
           )}

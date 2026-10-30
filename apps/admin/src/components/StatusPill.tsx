@@ -9,6 +9,8 @@
  * payout states, credit-request and adjustment-import states, webhook
  * endpoint and delivery states, and the test/live mode flag.
  */
+import { enumLabel } from "../format.js";
+
 type Tone = "neutral" | "success" | "danger" | "warning" | "info" | "accent";
 
 const TONE_BY_VALUE: Record<string, Tone> = {
@@ -54,9 +56,9 @@ export function StatusPill({
   value: string;
   /** Override the derived tone when the caller knows better. */
   tone?: Tone;
-  /** Override the shown text (defaults to `value`). */
+  /** Override the shown text (defaults to the human label for `value`). */
   label?: string;
 }) {
   const resolved = tone ?? toneFor(value);
-  return <span className={`admin-pill is-${resolved}`}>{label ?? value}</span>;
+  return <span className={`admin-pill is-${resolved}`}>{label ?? enumLabel(value)}</span>;
 }

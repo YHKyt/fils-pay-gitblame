@@ -78,3 +78,63 @@ export function creditFeeReversalLabel(effectiveDate: string): string {
   const when = /^\d{4}-\d{2}-\d{2}$/.test(effectiveDate) ? effectiveDate : "the effective date";
   return `Also reverse the MDR on this amount, at the rate charged on ${when} (fee schedule, less any volume-tier bonus)`;
 }
+
+/** Human labels for every enum value the console shows (statuses, business
+ *  types, reason codes, roles). Unknown values fall back to a sentence-cased
+ *  version with underscores replaced, so no raw snake_case ever reaches an
+ *  operator. */
+const ENUM_LABELS: Record<string, string> = {
+  // Merchant account
+  active: "Active",
+  inactive: "Inactive",
+  suspended: "Suspended",
+  disabled: "Disabled",
+  // Onboarding / KYC
+  draft: "Draft",
+  submitted: "Submitted",
+  under_review: "Under review",
+  approved: "Approved",
+  rejected: "Rejected",
+  passed: "Passed",
+  "not passed": "Not passed",
+  // Credits / imports
+  pending: "Pending",
+  pending_approval: "Waiting for approval",
+  posted: "Posted",
+  // Settlement batch / payout
+  open: "Open",
+  closed: "Closed",
+  paid: "Paid",
+  processing: "Processing",
+  failed: "Failed",
+  // Webhooks
+  succeeded: "Succeeded",
+  exhausted: "Gave up",
+  // Mode
+  live: "Live",
+  test: "Test",
+  // Business type
+  sole_proprietor: "Sole proprietor",
+  sole_proprietorship: "Sole proprietor",
+  wll: "W.L.L.",
+  spc: "S.P.C.",
+  bsc: "B.S.C.",
+  partnership: "Partnership",
+  // Credit reasons
+  goodwill: "Goodwill",
+  dispute_resolution: "Dispute resolution",
+  correction: "Correction",
+  // Roles
+  super_admin: "Super admin",
+  finance: "Finance",
+  support: "Support",
+};
+
+export function enumLabel(value: string | null | undefined, fallback = "-"): string {
+  if (value === null || value === undefined || value === "") return fallback;
+  const key = value.trim().toLowerCase();
+  const mapped = ENUM_LABELS[key];
+  if (mapped) return mapped;
+  const spaced = key.replace(/[_.-]+/g, " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
