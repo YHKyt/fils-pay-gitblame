@@ -352,7 +352,12 @@ async function caseFileChecks({ admin, a, apiA, apiB, b, mA, mB, rows, txId, amo
   }
 
   // Test merchants never settle, whatever admin tool runs.
-  const testM = rows.find((m) => (m.displayName ?? m.name) === TEST_MERCHANT_NAME && (m.testMode ?? m.test_mode));
+  const isTestM = (m) => (m.displayName ?? m.name) === TEST_MERCHANT_NAME && (m.testMode ?? m.test_mode);
+  let testM = rows.find(isTestM);
+  if (!testM) {
+    const res = await admin.req("GET", `/v1/admin/merchants?limit=100&q=${encodeURIComponent(TEST_MERCHANT_NAME)}`);
+    testM = (res.body?.merchants ?? res.body?.items ?? res.body?.data ?? (Array.isArray(res.body) ? res.body : [])).find(isTestM);
+  }
   if (!testM) skip("memo test merchant never settled", `no test-mode merchant named "${TEST_MERCHANT_NAME}"`);
   else {
     const runAll = await admin.req("POST", "/v1/admin/settlement/run-batch", { body: { date: yesterday } });
@@ -645,10 +650,18 @@ async function main() {
   check("GET /v1/admin/auth/me -> 200", me.status === 200, me);
   const list = await admin.req("GET", "/v1/admin/merchants?limit=100");
   must("GET /v1/admin/merchants -> 200", list.status === 200, list);
-  const rows = list.body?.merchants ?? list.body?.items ?? list.body?.data ?? (Array.isArray(list.body) ? list.body : []);
-  const byName = (n) => rows.find((m) => (m.displayName ?? m.display_name ?? m.name) === n);
-  const mA = env.MERCHANT_A_ID ? { id: env.MERCHANT_A_ID } : byName(MERCHANT_A_NAME);
-  const mB = env.MERCHANT_B_ID ? { id: env.MERCHANT_B_ID } : byName(MERCHANT_B_NAME);
+  const rowsOf = (res) => res.body?.merchants ?? res.body?.items ?? res.body?.data ?? (Array.isArray(res.body) ? res.body : []);
+  const rows = rowsOf(list);
+  // Search by name (?q=): on a box where many merchants have signed up, the
+  // seeded ones are no longer on the first page.
+  const byName = async (n) => {
+    const found = rows.find((m) => (m.displayName ?? m.display_name ?? m.name) === n);
+    if (found) return found;
+    const res = await admin.req("GET", `/v1/admin/merchants?limit=100&q=${encodeURIComponent(n)}`);
+    return rowsOf(res).find((m) => (m.displayName ?? m.display_name ?? m.name) === n);
+  };
+  const mA = env.MERCHANT_A_ID ? { id: env.MERCHANT_A_ID } : await byName(MERCHANT_A_NAME);
+  const mB = env.MERCHANT_B_ID ? { id: env.MERCHANT_B_ID } : await byName(MERCHANT_B_NAME);
   must(`merchants "${MERCHANT_A_NAME}" and "${MERCHANT_B_NAME}" found`, mA?.id && mB?.id, rows.map((m) => m.displayName ?? m.name));
   const detail = await admin.req("GET", `/v1/admin/merchants/${mA.id}`);
   check("GET /v1/admin/merchants/:id -> 200", detail.status === 200, detail.status);
