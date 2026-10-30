@@ -1,9 +1,11 @@
+import { createHmac, hkdfSync } from "node:crypto";
 import type { Pool } from "pg";
 import type { Fils } from "@filspay/money";
 import { withTransaction } from "../db/withTransaction.js";
 import type { AcquirerSimulator, SimulatedCardInput } from "../acquirer/types.js";
 import {
   acquirerIdempotencyKey,
+  canonicalJson,
   claimIdempotencyKey,
   completeIdempotencyKey,
   failIdempotencyKey,
@@ -28,6 +30,38 @@ export interface AuthorizeInput {
    *  actor when omitted. POST /v1/transactions always supplies the calling
    *  API key here. */
   actor?: { type: "merchant_session" | "merchant_api_key" | "system"; id?: string | null };
+  /** Keys the card fingerprint in the idempotency request hash; from
+   *  deriveCardFingerprintKey(config.webhookSecretEncryptionKey). */
+  cardFingerprintKey: Buffer;
+}
+
+/**
+ * The HMAC key for the card fingerprint below: HKDF of the platform secret
+ * WEBHOOK_SECRET_ENCRYPTION_KEY (required in every environment) under its own
+ * label, so the AES key itself is never used for it. Every instance of a
+ * deployment derives the same key, so a retry that reaches another instance,
+ * or comes after a restart, hashes (and keys the acquirer call) the same.
+ */
+export function deriveCardFingerprintKey(webhookSecretEncryptionKey: string): Buffer {
+  return Buffer.from(
+    hkdfSync("sha256", Buffer.from(webhookSecretEncryptionKey, "base64"), Buffer.alloc(0), "filspay/idempotency-card-fingerprint/v1", 32),
+  );
+}
+
+/**
+ * What the idempotency request hash records about the card: an HMAC of the
+ * PAN and expiry under a server secret. The request hash is stored
+ * (idempotency_keys.request_hash), and it used to hash the whole card, CVV
+ * included, with plain sha256: knowing the amount and reference, the CVV
+ * fell out of 1,000 guesses, and a known BIN, the Luhn digit and the expiry
+ * leave a PAN search small enough to run. The CVV must never be stored in
+ * any form, so it is not in the fingerprint: a retry differing only in the
+ * CVV is the same request. Another PAN or expiry is still another request.
+ */
+function cardFingerprint(card: SimulatedCardInput, key: Buffer): string {
+  return createHmac("sha256", key)
+    .update(canonicalJson({ pan: card.pan, expiryMonth: card.expiryMonth, expiryYear: card.expiryYear }))
+    .digest("hex");
 }
 
 /**
@@ -56,7 +90,7 @@ export async function authorizeTransaction(
   const actor = input.actor ?? { type: "system" as const, id: null };
   const requestHash = hashRequest({
     amountFils: input.amountFils,
-    card: input.card,
+    card: cardFingerprint(input.card, input.cardFingerprintKey),
     reference: input.reference ?? null,
   });
 

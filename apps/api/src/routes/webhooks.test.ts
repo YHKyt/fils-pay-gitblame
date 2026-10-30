@@ -151,6 +151,7 @@ async function authorizeAndCapture(merchantId: string, amountFils: number, label
     card: APPROVED_CARD,
     idempotencyKey: `${label}-auth-${randomUUID()}`,
     actor: { type: "system" },
+    cardFingerprintKey: Buffer.alloc(32),
   });
   assert.equal(authRes.statusCode, 201, JSON.stringify(authRes.body));
   const txnId = (authRes.body as { id: string }).id;

@@ -19,7 +19,7 @@ import { getPublicPaymentLink } from "./read.js";
 const databaseUrl = process.env.DATABASE_URL;
 const CARD_A = { pan: "4242424242424242", expiryMonth: 12, expiryYear: 2030, cvv: "123" };
 const CARD_B = { pan: "5555555555554444", expiryMonth: 12, expiryYear: 2030, cvv: "321" };
-const config = { paymentLinkReservationTimeoutSeconds: 60 };
+const config = { paymentLinkReservationTimeoutSeconds: 60, cardFingerprintKey: Buffer.alloc(32) };
 
 /** Always-approving acquirer whose next authorize or capture call can be held open. */
 function gatedAcquirer() {

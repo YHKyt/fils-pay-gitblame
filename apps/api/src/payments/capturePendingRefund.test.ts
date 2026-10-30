@@ -58,6 +58,7 @@ test("capturing the rest while a refund is in flight does not report a refund th
     amountFils: toFils(10_000),
     card: { pan: "4242424242424242", expiryMonth: 12, expiryYear: 2030, cvv: "123" },
     idempotencyKey: randomUUID(),
+    cardFingerprintKey: Buffer.alloc(32),
   });
   const id = (auth.body as { id: string }).id;
   const first = await captureTransaction(pool, acquirer, {

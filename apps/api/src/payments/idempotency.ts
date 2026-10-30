@@ -61,7 +61,11 @@ function sortKeysDeep(value: unknown): unknown {
   return value;
 }
 
-/** sha256Hex(canonicalJson(body)). */
+/**
+ * sha256Hex(canonicalJson(body)). Unkeyed, and stored as
+ * idempotency_keys.request_hash: never pass card data or another secret in
+ * `body` (authorize passes a keyed card fingerprint, not the card).
+ */
 export function hashRequest(body: unknown): string {
   return createHash("sha256").update(canonicalJson(body)).digest("hex");
 }

@@ -82,7 +82,7 @@ function capturedAttemptExists(link: string, exceptKeyParam?: string): string {
 export async function payPaymentLink(
   pool: Pool,
   acquirer: AcquirerSimulator,
-  config: { paymentLinkReservationTimeoutSeconds: number },
+  config: { paymentLinkReservationTimeoutSeconds: number; cardFingerprintKey: Buffer },
   input: PayPaymentLinkInput,
 ): Promise<PayPaymentLinkResult> {
   const expiryCheckTime = expiryReferenceTime(input.submittedAt);
@@ -129,6 +129,7 @@ export async function payPaymentLink(
     // No merchant session/API key initiated this — a customer did, via
     // the public link.
     actor: { type: "system" },
+    cardFingerprintKey: config.cardFingerprintKey,
   });
 
   if (authResult.statusCode !== 201) {
