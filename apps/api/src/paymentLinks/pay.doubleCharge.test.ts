@@ -14,6 +14,7 @@ import { Pool } from "pg";
 import type { AcquirerSimulator } from "../acquirer/types.js";
 import { recordKycReview } from "../onboarding/review.js";
 import { payPaymentLink } from "./pay.js";
+import { getPublicPaymentLink } from "./read.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 const CARD_A = { pan: "4242424242424242", expiryMonth: 12, expiryYear: 2030, cvv: "123" };
@@ -128,6 +129,31 @@ test("an authorize that outlives the reservation timeout voids itself instead of
   }
 });
 
+test("while capture runs the link reads 'processing', not 'paid'", { skip: !databaseUrl }, async () => {
+  const pool = new Pool({ connectionString: databaseUrl, max: 5 });
+  try {
+    const { token } = await linkFixture(pool);
+    const gate = gatedAcquirer();
+    gate.arm("capture");
+
+    const first = payPaymentLink(pool, gate.acquirer, config, { token, card: CARD_A, idempotencyKey: randomUUID() });
+    await gate.entered; // finalized, capture in flight, no money moved yet
+    const during = await getPublicPaymentLink(pool, token, config.paymentLinkReservationTimeoutSeconds);
+    const second = await payPaymentLink(pool, gate.acquirer, config, { token, card: CARD_B, idempotencyKey: randomUUID() });
+    gate.release();
+    const firstRes = await first;
+    const after = await getPublicPaymentLink(pool, token, config.paymentLinkReservationTimeoutSeconds);
+
+    assert.equal(during?.status, "processing");
+    assert.equal(second.statusCode, 409);
+    assert.deepEqual(second.body, { error: "payment_link_processing" });
+    assert.equal(firstRes.statusCode, 200, JSON.stringify(firstRes.body));
+    assert.equal(after?.status, "paid");
+  } finally {
+    await pool.end();
+  }
+});
+
 function acquirerWithCapture(capture: AcquirerSimulator["capture"]): AcquirerSimulator {
   return {
     async authorize() {
@@ -174,6 +200,9 @@ test("a capture that throws keeps the link bound to its authorized transaction",
     assert.equal(link.rows[0]!.status, "paid");
     assert.notEqual(link.rows[0]!.transaction_id, null);
     assert.deepEqual(await transactionStatuses(pool, merchantId), ["authorized"]);
+    // Not captured, so not 'paid' to the outside: a crash here is visible.
+    const pub = await getPublicPaymentLink(pool, token, config.paymentLinkReservationTimeoutSeconds);
+    assert.equal(pub?.status, "processing");
   } finally {
     await pool.end();
   }

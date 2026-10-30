@@ -30,6 +30,7 @@ interface ClaimedLinkRow {
 interface LinkStatusRow {
   status: string;
   expires_at: Date;
+  transaction_status: string | null;
 }
 
 /**
@@ -245,13 +246,22 @@ async function classifyClaimFailure(
   reservationTimeoutSeconds: number,
   expiryCheckTime: Date,
 ): Promise<PayPaymentLinkResult> {
-  const result = await pool.query<LinkStatusRow>(`SELECT status, expires_at FROM payment_links WHERE token = $1`, [
-    token,
-  ]);
+  const result = await pool.query<LinkStatusRow>(
+    `SELECT pl.status, pl.expires_at, t.status AS transaction_status
+       FROM payment_links pl
+       LEFT JOIN transactions t ON t.id = pl.transaction_id
+      WHERE pl.token = $1`,
+    [token],
+  );
   const row = result.rows[0];
 
   if (!row) {
     return { statusCode: 404, body: { error: "payment_link_not_found" } };
+  }
+  if (row.status === "paid" && row.transaction_status === "authorized") {
+    // Finalized but not yet captured (capture running, or its outcome is
+    // unknown): no money has moved, so "already paid" would be false.
+    return { statusCode: 409, body: { error: "payment_link_processing" } };
   }
   if (row.status === "paid") {
     return { statusCode: 409, body: { error: "payment_link_already_paid" } };

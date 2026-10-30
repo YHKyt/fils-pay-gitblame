@@ -57,3 +57,22 @@ test("derivePublicStatus: stored 'reserved' with reservedAt exactly at the timeo
     "active",
   );
 });
+
+// The link is finalized 'paid' before capture runs; until the capture lands
+// no money has moved, so the public status must not say 'paid' yet.
+test("derivePublicStatus: stored 'paid' whose transaction is still authorized -> 'processing'", () => {
+  assert.equal(
+    derivePublicStatus(
+      { status: "paid", expiresAt: FUTURE, reservedAt: null, transactionStatus: "authorized" },
+      TIMEOUT_SECONDS,
+    ),
+    "processing",
+  );
+});
+
+test("derivePublicStatus: stored 'paid' whose transaction is captured -> 'paid'", () => {
+  assert.equal(
+    derivePublicStatus({ status: "paid", expiresAt: PAST, reservedAt: null, transactionStatus: "captured" }, TIMEOUT_SECONDS),
+    "paid",
+  );
+});
