@@ -19,6 +19,7 @@ import { loadConfig } from "../config.js";
 import { hashPassword } from "../adminAuth/passwords.js";
 import { issueApiKey } from "../apiKeys/issue.js";
 import { createWebhookEndpoint } from "../webhooks/create.js";
+import { latestClosableBusinessDate } from "../lib/businessDay.js";
 import type { AdminRoutesOptions } from "./admin.js";
 import type {
   MdrRecalcSummary,
@@ -1625,6 +1626,12 @@ test("settlement run-batch validates its input before writing an audit row or ca
 // strands every capture made later that day (a closed day is never
 // re-scanned). Today and later Asia/Bahrain dates are refused with a code the
 // console can show; yesterday still goes through.
+//
+// The latest closable date comes from latestClosableBusinessDate, the guard's
+// own rule. This test used to take "Bahrain today minus one day", which leaves
+// out the guard's 2-minute grace after Bahrain midnight (fixpack1 FX8), so it
+// failed whenever it ran between 21:00:00Z and 21:02:00Z. That date is read
+// again after each request, so crossing the grace boundary mid-test is fine.
 test("settlement run-batch refuses a business day that has not ended (Asia/Bahrain)", async () => {
   const finance = await signedInAdmin("finance", "runbatch-today");
   settlementSpy.runBatchCalls = [];
@@ -1632,27 +1639,34 @@ test("settlement run-batch refuses a business day that has not ended (Asia/Bahra
   const day = (offset: number) => new Date(bahrainNow + offset * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   for (const date of [day(0), day(1)]) {
+    const latestBefore = latestClosableBusinessDate(Date.now());
     const res = await app.inject({
       method: "POST",
       url: "/v1/admin/settlement/run-batch",
       headers: { cookie: finance.cookie },
       payload: { date },
     });
+    const latestAfter = latestClosableBusinessDate(Date.now());
     assert.equal(res.statusCode, 422, `${date}: ${res.body}`);
     assert.equal(res.json().error, "business_day_not_over");
-    assert.match(res.json().message, new RegExp(day(-1)));
+    const named = /latest date that can be closed is (\d{4}-\d{2}-\d{2})/.exec(res.json().message)?.[1];
+    assert.ok(named === latestBefore || named === latestAfter, res.json().message);
   }
   assert.equal(settlementSpy.runBatchCalls.length, 0, "a refused date must never reach settlement");
   assert.equal((await auditRowsFor(finance.id, "settlement_run_batch")).length, 0);
 
+  // Yesterday, or the day before during the grace. A date that is closable
+  // now stays closable, so the guard cannot refuse it below.
+  const latest = latestClosableBusinessDate(Date.now());
+  assert.ok(latest === day(-1) || latest === day(-2), latest);
   const ok = await app.inject({
     method: "POST",
     url: "/v1/admin/settlement/run-batch",
     headers: { cookie: finance.cookie },
-    payload: { date: day(-1) },
+    payload: { date: latest },
   });
   assert.equal(ok.statusCode, 200, ok.body);
-  assert.deepEqual(settlementSpy.runBatchCalls, [{ date: day(-1), merchantId: undefined }]);
+  assert.deepEqual(settlementSpy.runBatchCalls, [{ date: latest, merchantId: undefined }]);
 });
 
 // stubbed settlement client, so this says nothing about what the Go side computes — FH
