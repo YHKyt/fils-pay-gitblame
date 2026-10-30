@@ -37,6 +37,19 @@ export function parsePositiveAmountFils(value: unknown): Fils {
   return toFils(value);
 }
 
+/** Normalizes a card PAN and requires 12 to 19 digits. The hosted checkout
+ *  and many terminals send a formatted number ("4242 4242 4242 4242"), so
+ *  spaces and dashes are stripped before the digit check; otherwise a buyer
+ *  typing a grouped number was refused with 400 invalid_card even though the
+ *  simulator would have approved the digits. Returns the digits-only PAN. */
+export function normalizeCardPan(pan: unknown): string {
+  if (typeof pan === "string") {
+    const normalized = pan.replace(/[\s-]/g, "");
+    if (/^\d{12,19}$/.test(normalized)) return normalized;
+  }
+  throw new BadRequestError("invalid_card", "card.pan must be a string of 12 to 19 digits");
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A path id that is not UUID-shaped can never name a row: 400 invalid_id
@@ -63,12 +76,16 @@ export function parseOptionalInstant(value: unknown, name: string): Date | undef
   return date;
 }
 
-/** An optional positive integer from the query string (e.g. `limit`). Zero
- *  is refused like a negative: `limit=0` used to be clamped to one row. */
-export function parseOptionalPositiveInt(value: unknown, name: string): number | undefined {
+/** An optional integer `limit` from the query string. A non-numeric value is
+ *  refused with 400 (it would otherwise reach SQL as `LIMIT NaN`, a 500).
+ *  A numeric value — including 0 or a negative — is returned as-is and left to
+ *  the list query to clamp into its page bounds, which is the long-standing
+ *  documented behaviour (see analytics/query.ts clampTopLinksLimit and the
+ *  `Math.max(1, ...)` clamp in each list query). */
+export function parseOptionalNumericLimit(value: unknown, name: string): number | undefined {
   if (value === undefined || value === "") return undefined;
-  if (typeof value !== "string" || !/^\d{1,9}$/.test(value) || Number(value) === 0) {
-    throw new BadRequestError("invalid_request", `${name} must be a positive integer`);
+  if (typeof value !== "string" || !/^-?\d{1,9}$/.test(value)) {
+    throw new BadRequestError("invalid_request", `${name} must be an integer`);
   }
   return Number(value);
 }

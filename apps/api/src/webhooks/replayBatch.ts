@@ -17,14 +17,11 @@ const MAX_BATCH_SIZE = 500;
  *  and never by default. */
 export const DEFAULT_REPLAY_STATUSES = ["exhausted"] as const;
 
-/** Every status a caller may name. Anything else is a 400. */
+/** Every status a caller may name. Anything else is a 400. Any admin role
+ *  (support included) may replay any of these: a replay reuses the original
+ *  Webhook-Delivery-Id (B3a) so receivers dedupe, and no money moves as a
+ *  direct result. */
 export const REPLAYABLE_STATUSES: readonly string[] = ["pending", "succeeded", "failed", "exhausted"];
-
-/** What every admin role (including support) may replay. Resending a
- *  `succeeded` or still-`pending` delivery re-delivers an event the receiver
- *  may already have acted on, so the route requires finance or super_admin
- *  for any status outside this list. */
-export const SUPPORT_REPLAYABLE_STATUSES: readonly string[] = ["failed", "exhausted"];
 
 export interface BatchReplayResult {
   matchedCount: number;

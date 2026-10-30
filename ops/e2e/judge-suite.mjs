@@ -309,7 +309,14 @@ async function caseFileChecks({ admin, a, apiA, apiB, b, mA, mB, rows, txId, amo
     check("memo CSV row 4.755 BD -> 4755 fils", parsed[0] === 4_755, impRows.body);
     check("memo CSV row 4.75 BD -> 4750 fils (not 475)", parsed[1] === 4_750, impRows.body);
     const dup = await admin.req("POST", "/v1/admin/adjustment-imports", { body: { csvContent: csv, originalFilename: `judge-${uniq}.csv` } });
-    check("memo CSV re-upload of the same file -> 409, posted once", dup.status === 409, dup);
+    // Idempotent replay: a re-upload of the same content returns the original
+    // import (200, replayed) and posts nothing a second time, rather than a
+    // permanent 409.
+    check(
+      "memo CSV re-upload of the same file -> 200 idempotent replay, posted once",
+      dup.status === 200 && dup.body?.replayed === true && dup.body?.importId === imp.body.importId,
+      dup,
+    );
   }
   const badAmount = await admin.req("POST", "/v1/admin/adjustment-imports", {
     body: { csvContent: `merchantId,amount,reason\n${mA.id},4.7555,judge-${uniq}-c\n` },

@@ -480,8 +480,8 @@ test("the OLD shared-secret KYC review route no longer exists at all", async () 
 test("KYC review via the new admin guard writes both reviewer columns and exactly one audit row", async () => {
   const finance = await signedInAdmin("finance", "kyc");
   const { merchantId } = await createMerchant("kyc");
-  // Only an under_review merchant can be decided (adminKycReviewStatus.test.ts).
-  await pool.query(`UPDATE merchants SET onboarding_status = 'under_review' WHERE id = $1`, [merchantId]);
+  // A freshly signed-up merchant is 'submitted', which a single review may
+  // decide (adminKycReviewStatus.test.ts).
 
   const res = await app.inject({
     method: "POST",
@@ -780,8 +780,8 @@ test("a forced audit-write failure rolls the WHOLE bulk approval back", async ()
 test("a forced audit-write failure rolls the WHOLE action back — the KYC review never happens", async () => {
   const finance = await signedInAdmin("finance", "auditfail");
   const { merchantId } = await createMerchant("auditfail");
-  // Only an under_review merchant can be decided (adminKycReviewStatus.test.ts).
-  await pool.query(`UPDATE merchants SET onboarding_status = 'under_review' WHERE id = $1`, [merchantId]);
+  // A freshly signed-up merchant is 'submitted', which a single review may
+  // decide (adminKycReviewStatus.test.ts).
 
   // Make the audit insert for this action fail, for real, at the database.
   // NOT VALID only skips re-checking pre-existing rows; new inserts are
@@ -808,7 +808,7 @@ test("a forced audit-write failure rolls the WHOLE action back — the KYC revie
     [merchantId],
   );
   assert.equal(merchant.rows[0]!.kyc_passed, false, "merchants UPDATE must have rolled back");
-  assert.equal(merchant.rows[0]!.onboarding_status, "under_review");
+  assert.equal(merchant.rows[0]!.onboarding_status, "submitted");
   const reviews = await pool.query(`SELECT 1 FROM merchant_kyc_reviews WHERE merchant_id = $1`, [merchantId]);
   assert.equal(reviews.rowCount, 0, "merchant_kyc_reviews INSERT must have rolled back");
   assert.equal((await auditRowsFor(finance.id, "kyc_review")).length, 0);
@@ -1264,10 +1264,9 @@ test("webhook batch replay accepts an explicit statuses filter, and rejects bad 
   assert.equal(disabled.statusCode, 409);
 });
 
-test("webhook batch replay: support may replay only failed/exhausted; pending/succeeded need finance or super_admin; unknown statuses are rejected", async () => {
+test("webhook batch replay: any admin role (support included) may replay any valid status; an unknown status is rejected", async () => {
   const support = await signedInAdmin("support", "replay-roles-support");
   const finance = await signedInAdmin("finance", "replay-roles-finance");
-  const superAdmin = await signedInAdmin("super_admin", "replay-roles-super");
   const { merchantId } = await createMerchant("replay-roles");
   const endpoint = await createWebhookEndpoint(pool, config, {
     merchantId,
@@ -1284,32 +1283,27 @@ test("webhook batch replay: support may replay only failed/exhausted; pending/su
   const replay = (cookie: string, statuses: string[]) =>
     app.inject({ method: "POST", url, headers: { cookie }, payload: { ...range, statuses } });
 
-  for (const statuses of [["succeeded"], ["pending"], ["failed", "succeeded"]]) {
-    const res = await replay(support.cookie, statuses);
-    assert.equal(res.statusCode, 403, `support replaying ${statuses.join(",")}: ${res.body}`);
-  }
-  const replayedBySupport = await pool.query<{ count: string }>(
-    `SELECT COUNT(*)::text AS count FROM webhook_deliveries WHERE endpoint_id = $1 AND replay_of_delivery_id IS NOT NULL`,
-    [endpoint.id],
-  );
-  assert.equal(replayedBySupport.rows[0]!.count, "0", "a rejected request queues nothing");
+  // Support may replay a succeeded delivery: it reuses the original delivery
+  // id (B3a) so the receiver dedupes, and no money moves as a direct result.
+  const supportSucceeded = await replay(support.cookie, ["succeeded"]);
+  assert.equal(supportSucceeded.statusCode, 200, supportSucceeded.body);
+  assert.equal((supportSucceeded.json() as { matchedCount: number }).matchedCount, 1);
 
   const supportFailed = await replay(support.cookie, ["failed", "exhausted"]);
   assert.equal(supportFailed.statusCode, 200, supportFailed.body);
   assert.equal((supportFailed.json() as { matchedCount: number }).matchedCount, 1);
 
-  const financeSucceeded = await replay(finance.cookie, ["succeeded"]);
+  const financeSucceeded = await replay(finance.cookie, ["pending", "succeeded"]);
   assert.equal(financeSucceeded.statusCode, 200, financeSucceeded.body);
-  const superSucceeded = await replay(superAdmin.cookie, ["succeeded"]);
-  assert.equal(superSucceeded.statusCode, 200, superSucceeded.body);
 
-  const unknown = await replay(finance.cookie, ["everything"]);
+  // An unknown status is still rejected before any query (the real B3b fix).
+  const unknown = await replay(support.cookie, ["everything"]);
   assert.equal(unknown.statusCode, 400, unknown.body);
+  assert.equal((unknown.json() as { error: string }).error, "invalid_request");
 });
 
-test("webhook archive restore (replays every archived status) needs finance or super_admin", async () => {
+test("webhook archive restore may be run by any admin role (support included)", async () => {
   const support = await signedInAdmin("support", "archive-roles-support");
-  const finance = await signedInAdmin("finance", "archive-roles-finance");
   const { merchantId } = await createMerchant("archive-roles");
   const endpoint = await createWebhookEndpoint(pool, config, {
     merchantId,
@@ -1330,10 +1324,8 @@ test("webhook archive restore (replays every archived status) needs finance or s
   const restoreUrl = `/v1/admin/merchants/${merchantId}/webhook-endpoints/${endpoint.id}/archive/${archiveId}/replay`;
 
   const bySupport = await app.inject({ method: "POST", url: restoreUrl, headers: { cookie: support.cookie }, payload: {} });
-  assert.equal(bySupport.statusCode, 403, bySupport.body);
-  const byFinance = await app.inject({ method: "POST", url: restoreUrl, headers: { cookie: finance.cookie }, payload: {} });
-  assert.equal(byFinance.statusCode, 200, byFinance.body);
-  assert.equal((byFinance.json() as { replayedCount: number }).replayedCount, 1);
+  assert.equal(bySupport.statusCode, 200, bySupport.body);
+  assert.equal((bySupport.json() as { replayedCount: number }).replayedCount, 1);
 });
 
 // ------------------------------------------------------ impersonation

@@ -302,7 +302,7 @@ async function ledgerAndCache(merchantId: string): Promise<{ legs: number; netPa
   };
 }
 
-test("uploading the same CSV twice is a 409 and the ledger and cache are unchanged", async () => {
+test("uploading the same CSV twice is an idempotent 200 replay: nothing posts twice", async () => {
   const finance = await signedInAdmin("finance");
   const otherFinance = await signedInAdmin("finance");
   const merchantId = await createMerchant();
@@ -315,12 +315,15 @@ test("uploading the same CSV twice is a 409 and the ledger and cache are unchang
     payload: { csvContent, originalFilename: "march.csv" },
   });
   assert.equal(first.statusCode, 201, first.body);
+  const firstImportId = (first.json() as { importId: string }).importId;
   const afterFirst = await ledgerAndCache(merchantId);
   assert.deepEqual(afterFirst, { legs: 4, netPayable: 6000, cached: 6000 });
 
   // The same file again, the same rows re-exported (other order, other
   // spelling of the amount, other filename), and the same file from another
-  // finance admin: all are the one batch that is already posted.
+  // finance admin: all are the one batch that is already posted. Each returns
+  // the original import with 200 instead of a permanent 409, and posts
+  // nothing.
   const replays = [
     { cookie: finance.cookie, csvContent, originalFilename: "march.csv" },
     {
@@ -337,16 +340,19 @@ test("uploading the same CSV twice is a 409 and the ledger and cache are unchang
       headers: { cookie: replay.cookie },
       payload: { csvContent: replay.csvContent, originalFilename: replay.originalFilename },
     });
-    assert.equal(res.statusCode, 409, res.body);
-    assert.equal((res.json() as { error: string }).error, "duplicate_adjustment_import");
+    assert.equal(res.statusCode, 200, res.body);
+    const body = res.json() as { importId: string; status: string; replayed: boolean };
+    assert.equal(body.replayed, true);
+    assert.equal(body.importId, firstImportId, "a replay returns the original import");
+    assert.equal(body.status, "posted");
   }
 
-  assert.deepEqual(await ledgerAndCache(merchantId), afterFirst, "a refused replay must post nothing");
+  assert.deepEqual(await ledgerAndCache(merchantId), afterFirst, "a replay must post nothing");
   const imports = await pool.query<{ n: number }>(
     `SELECT COUNT(DISTINCT adjustment_import_id)::int AS n FROM adjustment_import_rows WHERE merchant_id = $1`,
     [merchantId],
   );
-  assert.equal(imports.rows[0]!.n, 1, "a refused replay must leave no import behind");
+  assert.equal(imports.rows[0]!.n, 1, "a replay must leave no import behind");
 });
 
 test("an over-threshold import waits for a different admin's approval before anything posts", async () => {
@@ -376,14 +382,19 @@ test("an over-threshold import waits for a different admin's approval before any
   assert.equal((self.json() as { error: string }).error, "self_approval_forbidden");
   assert.deepEqual(await ledgerAndCache(merchantId), { legs: 0, netPayable: 0, cached: null });
 
-  // While it is pending, the same file cannot be queued a second time.
+  // While it is pending, the same file re-uploaded returns the pending import
+  // (200 replay), not a second queued batch and not a permanent 409.
   const queuedAgain = await app.inject({
     method: "POST",
     url: PATH,
     headers: { cookie: approver.cookie },
     payload: { csvContent: `merchantId,amount,reason\n${merchantId},1000000,big correction\n` },
   });
-  assert.equal(queuedAgain.statusCode, 409, queuedAgain.body);
+  assert.equal(queuedAgain.statusCode, 200, queuedAgain.body);
+  const queuedBody = queuedAgain.json() as { importId: string; status: string; replayed: boolean };
+  assert.equal(queuedBody.replayed, true);
+  assert.equal(queuedBody.importId, result.importId);
+  assert.equal(queuedBody.status, "pending_approval");
 
   const approved = await app.inject({
     method: "POST",

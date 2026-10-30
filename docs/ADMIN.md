@@ -6,7 +6,7 @@ three roles:
 
 | Role | Can do |
 |---|---|
-| **support** | look things up, replay failed/exhausted webhooks, view as a merchant, issue small credits |
+| **support** | look things up, replay webhooks, view as a merchant, issue small credits |
 | **finance** | everything support can do, plus anything that touches money or settlement |
 | **super_admin** | everything, including making changes while viewing as a merchant |
 
@@ -26,8 +26,10 @@ money change is logged.
 **Search** by name or paste a merchant id.
 
 **KYC review** — approve or reject after checking the uploaded documents.
-Approving moves the merchant to `approved` and marks KYC as passed. Only a
-merchant currently `under_review` can be reviewed; any other status is refused.
+Approving moves the merchant to `approved` and marks KYC as passed. A merchant
+still awaiting a decision (`submitted` after signup, or `under_review` once
+documents are uploaded) can be reviewed; a merchant already `approved` or
+`rejected` is refused, so a repeat click cannot flip a decided merchant.
 
 **Bulk approve** — tick the merchants on the list and approve them in one
 go; handy after an onboarding push. Only merchants currently `under_review`
@@ -96,8 +98,7 @@ waiting for the worker. Quick, safe, and repeatable.
 > **— unsigned:** replay-batch reuses the original delivery ids, so receivers dedupe fine.
 
 **Replay a batch** — pick an endpoint, a date range, and which delivery
-statuses to resend (default: `exhausted`). Support can resend `failed` and
-`exhausted`; resending `pending` or `succeeded` needs finance or super_admin. Each
+statuses to resend (default: `exhausted`; any status can be chosen). Each
 delivery is re-signed and queued with its original `Webhook-Delivery-Id`,
 so a receiver that already processed it can dedupe it. One replay sends at
 most 500 deliveries, oldest first; when more match, the result says so
@@ -109,11 +110,13 @@ archive the endpoint's history; after they register the new one, restore
 the archive against it to backfill. No screen for this yet — it's
 `POST /v1/admin/merchants/:id/webhook-endpoints/:endpointId/archive` and
 `.../archive/:archiveId/replay`. Restoring resends every archived delivery,
-succeeded ones included, so it needs finance or super_admin. Archives are
-not paged: the whole range is stored as one value and a restore writes it
-back in one transaction. Both steps run inside Postgres, so the range does
-not cost API memory, but keep it to what the rotation needs: the archive is
-built as one jsonb value, which Postgres limits to 255 MB, and a wide restore is one long transaction.
+succeeded ones included; any admin role may run it (it reuses the original
+delivery ids, so receivers dedupe). Archives are not paged: the whole range
+is read at once and stored as one value, and a restore loads it back whole
+in one transaction. Both steps run inside Postgres, so the range does not
+cost API memory, but keep it to what the rotation needs: the archive is
+built as one jsonb value, which Postgres limits to 255 MB, and a wide
+restore is one long transaction.
 
 ## Incident review: duplicate `settlement.paid` (2026-08-21)
 

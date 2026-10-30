@@ -12,7 +12,7 @@ import { cancelPaymentLink } from "../paymentLinks/cancel.js";
 import { getPaymentLinkForMerchant, listPaymentLinks } from "../paymentLinks/query.js";
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../lib/errors.js";
 import type { SimulatedCardInput } from "../acquirer/types.js";
-import { assertBhdCurrency, parseOptionalPositiveInt } from "../lib/requestParams.js";
+import { assertBhdCurrency, normalizeCardPan, parseOptionalNumericLimit } from "../lib/requestParams.js";
 
 interface MerchantIdParams {
   merchantId: string;
@@ -128,7 +128,7 @@ export async function paymentLinkMerchantRoutes(app: FastifyInstance): Promise<v
       assertOwnMerchant(request);
       const q = request.query;
       const status = q.status === undefined ? undefined : Array.isArray(q.status) ? q.status : [q.status];
-      const limit = parseOptionalPositiveInt(q.limit, "limit");
+      const limit = parseOptionalNumericLimit(q.limit, "limit");
 
       return listPaymentLinks(app.db, app.config, {
         merchantId: request.params.merchantId,
@@ -185,9 +185,12 @@ export async function paymentLinkPublicRoutes(app: FastifyInstance): Promise<voi
     }
     // Same rule as POST /v1/transactions: the acquirer reads card.pan as a
     // string, so anything else threw a TypeError there and answered 500.
-    if (typeof card !== "object" || Array.isArray(card) || typeof card.pan !== "string" || !/^\d{12,19}$/.test(card.pan)) {
+    // Spaces and dashes in a grouped PAN are stripped (the hosted checkout
+    // sends the raw field), as the simulator accepted.
+    if (typeof card !== "object" || Array.isArray(card)) {
       throw new BadRequestError("invalid_card", "card.pan must be a string of 12 to 19 digits");
     }
+    card.pan = normalizeCardPan(card.pan);
 
     const result = await payPaymentLink(
       app.db,

@@ -24,6 +24,12 @@ export interface PublicPaymentLinkDto {
   description: string | null;
   status: string;
   expiresAt: string;
+  // Retained in the response shape for contract compatibility, but always
+  // null: FilsPay has no publishable key, and key_prefix / key_hash belong to
+  // the merchant's SECRET API key, so this public endpoint must never expose
+  // them. See getPublicPaymentLink (no api_keys join).
+  merchantPublicKey: string | null;
+  merchantIntegrationId: string | null;
 }
 
 /** `GET /v1/payment-links/:token` — public, unauthenticated. */
@@ -66,5 +72,7 @@ export async function getPublicPaymentLink(
       reservationTimeoutSeconds,
     ),
     expiresAt: row.expires_at.toISOString(),
+    merchantPublicKey: null,
+    merchantIntegrationId: null,
   };
 }

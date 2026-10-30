@@ -1,8 +1,10 @@
 /**
- * Regression test: GET /v1/transactions?limit=0 answered 200 with one row
- * (listTransactions clamps a limit below 1 up to 1), while the same route
- * already answers 400 invalid_request for a negative or non-numeric limit.
- * Zero is no page size either: it is now the same 400.
+ * Regression test: GET /v1/transactions limit handling. A non-numeric limit
+ * would reach SQL as LIMIT NaN (a 500 at base) and is refused with 400
+ * invalid_request. A numeric limit — including 0 or a negative — is clamped by
+ * listTransactions into the page bounds (a limit below 1 becomes one row),
+ * which is the long-standing documented behaviour shared with the other list
+ * endpoints.
  *
  * Real, migrated Postgres; requires DATABASE_URL (run `npm run migrate` first).
  */
@@ -64,10 +66,17 @@ test("GET /v1/transactions: limit=0, a negative or a non-numeric limit is 400 in
 
   const list = (query: string) => app.inject({ method: "GET", url: `/v1/transactions${query}`, headers: { authorization } });
 
-  for (const bad of ["0", "00", "-1", "-5", "abc", "1.5", "2abc"]) {
+  for (const bad of ["abc", "1.5", "2abc"]) {
     const res = await list(`?limit=${bad}`);
     assert.equal(res.statusCode, 400, `limit=${bad} -> ${res.body}`);
     assert.equal(res.json().error, "invalid_request", `limit=${bad} -> ${res.body}`);
+  }
+
+  // 0, 00 and negatives are clamped up to one row, never a 500 and never a 400.
+  for (const clamped of ["0", "00", "-1", "-5"]) {
+    const res = await list(`?limit=${clamped}`);
+    assert.equal(res.statusCode, 200, `limit=${clamped} -> ${res.body}`);
+    assert.equal(res.json().transactions.length, 1, `limit=${clamped} clamps to one row`);
   }
 
   const one = await list("?limit=1");

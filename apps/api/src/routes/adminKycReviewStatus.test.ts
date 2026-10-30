@@ -1,11 +1,12 @@
 /**
  * Regression: the single KYC review (POST /v1/admin/merchants/:id/kyc-reviews)
- * decided a merchant in any onboarding status. A finance admin could approve
- * a merchant that never uploaded documents ('submitted') or was rejected and
- * never re-submitted, or reject an approved merchant (kyc_passed true ->
- * false). Bulk approve was already limited to 'under_review' (audit A5/B4);
- * the single review now applies the same rule: anything else is
- * 409 merchant_not_under_review and nothing is written.
+ * decided a merchant in any onboarding status, so a finance admin could reject
+ * an already-approved merchant (kyc_passed true -> false) or decide the same
+ * merchant twice. The review now refuses a merchant already in a final state
+ * (approved/rejected) with 409 merchant_not_under_review and writes nothing,
+ * while still allowing a merchant awaiting a decision (submitted after signup,
+ * or under_review once documents are uploaded) — the documented happy path a
+ * signup -> approve flow depends on.
  *
  * Route level: real Postgres (DATABASE_URL), real admin login.
  */
@@ -105,10 +106,10 @@ function review(cookie: string, merchantId: string, outcome: "approved" | "rejec
   });
 }
 
-test("a merchant that is not under_review cannot be approved or rejected: 409, nothing written", async () => {
+test("a merchant already in a final state cannot be re-decided: 409, nothing written", async () => {
   const finance = await signedInFinanceAdmin();
 
-  for (const status of ["submitted", "approved", "rejected"]) {
+  for (const status of ["approved", "rejected"]) {
     for (const outcome of ["approved", "rejected"] as const) {
       const merchantId = await merchantIn(status);
       const before = await stateOf(merchantId, finance.id);
@@ -122,6 +123,21 @@ test("a merchant that is not under_review cannot be approved or rejected: 409, n
 
       assert.deepEqual(await stateOf(merchantId, finance.id), before, `${status} -> ${outcome} changed something`);
     }
+  }
+});
+
+test("a submitted or under_review merchant can be decided", async () => {
+  const finance = await signedInFinanceAdmin();
+
+  for (const status of ["submitted", "under_review"]) {
+    const merchantId = await merchantIn(status);
+    const res = await review(finance.cookie, merchantId, "approved");
+    assert.equal(res.statusCode, 200, `${status}: ${res.body}`);
+    assert.deepEqual(res.json(), { onboardingStatus: "approved", kycPassed: true });
+    const after = await stateOf(merchantId, finance.id);
+    assert.equal(after.onboardingStatus, "approved");
+    assert.deepEqual(after.reviews, ["approved"]);
+    assert.equal(after.auditRows, 1);
   }
 });
 

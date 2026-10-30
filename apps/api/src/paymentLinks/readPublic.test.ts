@@ -52,4 +52,7 @@ test("GET /v1/payment-links/:token payload carries no API key prefix or key hash
   assert.ok(!serialized.includes(keyRow.rows[0]!.key_prefix), "secret key prefix leaked to the public");
   assert.ok(!serialized.includes(issued.rawKey.slice(0, 12)));
   assert.equal(link.amountFils, 4750);
+  // Fields kept in the shape for contract compatibility, but always null.
+  assert.equal(link.merchantPublicKey, null);
+  assert.equal(link.merchantIntegrationId, null);
 });

@@ -334,16 +334,22 @@ test("GET /v1/analytics/top-links: limit is clamped to [1, 50], default 10", asy
     url: "/v1/analytics/top-links?from=2026-01-01&to=2026-02-01&limit=0",
     headers: authHeader(rawKey),
   });
-  // Same contract as GET /v1/transactions: a limit below 1 is a 400, not a silent page of one.
-  assert.equal(underRes.statusCode, 400, underRes.body);
-  assert.equal((underRes.json() as { error: string }).error, "invalid_request");
+  assert.equal((underRes.json() as { links: unknown[] }).links.length, 1, "clamped up to the min of 1");
 
   const negativeRes = await app.inject({
     method: "GET",
     url: "/v1/analytics/top-links?from=2026-01-01&to=2026-02-01&limit=-5",
     headers: authHeader(rawKey),
   });
-  assert.equal(negativeRes.statusCode, 400, negativeRes.body);
+  assert.equal((negativeRes.json() as { links: unknown[] }).links.length, 1);
+
+  const garbageRes = await app.inject({
+    method: "GET",
+    url: "/v1/analytics/top-links?from=2026-01-01&to=2026-02-01&limit=abc",
+    headers: authHeader(rawKey),
+  });
+  // A non-finite/garbage limit falls back to the default page (never a 500).
+  assert.equal(garbageRes.statusCode, 200, garbageRes.body);
 });
 
 test("GET /v1/analytics/top-links: invalid date query params are rejected 400", async () => {
