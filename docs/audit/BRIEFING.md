@@ -1,12 +1,13 @@
 # Team briefing: FilsPay handover (team "git blame")
 
 For YHKyt and aalbalushi, to read before Saturday's case review, and for the judges.
-State described: integration branch `fix/money-parsing` at `c04830f` (upstream handover ends at `8b58b0f`).
-Everything below can be checked in `docs/audit/*.md` and in `git log --no-merges 8b58b0f..fix/money-parsing` (103 commits: 35 by YHKyt, 68 by aalbalushi).
+State described: integration branch `fix/money-parsing` at `ccfd615` (upstream handover ends at `8b58b0f`).
+Everything below can be checked in `docs/audit/*.md` and in `git log --no-merges 8b58b0f..fix/money-parsing` (186 commits at `ccfd615`: 118 by YHKyt, 68 by aalbalushi).
 
 **Two honest caveats to know before anything else**
 
-- **Refunds are not yet deducted from the settlement payout on `fix/money-parsing`.** `CloseBatch` only reads capture events. The fix is written and tested on branch `agent/settlebatch` (`3aadad7`), but it is not merged yet. Until it is merged, say "fixed on a branch, pending merge", not "done". See Q4.
+- **The balance-cache fix (`agent/settlebal`) is not merged, but the nightly 02:00 refresh is.** Until `f392013` lands, captures do not move `merchant_balances` and `CloseBatch` adds the batch net, so a refresh between a capture and its close counts that capture twice (`settlerun.md`). Say "the refresh needs settlebal; merge both or neither". Refund netting in the payout (`3aadad7`) *is* merged (`5cdcce7`). See Q4.
+- **Retrying a refund after the acquirer call throws is not safe yet** (`fp300hunt.md` F4): the retry uses a new acquirer idempotency key, so a refund that actually went through can be paid twice. Known and written up, not fixed on `fix/money-parsing`.
 - **`docs/API.md` is not in the repository**, although code comments cite it. We inferred the HTTP contract from the code, the tests, `docs/ARCHITECTURE.md` and the web/admin callers.
 
 ---
@@ -32,23 +33,37 @@ Everything below can be checked in `docs/audit/*.md` and in `git log --no-merges
 
 ### 2.1 Findings fixed, by severity and area
 
-Counted from the write-ups in `docs/audit/`. Each one has a fix commit and a regression test that fails on the old code and passes on the fix. FP-300 itself (R1) is the feature, so it is not counted as a bug.
+Counted from every write-up in `docs/audit/`, using the per-file numbers in the [README index](README.md). Each one has a fix commit; almost all have a regression test that fails on the old code and passes on the fix (the exceptions are listed in the README under "Tests and their limits"). FP-300 itself (R1) is the feature, so it is not counted as a bug. In-between ratings are counted at the higher level (for example "Medium-High" as High, "Low-Medium" as Medium).
 
 | Area (write-up) | Critical | High | Medium | Low | Total |
 |---|---|---|---|---|---|
 | Money, settlement, balances, boot (`money-and-settlement.md`, M1-M17) | 3 | 8 | 5 | 1 | 17 |
 | API security, refunds, webhooks, payment links, hosting (`api-security-and-refunds.md`, S/R/W/P/H/T) | 6 | 10 | 4 | 1 | 21 |
-| Admin plane sweep (A1-A8) | 0 | 5 | 1 | 2 | 8 |
-| Merchant plane sweep (table "M1-M13" in the API write-up) | 1 | 2 * | 7 | 3 | 13 |
+| Admin plane sweep (A1-A8) | 0 | 5 | 0 | 3 | 8 |
+| Merchant plane sweep (table "M1-M13" in the API write-up) | 1 | 2 | 7 | 3 | 13 |
 | Round 2 board items (B1-B6) | 0 | 10 | 9 | 1 | 20 |
+| FP-300 second pass (`fp300hunt.md`, F1-F5) | 2 | 3 | 0 | 0 | 5 |
+| Reporting consumer (`reporting.md`, RP1-RP5) | 0 | 2 | 3 | 0 | 5 |
 | Large export / upload (`large-export-upload.md`, E1-E2) | 0 | 1 | 0 | 1 | 2 |
-| Settlement run guards (`settleguards.md`, G1-G3) | 0 | 1 | 2 ** | 0 | 3 |
+| Settlement run guards (`settleguards.md`, G1-G3) | 0 | 1 | 2 | 0 | 3 |
 | Recalculate MDR (`settlemdr.md`, R1-R4) | 0 | 1 | 3 | 0 | 4 |
+| Batch close and payout (`settlebatch.md`) | 1 | 2 | 1 | 0 | 4 |
+| Daily run and nightly refresh (`settlerun.md`) | 0 | 1 | 1 | 0 | 2 |
+| SQL layer (`sqlhunt.md`, Q1) | 0 | 0 | 0 | 1 | 1 |
+| Ledger integrity (`ledgerint.md`) | 0 | 1 | 3 | 1 | 5 |
 | Admin money actions (`adminmoney.md`) | 0 | 1 | 1 | 0 | 2 |
-| **Total** | **10** | **39** | **32** | **9** | **90** |
+| Money package (`moneyhunt.md`, N1-N2) | 0 | 0 | 0 | 2 | 2 |
+| Analytics and reconciliation (`analytics.md`, AN1-AN5) | 0 | 2 | 1 | 2 | 5 |
+| Merchant dashboard flows (`webflows.md`, WF1-WF8) | 1 | 1 | 3 | 3 | 8 |
+| API hygiene (`apihygiene.md`) | 0 | 0 | 1 | 2 | 3 |
+| Hosting and operations (`opsfix.md`, O1-O8 without O7) | 0 | 3 | 0 | 4 | 7 |
+| Settlement follow-ups (`settlefix2.md`) | 0 | 2 | 0 | 1 | 3 |
+| Transactions API (`apitxn.md`, TX1-TX4) | 0 | 1 | 1 | 2 | 4 |
+| Outbox events (`eventsbus.md`, EV1) | 0 | 0 | 1 | 0 | 1 |
+| Settlement CLI and daemon (`gosettle2.md`, GS1-GS4) | 0 | 0 | 3 | 1 | 4 |
+| **Total** | **14** | **57** | **49** | **29** | **149** |
 
-\* Sweep M5 (capture idempotency) is rated "Medium-High" and counted as High.
-\** G2 is rated "Medium-Low" and counted as Medium.
+Admin-plane A4 is counted as Low: the `revoke_after` check is real, but nothing writes that column today. Four fixes are defensive, to code with no live caller, and should be presented that way: A7 (`cfe4348`), R6 (`db30619`), A8 (`733a032`) and N1 (`d7e3e66`).
 
 **Also fixed, with the commit message as the write-up** (9 commits, not in the table):
 - Three slow queries got indexes or a sargable predicate:
@@ -63,21 +78,21 @@ Counted from the write-ups in `docs/audit/`. Each one has a fix commit and a reg
 
 **Reported, not fixed** (listed at the end of each write-up). Examples:
 - No password rate limit on admin login.
-- One merchant's error stops the whole daily run (`RunDailyBatch`).
 - `last_settlement_batch_id` is rewound by MDR recalculation (settlemdr R5).
+- A refund retried after the acquirer call throws can be paid twice (fp300hunt F4, open risk).
+- The 30 s settlement drain needs `stop_grace_period` in compose (settleguards G3).
+
+(One merchant's error stopping the whole daily run is fixed: `settlerun.md`, `8d79197`.)
 
 **Written and tested on branches, not merged into `fix/money-parsing` yet:**
 
 | Branch | Commits | What |
 |---|---|---|
-| `agent/settlebatch` (merged since, `5cdcce7`) | `3aadad7`, `33fa69c`, `8fa8f37` | refunds deducted from the batch payout; per-transaction `test_mode` so sandbox captures never settle; eligibility checked first |
-| `agent/settlebal` | `f392013`, `b4dafd7` | cache moves with `merchant_payable` (no double count after a rebuild); `rebuild-balances --merchant` writes the cache |
-| `agent/ledgerint` (merged since, `362e251`) | `20533d6`, `8f5513b`, `69857c1` | `ledger_entries` append-only (0092); payout disbursement recorded at pay (0093); rebuild lock order |
-| `agent/reporting` (merged since, `3667bd7`) | `e83438a` | outbox consumed in commit-safe order under a locked cursor (0096) |
+| `agent/settlebal` | `f392013`, `b4dafd7` | cache moves with `merchant_payable` (no double count after a rebuild); `rebuild-balances --merchant` writes the cache. **Needed by the merged nightly refresh** (`settlerun.md`) |
 | `agent/webdisplay` | `f47a55b`, `8331920`, `f997ec5` | Bahrain dates in admin defaults and web filters |
 | `b/h2-auth-edges`, `b/h4-idempotency`, `b/h5-kyc-onboarding` | 5 commits | suspended merchants' sessions and keys refused; acquirer key reused on retry; KYC upload hardening |
 
-Some branches also have a `wip:` commit on top. Only merge what has passed review.
+Merged since the first version of this briefing: `agent/settlebatch` (`5cdcce7`: refunds netted, per-transaction test mode, eligibility first), `agent/ledgerint` (`362e251`), `agent/reporting` (`3667bd7`), `agent/settlerun` (`10c86d6`), and the later lanes indexed in the README. Some branches also have a `wip:` commit on top. Only merge what has passed review.
 
 ### 2.2 Case-file coverage: every item to where it is fixed
 
@@ -94,7 +109,7 @@ Some branches also have a `wip:` commit on top. Only merge what has passed revie
 | CSV import: 4.75 → 0.475 (10×), and 4.755 → 475 fils (also 0.475) | M3 `a28a623` | The parser defaulted to 2 decimals: it dropped the third digit and read the rest as cents. It now uses `parseBhdToFils` (3 decimals) |
 | "Daily close runs at 3am local" | M8 `b27651a`, G1 `37348d1` | The daemon took the UTC date, so each close fired ~3 h late (the window itself was always the correct Bahrain day); it now uses Bahrain time; days that have not ended cannot be closed |
 | "Lifetime payout estimate drifts" | M10 `94f1215` | `REAL`/float32 → `BIGINT` (0074) |
-| "Test merchants in the real settlement run" | M14 `4ae29bb` + `48e2cbe` | Status recompute silently set `test_mode = false`; removed. Per-transaction test mode is on `agent/settlebatch` (`33fa69c`) |
+| "Test merchants in the real settlement run" | M14 `4ae29bb` + `48e2cbe`, settlebatch `33fa69c` | Status recompute silently set `test_mode = false`; removed. Per-transaction test mode means sandbox captures never settle (merged in `5cdcce7`) |
 | "Login works without the OTP?" | S1 `2304512` | The merchant session lookup ignored `authenticated = true` |
 | "Cancelled B's payment link from A's dashboard" | S4 `2304512` | The UPDATE filtered by link id only; now also by the authenticated merchant |
 
@@ -130,16 +145,16 @@ Some branches also have a `wip:` commit on top. Only merge what has passed revie
 |---|---|---|
 | Works from start to end through the API | Done | R1 `f8cd303`, M2 `42727e0` |
 | Money right in the ledger, down to the fils | Done | Balanced legs; R3, R4, R5 |
-| Fees and payouts come out right | Fees done (R5). **Payout netting on a branch** | `3aadad7` on `agent/settlebatch` |
+| Fees and payouts come out right | Done: fees (R5, F3), refunds netted in the batch payout with carried shortfalls (`3aadad7`, merged `5cdcce7`), and MDR recalculation keeps the deduction (settlefix2) | `settlebatch.md`, `settlefix2.md` |
 | The shop gets the right webhook | Done | `refund.succeeded` envelope, signed over the sent bytes (W1) |
-| Timeline, reports and reconciliation | Timeline done (`refunded` / `refund_partial`, `669582c`). Refund summary view fixed (R6, 0075). **The reporting consumer does not read `refund.succeeded` yet** (`apps/reporting/src/consumer/runConsumerPass.ts`) | open |
-| Live on Dilmune Cloud | `ops/` made deployable (H1 `2f05498`). Hosted URL: _fill in after deploy_ | — |
+| Timeline, reports and reconciliation | Done: timeline (`refunded` / `refund_partial`, `669582c`); reports consume `refund.succeeded` (RP4); reconciliation ties out with settled and unbatched refunds and carried shortfalls (F5, AN1, AN2, settlefix2); refund summary is a live view (Q1, 0104) | `reporting.md`, `analytics.md`, `sqlhunt.md` |
+| Live on Dilmune Cloud | `ops/` boots from a clean `docker compose up`, serves web and admin on one origin, and no longer wipes data on redeploy (H1 `2f05498`, `opsfix.md` O1-O8). Hosted URL: _fill in after deploy_ | `opsfix.md` |
 
 ---
 
 ## 3. Top 15 findings to talk about
 
-For each finding: what broke and why, how we fixed it with the smallest change, and how we proved it.
+For each finding: what broke and why, how we fixed it with the smallest change, and how we proved it. Items 9, 10 and 14 replace earlier picks with bigger findings from the later lanes; the earlier picks moved to the backups.
 
 1. **P2: one payment link charged twice (Critical, incident 2026-05-14)**
    - A slow authorize or capture outlived the 60 s reservation. A second buyer re-claimed the link, both captured, and the loser still answered 200.
@@ -181,15 +196,15 @@ For each finding: what broke and why, how we fixed it with the smallest change, 
    - We fixed it with the canonical `parseBhdToFils`. Existing tests that expected 475 encoded the bug and were corrected.
    - Proof: `adjustmentCsvParsing.fix.test.ts` shows 4.75 → 4750 and 4.755 → 4755.
 
-9. **M16: the nightly hold janitor deletes every hold on a quiet night (Critical)**
-   - With zero expired ids, `buildWhere` skipped the empty list and the code ran `DELETE FROM holds` with no WHERE.
-   - We fixed it with one atomic `UPDATE … SET status='expired'`, as the handover describes. An empty list now builds `WHERE FALSE`.
-   - Proof: `scripts/expire_holds.test.ts` shows a quiet night deletes nothing.
+9. **Refunds were never deducted from payouts (Critical, `settlebatch.md`)**
+   - `CloseBatch` read only capture events, so every refunded sale was paid to the merchant in full while the cardholder was refunded too: the platform paid twice and `merchant_payable` drifted negative.
+   - We fixed it in `CloseBatch`: claim the day's succeeded refunds, deduct `amount − fee_reversed` (exactly what the refund journalled), and carry a negative net to the next close (0090).
+   - Proof: `batch_refunds_test.go`: a same-day full refund of 100,000 fils used to pay 97,500; now 0, and re-running three days changes nothing.
 
-10. **M17: admin status recompute resurrects refunded transactions (Critical)**
-    - Legacy refunded rows have `refunded_fils = 0` (the column arrived later), so they were recomputed as `captured`. They could then be refunded again through FP-300.
-    - We fixed it by excluding `refunded` from recomputation, like `chargeback`.
-    - Proof: `transactionStatusRecompute.refunded.test.ts`.
+10. **F1: a NUL byte in the refund reason refunds the card but records nothing (Critical, `fp300hunt.md`)**
+    - Postgres `TEXT` cannot store U+0000. The acquirer refund ran first, then the journal insert threw: the card was refunded, no ledger reversal, `refunded_fils` unchanged, the key stuck `in_progress`, HTTP 500.
+    - We fixed it with one guard in `parseBody`: such a reason is 400 before the acquirer is called.
+    - Proof: `refunds.test.ts` asserts 400, no acquirer call, and a balanced ledger after a clean retry.
 
 11. **CSV import replay and no second approver (High, `adminmoney.md`)**
     - One finance admin could post 1,000,000 BD instantly, and re-uploading the same file posted it again.
@@ -206,10 +221,10 @@ For each finding: what broke and why, how we fixed it with the smallest change, 
     - We fixed it with `return grossFils - feeFils` (one line).
     - Proof: `payable_test.go`.
 
-14. **M5: split payouts don't add up (High, Delta Marketplace)**
-    - Each child share was rounded on its own: 1001 fils over 3333/3333/3334 bps paid 1002, and other splits paid less. Short fils stayed stranded in the parent's payable.
-    - We fixed it with largest-remainder allocation. G2 also refuses weights that do not sum to 10000.
-    - Proof: `shares_exact_test.go`, `payout_weights_test.go`.
+14. **WF1 / O1: the hosted app could not be used, and a redeploy wiped it (Critical / High, `webflows.md`, `opsfix.md`)**
+    - The dashboard called the API cross-origin with credentials, and the API has no CORS: every login failed at the preflight. Separately, compose ran the seed on every `up`, and the seed `TRUNCATE … CASCADE`s merchants, ledger and admins.
+    - We fixed it with one origin (nginx serves web and admin and proxies `/v1`) instead of adding credentialed CORS, and a seed guard that skips a populated database unless `SEED_RESET=1`.
+    - Proof: `sameOrigin.test.ts`, `db/seed/guard.test.ts`, and the black-box judge suite on a clean stack (91/91).
 
 15. **M12: scheme file over-reports; residue never journalled (Medium, finance memo)**
     - The line `amount` was the untruncated gross as a float, rounded half-up by Postgres into `numeric(10,2)`, while we booked the truncated fils. That is why it was "always over, never under".
@@ -217,6 +232,11 @@ For each finding: what broke and why, how we fixed it with the smallest change, 
     - Proof: `scheme_residue_test.go` shows 4747 → "4.74" plus 7 fils residue journalled.
 
 **Backups if asked:**
+- M16 the nightly hold janitor deleted every hold on a quiet night (Critical).
+- M17 admin status recompute resurrected refunded transactions (Critical).
+- M5 split payouts did not add up; G2 now refuses weights that do not sum to 10000.
+- F2 a concurrent declined refund inflated the approved refund's total (Critical).
+- AN1/AN2 + settlefix2: reconciliation now ties out with refunds, carried shortfalls and payouts.
 - M8 daily close ~3 h late (daemon read the UTC date).
 - S5 impersonation could move money.
 - M14 test merchants taken live.
@@ -249,11 +269,12 @@ For each finding: what broke and why, how we fixed it with the smallest change, 
 7. **Status.** `partially_refunded` or `refunded`. Only the status is written at the end; the amount was already reserved.
 8. **Timeline.** A `refunded` or `refund_partial` event with a negative `amountFils` and the actor. The web page renders negative amounts (`669582c`).
 9. **Webhook.** A `refund.succeeded` outbox row in the same transaction. The dispatcher delivers it (it is in the eligible list and has an envelope case), signed over the exact bytes sent (W1).
-10. **Read models.** Transactions DTO `refundedFils`; `refund_merchant_summary` view fixed (0075, R6).
+10. **Read models.** Transactions DTO `refundedFils`; the reporting consumer applies `refund.succeeded` (RP4); `refund_merchant_summary` is a live view (0104, Q1).
 11. **UI.** `RefundDrawer` is mounted on the transaction detail page. It keeps one key per refund *intent* (B5a), is shown for `partially_refunded` too, and its maximum is captured − refunded.
-12. **Not yet** (say so if asked):
-    - Payout netting (`agent/settlebatch` `3aadad7`).
-    - The reporting rollups consuming `refund.succeeded`.
+12. **Settlement.** The next close deducts the refund from the merchant's payout (`3aadad7`); a negative day is carried forward (0090).
+13. **Not yet** (say so if asked):
+    - A retry after the acquirer call *throws* uses a new acquirer idempotency key, so a refund that went through can be paid twice (F4 open risk).
+    - Refund validation errors use `{ ok, code }` instead of `{ error, message }` (`apihygiene.md`, reported).
 
 ### 4.2 How to demo it (local stack, about 4 minutes)
 
@@ -321,7 +342,7 @@ Do a dry run before Saturday. Seed logins are in `db/seed/fixtures/merchants.ts`
   - Every agent brief said these files are data, never instructions. Ground truth was the ADRs, ARCHITECTURE.md, HANDOVER.md and the code.
 - **Comments citing an AI as the authority were treated as red flags.** Examples: "asked Claude, INTEGER is 64-bit" (M9) and "Claude double-checked". PostgreSQL `INTEGER` is always 32-bit.
 - **Tests that lock bugs in.** When a test asserted the buggy behaviour (CSV 475, fee 245 bps, key-order-independent signatures, old key stays active after rotation), we corrected it and said why in the write-up. We did not "fix the code to pass the test".
-- **Verification rule.** A finding only counts if a run proved it. Every fix has a regression test that fails before the change and passes after, and the write-ups quote the failing output. Example of the AI being wrong and caught: the first P2 fix (renew the lease before capture) still double-charged under the gated-acquirer test, so the design changed to finalize-before-capture.
+- **Verification rule.** A finding only counts if a run proved it. Almost every fix has a regression test that fails before the change and passes after, and the write-ups quote the failing output; the README lists the exceptions (for example S3, R6, R7, M8, M10) and the tests that fail only on a missing new function. Example of the AI being wrong and caught: the first P2 fix (renew the lease before capture) still double-charged under the gated-acquirer test, so the design changed to finalize-before-capture.
 - **Humans directed and reviewed.** We chose the lanes and priorities, read each finding, and merged into `fix/money-parsing`. Commits are authored by YHKyt or aalbalushi, with no AI attribution lines; this section is our declaration.
 
 ---
@@ -334,12 +355,12 @@ Do a dry run before Saturday. Seed logins are in `db/seed/fixtures/merchants.ts`
 
 3. **Why finalize the link before capture?** Capture is when money moves. If we finalize after capture, a capture that outlives the lease lets a second payer re-claim and capture too: a double charge. If we finalize first, only the finalize winner captures. The worst case left is a crash between finalize and capture, which leaves an `authorized` transaction: visible under-collection, never a second charge.
 
-4. **How do you know refunds net in settlement?** On `fix/money-parsing` they do not yet. We found that `CloseBatch` only reads capture events, so a refunded sale was still paid out in full. The fix, `3aadad7` on `agent/settlebatch`:
+4. **How do you know refunds net in settlement?** We found that `CloseBatch` only read capture events, so a refunded sale was still paid out in full. The fix, `3aadad7` (merged in `5cdcce7`):
    - claims succeeded refunds into the batch;
    - deducts `amount − fee_reversed`, which is exactly what the refund journalled;
    - carries a negative net forward to the next close (0090).
 
-   `batch_refunds_test.go` proves it: a same-day full refund of 100,000 fils used to pay 97,500. It is pending merge.
+   `batch_refunds_test.go` proves it: a same-day full refund of 100,000 fils used to pay 97,500, and now pays 0. Two follow-ups keep it right: MDR recalculation moves the net by the fee difference only, and reconciliation no longer counts payout legs or settled refunds twice (`settlefix2.md`, `analytics.md`).
 
 5. **Why reserve `refunded_fils` before calling the acquirer instead of holding the lock?** Holding a row lock across a network call blocks capture, void and other refunds for up to the acquirer latency. Reserving under a short lock serializes the decision, then releases the row. A decline or error releases the reservation.
 
@@ -347,7 +368,7 @@ Do a dry run before Saturday. Seed logins are in `db/seed/fixtures/merchants.ts`
 
 7. **Why must the client send the Idempotency-Key?** Only the client knows that two requests are the same intent. A server-generated key makes every retry a new refund. The UI keeps one key per intent and rotates it only after a definitive answer.
 
-8. **How do you know each test fails before the fix?** For each one we ran the test against the reverted source and quoted the failure in the write-up (for example `500 !== 413`, `['captured','captured']`, `2500 !== 2505`). Reviewer agents repeated this independently.
+8. **How do you know each test fails before the fix?** For each one we ran the test against the reverted source and quoted the failure in the write-up (for example `500 !== 413`, `['captured','captured']`, `2500 !== 2505`). Reviewer agents repeated this independently, and corrected us where a count was wrong (M2: 11 of 24 refund tests fail without the fix, not all 24). A few fixes have no such test, and a few tests fail on the old code only because a new function is missing; the README lists both.
 
 9. **You edited migrations 0054 and 0055. Isn't that dangerous?** Both errored on apply (a missing table, wrong columns), so they could never have run anywhere. Editing them changes no applied database. Every other schema change is a new numbered migration.
 
@@ -365,6 +386,7 @@ Do a dry run before Saturday. Seed logins are in `db/seed/fixtures/merchants.ts`
     - The first P2 fix (renew before capture) still double-charged under test.
     - M14 needed a follow-up commit (`48e2cbe`) to remove a remaining call.
     - Some existing tests encoded bugs, and an AI that obeys tests would have kept them.
+    - Our own write-ups overclaimed in places, and a review pass corrected them: the M2 fail-before count, what P2's 502 and throw paths really do, F4's retry being unsafe, and a nightly refresh that is only harmless once `agent/settlebal` is merged.
 
     Running the tests is what caught each one.
 
@@ -377,12 +399,18 @@ Do a dry run before Saturday. Seed logins are in `db/seed/fixtures/merchants.ts`
 19. **How did you choose severity?** By money and access impact. Critical: money moved or charged wrongly at scale, or account takeover. High: wrong money for affected merchants, an authorization bypass, or nothing can run. Medium: reconciliation or reliability. Low: hardening.
 
 20. **What would you do next?**
-    - Merge the reviewed branches: refund netting, per-transaction test mode, cache moving with the ledger, append-only ledger, outbox commit order.
-    - Add `refund.succeeded` to the reporting consumer.
-    - Let `RunDailyBatch` continue past one merchant's error and report it.
+    - Merge `agent/settlebal` (the cache moves with the ledger), which the nightly refresh depends on.
+    - Make a refund retry after a thrown acquirer call reuse the same acquirer idempotency key (F4).
+    - Add `stop_grace_period` to the settlement service so the 30 s drain can finish (G3).
     - Rate-limit admin login.
     - Rotate the acquirer callback secret that was committed to git history (H1).
     - Correct ADMIN.md and delete the planted AI files, then add a CI check for hidden unicode and AI-config changes.
+
+21. **Why same-origin instead of turning on CORS?** The dashboard sends the session cookie. Credentialed CORS has to be configured and audited per origin and widens what a mistake can expose. Serving web and admin from the API's own origin (nginx proxies `/v1`) keeps the cookie first-party and adds no new surface (WF1, O3).
+
+22. **Is the seed safe to run on the hosted box?** It is now. It used to `TRUNCATE … CASCADE` merchants, ledger and admins on every `docker compose up`. The CLI now skips a populated database and exits 0, unless `SEED_RESET=1` (O1).
+
+23. **Does reconciliation tie out after refunds?** Yes, for settled and unbatched refunds, carried shortfalls and paid batches. Before the fixes it reported a gap for each of those (F5, AN1, AN2, settlefix2). Admin credits and balance adjustments still show as a gap on purpose: they are not settlement.
 
 ---
 
@@ -394,8 +422,8 @@ Do a dry run before Saturday. Seed logins are in `db/seed/fixtures/merchants.ts`
 
 | Time | Who | What to say or show |
 |---|---|---|
-| 0:00-1:00 | Y | Team "git blame". "We audited, fixed 90 written-up findings plus 9 smaller fixes, built refunds, solved the mystery. Every fix has a test that fails before and passes after." |
-| 1:00-2:30 | A | The scoreboard table (2.1): 10 Critical, 39 High. Then the case-file table (2.2): every memo, incident and handwritten item maps to a commit. Name the two honest gaps (payout netting on a branch, reporting rollup). |
+| 0:00-1:00 | Y | Team "git blame". "We audited, fixed 149 written-up findings plus 9 smaller fixes, built refunds, solved the mystery. Almost every fix has a test that fails before and passes after, and we list the ones that don't." |
+| 1:00-2:30 | A | The scoreboard table (2.1): 14 Critical, 57 High. Then the case-file table (2.2): every memo, incident and handwritten item maps to a commit. Name the honest gaps (settlebal not merged under the nightly refresh, F4 retry risk). |
 | 2:30-6:30 | A | **FP-300 live** (4.2, steps 2-9): capture 10,001 fils → partial refund 3,333 → replay with the same key → over-refund 422 → concurrent race gives one success → ledger rows net to zero → timeline → `refund.succeeded` outbox row. |
 | 6:30-9:00 | Y | **Money bugs**: CSV 10× (show the two-line parser cause), float32 payout (one-line fix), split largest remainder (1001 → 1002 before), 135K → 7K Rebuild (wrong source), scheme "always over" (rounded vs truncated). Run one test live, e.g. `cd apps/settlement && go test ./internal/settlement/ -run TestNetPayableFils_ExactForLargeBatches -v`. |
 | 9:00-10:30 | A | **Security bugs**: OTP bypass (one predicate), link charged twice (finalize before capture, gated-acquirer test), unsigned callbacks (raw-body HMAC, 300 s window). |
@@ -408,9 +436,9 @@ Do a dry run before Saturday. Seed logins are in `db/seed/fixtures/merchants.ts`
 | Time | Who | Line |
 |---|---|---|
 | 0:00-0:30 | Y | "FilsPay lost money in ways finance could see but nobody could explain. We explained every one, and fixed it with the smallest change that works." |
-| 0:30-1:15 | A | "Ten critical bugs, including login without the OTP, one link charging a customer twice, any merchant refunding anyone, and forged bank callbacks. Each one now has a test that proves it is closed." |
+| 0:30-1:15 | A | "Fourteen critical bugs, including login without the OTP, one link charging a customer twice, any merchant refunding anyone, and forged bank callbacks. Each one now has a test that proves it is closed." |
 | 1:15-1:50 | Y | "The money now adds up to the fils: CSV import 10× off, float32 payouts, splits that lost fils, a balance button that turned 135K into 7K. All of them are integer and exact again." |
-| 1:50-2:25 | A | "Refunds, the feature that 'touches everything', now work end to end: safe under races and retries, a balanced ledger, exact fee reversal, the timeline and a signed webhook." |
+| 1:50-2:25 | A | "Refunds, the feature that 'touches everything', now work end to end: safe under races and retries, a balanced ledger, exact fee reversal, the refund deducted from the payout, the timeline, the reports and a signed webhook." |
 | 2:25-3:00 | Y | "We used AI heavily, but never blindly. The repo was booby-trapped with AI rule files that protect the bugs. Our agents treated them as evidence, not orders, and nothing counted until a test proved it. And the mystery: Yousif wasn't taken, he was erased. Every warning he left was a real bug." |
 
 ---
