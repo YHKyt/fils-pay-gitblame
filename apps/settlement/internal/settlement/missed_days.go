@@ -25,6 +25,9 @@ type MissedBusinessDay struct {
 // (or the daemon was down): CloseBatch only ever selects one day's window,
 // so nothing else would pick those captures up. A day that already has a
 // closed or paid batch is left out: CloseBatch would be a no-op for it.
+//
+// It also returns every day in [from, to) on which such a merchant has a
+// batch that is 'closed' but not 'paid', so the run pays it out.
 func FindMissedBusinessDays(ctx context.Context, db *pgxpool.Pool, from, to time.Time) ([]MissedBusinessDay, error) {
 	start, _ := BusinessDayWindow(from)
 	end, _ := BusinessDayWindow(to)
@@ -44,7 +47,18 @@ func FindMissedBusinessDays(ctx context.Context, db *pgxpool.Pool, from, to time
 		        AND sb.batch_date = (te.occurred_at AT TIME ZONE $3)::date
 		        AND sb.status <> 'open'
 		   )
-		 ORDER BY business_date, t.merchant_id
+		UNION
+		-- A batch that closed but was never paid (the run stopped between
+		-- CloseBatch and PayoutBatch and the day then passed): RunDailyBatch
+		-- pays an already-closed batch, but only yesterday is ever re-run.
+		SELECT sb.merchant_id, sb.batch_date
+		  FROM settlement_batches sb
+		  JOIN merchants m ON m.id = sb.merchant_id
+		 WHERE sb.status = 'closed'
+		   AND sb.batch_date >= ($1 AT TIME ZONE $3)::date
+		   AND sb.batch_date <  ($2 AT TIME ZONE $3)::date
+		   AND m.status = 'active' AND m.test_mode = false
+		 ORDER BY business_date, merchant_id
 	`, start, end, businessDayLocation.String())
 	if err != nil {
 		return nil, fmt.Errorf("settlement: FindMissedBusinessDays: %w", err)
