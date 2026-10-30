@@ -5,6 +5,7 @@ import { describeError } from "../../api/client.js";
 import { StalenessBadge } from "../../components/StalenessBadge.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { bhd, dash, dateTime, statusLabel } from "../../format.js";
+import { usePageTitle } from "../../hooks/usePageTitle.js";
 import { formatCount } from "../../utils/helpers.js";
 import { StatCards } from "./StatCards.js";
 import { VolumeChart } from "./VolumeChart.js";
@@ -27,6 +28,7 @@ function greeting(): string {
 const POLL_MS = 60_000;
 
 export function OverviewPage() {
+  usePageTitle("Overview");
   const { me } = useDashboardAuth();
   // Left blank, the server applies its own "last 30 Asia/Bahrain days"
   // default — the client does not compute a competing one.

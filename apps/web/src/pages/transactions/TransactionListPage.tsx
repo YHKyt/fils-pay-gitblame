@@ -5,6 +5,7 @@ import { describeError } from "../../api/client.js";
 import { Pagination } from "../../components/Pagination.js";
 import { SkeletonRows } from "../../components/SkeletonRows.js";
 import { bhd, dash, dateTime, dayStartIso, statusLabel } from "../../format.js";
+import { usePageTitle } from "../../hooks/usePageTitle.js";
 import { classNames, pluralize, truncateMiddle } from "../../utils/helpers.js";
 import type { TransactionDto, TransactionStatus } from "../../types.js";
 
@@ -28,6 +29,7 @@ const SEARCH_DEBOUNCE_MS = 300;
  */
 // from/to are Asia/Bahrain day starts (business days), see dayStartIso
 export function TransactionListPage() {
+  usePageTitle("Transactions");
   const [statuses, setStatuses] = useState<TransactionStatus[]>([]);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");

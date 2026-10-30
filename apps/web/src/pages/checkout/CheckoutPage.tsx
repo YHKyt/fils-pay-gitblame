@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { formatBhd, toFils } from "@filspay/money";
+import { groupThousands } from "../../format.js";
+import { usePageTitle } from "../../hooks/usePageTitle.js";
 import { getPaymentLink, payPaymentLink } from "../../api/paymentLinks.js";
 import { ApiError } from "../../api/client.js";
 import { bahrainDateTime } from "../../format.js";
@@ -103,6 +105,23 @@ type PayState =
   | { kind: "declined"; message: string; retryable: boolean }
   | { kind: "terminal"; message: string };
 
+/** Formats raw expiry keystrokes as `MM/YY` (auto-slash after the month). */
+function formatExpiryText(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 4);
+  if (digits.length <= 2) return digits;
+  return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+}
+
+/** Splits a complete `MM/YY` into the month and four-digit year the pay
+ *  request already sends, or null while the text is incomplete. */
+function parseExpiryText(text: string): { expiryMonth: number; expiryYear: number } | null {
+  const match = /^(\d{2})\/(\d{2})$/.exec(text);
+  if (!match) return null;
+  const month = Number(match[1]);
+  if (month < 1 || month > 12) return null;
+  return { expiryMonth: month, expiryYear: 2000 + Number(match[2]) };
+}
+
 const EMPTY_CARD: SimulatedCardInput = { pan: "", expiryMonth: 1, expiryYear: new Date().getFullYear() + 1, cvv: "" };
 
 export function CheckoutPage() {
@@ -115,6 +134,8 @@ export function CheckoutPage() {
   const [payState, setPayState] = useState<PayState>({ kind: "idle" });
   const [card, setCard] = useState<SimulatedCardInput>(EMPTY_CARD);
   const [brandHint, setBrandHint] = useState<string | null>(null);
+  const [expiryText, setExpiryText] = useState("");
+  usePageTitle(loadState.kind === "loaded" ? `Pay ${loadState.link.merchantDisplayName}` : "Checkout");
   // One Idempotency-Key per payment attempt, kept across network failures:
   // if the request reached the server but the response was lost, the retry
   // replays that payment instead of charging the card a second time. It is
@@ -289,7 +310,7 @@ export function CheckoutPage() {
           <dt>Merchant</dt>
           <dd>{link.merchantDisplayName}</dd>
           <dt>Amount</dt>
-          <dd className="checkout-receipt-amount">{formatBhd(toFils(payState.receipt.amountFils))} BHD</dd>
+          <dd className="checkout-receipt-amount">{groupThousands(formatBhd(toFils(payState.receipt.amountFils)))} BHD</dd>
           {link.reference ? (
             <>
               <dt>Reference</dt>
@@ -363,7 +384,7 @@ export function CheckoutPage() {
   }
 
   // link.status === 'active'
-  const amount = formatBhd(toFils(link.amountFils));
+  const amount = groupThousands(formatBhd(toFils(link.amountFils)));
   const submitting = payState.kind === "submitting" || payState.kind === "verifying";
 
   return (
@@ -390,6 +411,7 @@ export function CheckoutPage() {
           <input
             type="text"
             inputMode="numeric"
+            autoComplete="cc-number"
             required
             value={card.pan}
             onChange={(e) => {
@@ -411,24 +433,23 @@ export function CheckoutPage() {
         </label>
         <div className="checkout-form-row">
           <label>
-            Expiry month
+            Expiry (MM/YY)
             <input
-              type="number"
-              min={1}
-              max={12}
+              type="text"
+              inputMode="numeric"
+              autoComplete="cc-exp"
+              placeholder="MM/YY"
+              maxLength={5}
+              pattern="(0[1-9]|1[0-2])/[0-9]{2}"
+              title="Month and year, for example 08/29"
               required
-              value={card.expiryMonth}
-              onChange={(e) => setCard({ ...card, expiryMonth: Number(e.target.value) })}
-            />
-          </label>
-          <label>
-            Expiry year
-            <input
-              type="number"
-              min={new Date().getFullYear()}
-              required
-              value={card.expiryYear}
-              onChange={(e) => setCard({ ...card, expiryYear: Number(e.target.value) })}
+              value={expiryText}
+              onChange={(e) => {
+                const text = formatExpiryText(e.target.value);
+                setExpiryText(text);
+                const parsed = parseExpiryText(text);
+                if (parsed) setCard({ ...card, ...parsed });
+              }}
             />
           </label>
           <label>
@@ -436,6 +457,8 @@ export function CheckoutPage() {
             <input
               type="text"
               inputMode="numeric"
+              autoComplete="cc-csc"
+              maxLength={4}
               required
               value={card.cvv}
               onChange={(e) => setCard({ ...card, cvv: e.target.value })}

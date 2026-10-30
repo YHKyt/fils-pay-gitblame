@@ -6,6 +6,7 @@ import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { ConfirmDialog } from "../../components/ConfirmDialog.js";
 import { bhd, dash, dateTime, statusLabel } from "../../format.js";
+import { usePageTitle } from "../../hooks/usePageTitle.js";
 import type { PaymentLinkDto } from "../../types.js";
 import { canCancelPaymentLink, paymentLinkDisplayStatus } from "../../utils/paymentLinkStatus.js";
 
@@ -26,6 +27,7 @@ export function PaymentLinkDetailPage() {
   const merchantId = me?.merchant.id;
 
   const [state, setState] = useState<LoadState>({ kind: "loading" });
+  usePageTitle(state.kind === "loaded" ? `Payment link ${state.link.reference ?? bhd(state.link.amountFils)}` : "Payment link");
   const [actionError, setActionError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [submitting, setSubmitting] = useState(false);

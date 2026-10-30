@@ -11,6 +11,7 @@ import { ApiError, describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { ConfirmDialog } from "../../components/ConfirmDialog.js";
 import { bhd, dash, dateTime, statusLabel } from "../../format.js";
+import { usePageTitle } from "../../hooks/usePageTitle.js";
 import type { TransactionDto, TransactionEventDto } from "../../types.js";
 import { attemptFor, isDefinitiveFailure, type IdempotentAttempt } from "../../utils/idempotencyIntent.js";
 import { RefundDrawer } from "./RefundDrawer.js";
@@ -33,6 +34,7 @@ type LoadState =
 export function TransactionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [state, setState] = useState<LoadState>({ kind: "loading" });
+  usePageTitle(state.kind === "loaded" ? `Payment ${state.txn.reference ?? bhd(state.txn.amountFils)}` : "Payment");
   const [events, setEvents] = useState<TransactionEventDto[]>([]);
   const [actionError, setActionError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);

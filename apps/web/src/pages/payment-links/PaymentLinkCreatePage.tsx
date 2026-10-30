@@ -5,6 +5,7 @@ import { createPaymentLink } from "../../api/paymentLinks.js";
 import { describeError } from "../../api/client.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { bhd, localDateTimeToIso } from "../../format.js";
+import { usePageTitle } from "../../hooks/usePageTitle.js";
 
 /**
  * `POST /v1/merchants/:merchantId/payment-links`, `owner`/`finance`
@@ -22,6 +23,7 @@ import { bhd, localDateTimeToIso } from "../../format.js";
  * answer and are rendered verbatim.
  */
 export function PaymentLinkCreatePage() {
+  usePageTitle("New payment link");
   const { me } = useDashboardAuth();
   const navigate = useNavigate();
 
