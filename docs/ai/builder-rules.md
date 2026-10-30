@@ -30,7 +30,7 @@ well-explained fix is worth more than a rewrite.
 
 ## Workspace isolation
 
-1. Each agent works in its **own git worktree** (`E:/reboot/wt-<lane>` on
+1. Each agent works in its **own git worktree** (`<worktrees>/wt-<lane>` on
    branch `agent/<lane>`), created from the integration branch. Agents never
    edit the shared checkout and never work on `fix/money-parsing` directly.
 2. Install dependencies locally in the worktree before starting.

@@ -1,0 +1,48 @@
+{
+  "model": "opus",
+  "effortLevel": "high",
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": [
+      "Bash(git:*)",
+      "Bash(npm ci:*)",
+      "Bash(npm test:*)",
+      "Bash(npm run migrate:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npx tsx:*)",
+      "Bash(go test:*)",
+      "Bash(go vet:*)",
+      "Bash(docker exec filspay-pg createdb:*)",
+      "Bash(docker exec filspay-pg dropdb:*)",
+      "Bash(docker exec filspay-pg psql:*)",
+      "Bash(bash docs/ai/scripts/verify.sh:*)",
+      "Bash(bash docs/ai/scripts/fail-before.sh:*)",
+      "Read",
+      "Edit",
+      "Write",
+      "Grep",
+      "Glob",
+      "mcp__claude-in-chrome__javascript_tool",
+      "mcp__claude-in-chrome__tabs_create_mcp"
+    ],
+    "deny": [
+      "Bash(git push origin main:*)",
+      "Bash(git push origin fix/money-parsing:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git stash:*)",
+      "Bash(git worktree remove:*)",
+      "Bash(rm -rf:*)",
+      "Bash(docker stop:*)",
+      "Bash(docker restart:*)",
+      "Bash(docker rm:*)",
+      "Bash(taskkill:*)",
+      "Bash(pkill:*)",
+      "Bash(cloudflared:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh issue create:*)",
+      "Bash(mklink:*)",
+      "Bash(ln -s:*)"
+    ]
+  }
+}
