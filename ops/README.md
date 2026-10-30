@@ -92,6 +92,37 @@ session tokens in clear text, so it is acceptable only for a throwaway demo
 on a private network, never on a public box. It is not set anywhere in this
 stack.
 
+## TLS edge
+
+On the hosted box (139.59.82.16), TLS is terminated by a Caddy container,
+`filspay-caddy`, outside the compose stack. Its config is `caddy/Caddyfile`
+in this directory (on the box: `/home/dilmune/caddy/Caddyfile`). Caddy serves
+`139.59.82.16.sslip.io` and `139-59-82-16.nip.io` on 443, gets their
+certificates automatically (TLS-ALPN challenge on 443, so port 80 is not
+needed for it), adds HSTS, and forwards to the `web` service on the host's
+port 80 (`172.17.0.1`, the default docker bridge gateway) with
+`X-Forwarded-Proto: https`. The stack runs with `WEB_HOST_PORT=80`.
+
+To recreate it (keep the `caddy_data` volume: it holds the certificates and
+the ACME account):
+
+```sh
+docker run -d --name filspay-caddy --restart unless-stopped   -p 443:443 -p 443:443/udp   -v /home/dilmune/caddy/Caddyfile:/etc/caddy/Caddyfile:ro   -v caddy_data:/data -v caddy_config:/config   caddy:2.8 caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+```
+
+After editing the Caddyfile: `docker exec filspay-caddy caddy reload --config /etc/caddy/Caddyfile`.
+
+Port 80 still reaches nginx directly over plain http. For the box's own host
+names (the bare IP, the sslip.io and nip.io names), `nginx.web.conf`
+answers browser pages (`/`, `/dashboard...`, `/pay/...`, `/admin...`) that
+did not come through Caddy with `301` to `https://139.59.82.16.sslip.io`.
+`/v1/...`, `/healthz`, `/readyz` and the hashed `/assets/` files are never
+redirected, so API clients on `http://139.59.82.16/v1` keep working. Other
+host names (localhost, the compose healthcheck, local stacks) are not
+redirected. If the box's address changes, update the site names in
+`caddy/Caddyfile`, the `$hh_redirect_https` map and the redirect target in
+`nginx.web.conf`, and `CHECKOUT_BASE_URL`.
+
 ## Running it in public
 
 The hosted box is one server, 1 vCPU and 2 GB RAM for the whole stack, and
@@ -286,7 +317,8 @@ failure path.
 | `Dockerfile.node` | one image (`filspay-node:${IMAGE_TAG:-local}`) for api, reporting, migrate and seed |
 | `Dockerfile.go` | multi-stage build of `apps/settlement` |
 | `Dockerfile.web` | builds apps/web and apps/admin, serves both from nginx |
-| `nginx.web.conf` | nginx site: SPA fallbacks for `/` and `/admin/`, `/v1` proxied to the api |
+| `nginx.web.conf` | nginx site: SPA fallbacks for `/` and `/admin/`, `/v1` proxied to the api, plain-http pages on the hosted box redirected to HTTPS |
+| `caddy/Caddyfile` | TLS edge on the hosted box (Caddy, outside compose); see "TLS edge" |
 | `nginx.main.conf` | nginx main config (worker connections, access log with request time) |
 | `healthcheck.mjs` | healthcheck for the api (kills a hung server so it restarts) and reporting |
 | `compose.box-sim.yml` | override that pins the stack to one CPU, to load-test the hosted box's size locally |
