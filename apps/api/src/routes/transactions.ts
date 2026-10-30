@@ -146,6 +146,11 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
       const q = request.query;
       const status = q.status === undefined ? undefined : Array.isArray(q.status) ? q.status : [q.status];
       const limit = parseOptionalNonNegativeInt(q.limit, "limit");
+      // A repeated ?search= arrives as an array, and Postgres rejects U+0000
+      // in text (that was a 500).
+      if (q.search !== undefined && (typeof q.search !== "string" || q.search.includes("\u0000"))) {
+        throw new BadRequestError("invalid_request", "search must be a single string without NUL characters");
+      }
 
       return listTransactions(app.db, {
         merchantId: request.merchantAuth!.merchantId,
