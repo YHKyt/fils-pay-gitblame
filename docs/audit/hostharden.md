@@ -116,6 +116,8 @@ Our estimate: **the box serves about 30 concurrent checkout users at p95 under 0
 
 Past 50 pays in flight the excess is turned away at once with a JSON 429 (`rate_limited`): no 5xx and no wrong payment at any step up to 200 users, throughput stays at 34-51 checkouts/s, and the admitted checkouts keep a p95 under 2 s instead of growing without bound.
 
+> Note — this table was measured with `compose.box-sim.yml` pinning the stack to one CPU of a larger multi-core build host, which is faster per-core than the actual hosted droplet. On the real live DigitalOcean droplet (1 vCPU shared, api capped to 0.5 vCPU), the measured ceiling is **~18 checkouts/s with a clean knee at ~10 concurrent users (p95 ~1 s, ≈0 errors to 20 users)** — see `docs/handover-pitch/stress-report.md`. The box-sim 45/s figure above does not transfer to this box; the ~18/s live figure is the one to quote for the hosted deployment. Both agree on perfect correctness (0 wrong rows / 0 duplicate tx / 0 double captures / 0 unbalanced ledger) and 0 × 5xx under overload.
+
 Capacity falls as the data grows (see "Reported, not fixed" below): on a stack with 46,000 idempotency rows the same 40-user step did 20 to 28 checkouts/s instead of 41 to 45.
 
 Other measured loads (60 s, one address, public origin):
