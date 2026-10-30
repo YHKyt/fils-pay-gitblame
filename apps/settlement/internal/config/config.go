@@ -84,9 +84,20 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	// The due time is today's Bahrain midnight plus this delay; a whole day
+	// or more puts it past the next midnight on every wake, so the daemon
+	// would never close a day.
+	if runDelay < 0 || runDelay >= 24*60 {
+		return Config{}, fmt.Errorf("config: SETTLEMENT_DAEMON_RUN_DELAY_MINUTES must be between 0 and 1439, got %d", runDelay)
+	}
+
 	pollIntervalSeconds, err := parseIntEnv("SETTLEMENT_DAEMON_POLL_INTERVAL_SECONDS", 60)
 	if err != nil {
 		return Config{}, err
+	}
+	// time.NewTicker panics on a non-positive interval.
+	if pollIntervalSeconds <= 0 {
+		return Config{}, fmt.Errorf("config: SETTLEMENT_DAEMON_POLL_INTERVAL_SECONDS must be positive, got %d", pollIntervalSeconds)
 	}
 
 	internalPort, err := parseIntEnv("SETTLEMENT_INTERNAL_PORT", 8091)
