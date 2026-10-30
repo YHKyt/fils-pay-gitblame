@@ -177,6 +177,21 @@ test("a support admin CAN read the credits queue — it is a read, like the merc
 
 // ------------------------------------------------------------ create route
 
+// ADMIN.md: support may "issue small credits". The console shows support the
+// Issue credit form on that basis; a large one is held for finance.
+test("a support admin issues a small credit (posts) and a large one (held for finance approval)", async () => {
+  const support = await signedInAdmin("support", "create-support");
+  const merchantId = await createMerchant("create-support");
+
+  const small = await issueCredit(support.cookie, merchantId, { baseAmountFils: 10_000 });
+  assert.equal(small.status, "posted");
+  assert.notEqual(small.ledgerEntryGroupId, null);
+
+  const large = await issueCredit(support.cookie, merchantId, { baseAmountFils: 120_000 });
+  assert.equal(large.status, "pending_approval");
+  assert.equal(large.ledgerEntryGroupId, null);
+});
+
 test("a finance admin issues a below-threshold credit and it posts immediately", async () => {
   const finance = await signedInAdmin("finance", "create-small");
   const merchantId = await createMerchant("create-small");
