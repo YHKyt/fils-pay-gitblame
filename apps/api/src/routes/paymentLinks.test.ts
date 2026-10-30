@@ -479,3 +479,21 @@ test("get by id: another merchant's link is 404 (not 403); unknown and malformed
   });
   assert.equal(crossPath.statusCode, 403, crossPath.body);
 });
+
+// Regression: the public pay route only checked that card was truthy, so a
+// card without a string pan reached the acquirer, threw a TypeError and
+// answered 500.
+test("pay with a malformed card is a 400 invalid_card and leaves the link payable", async () => {
+  const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("bad-card");
+  const link = await createLink(rawKey, merchantId);
+  const badCards: unknown[] = [{}, "4242424242424242", [], { pan: 4242424242424242 }, { pan: null }, { ...APPROVED_CARD, pan: "4242" }];
+  for (const card of badCards) {
+    const res = await pay(link.token, card as typeof APPROVED_CARD);
+    assert.equal(res.statusCode, 400, `${JSON.stringify(card)}: ${res.body}`);
+    assert.equal(res.json().error, "invalid_card");
+  }
+  const read = await getPublicLink(link.token);
+  assert.equal(read.json().status, "active");
+  const ok = await pay(link.token, APPROVED_CARD);
+  assert.equal(ok.statusCode, 200, ok.body);
+});

@@ -178,6 +178,11 @@ export async function paymentLinkPublicRoutes(app: FastifyInstance): Promise<voi
     if (!card) {
       throw new BadRequestError("invalid_request", "card is required");
     }
+    // Same rule as POST /v1/transactions: the acquirer reads card.pan as a
+    // string, so anything else threw a TypeError there and answered 500.
+    if (typeof card !== "object" || Array.isArray(card) || typeof card.pan !== "string" || !/^\d{12,19}$/.test(card.pan)) {
+      throw new BadRequestError("invalid_card", "card.pan must be a string of 12 to 19 digits");
+    }
 
     const result = await payPaymentLink(
       app.db,

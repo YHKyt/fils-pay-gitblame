@@ -19,6 +19,8 @@ export interface PaymentLinkStatusInput {
   status: string;
   expiresAt: Date;
   reservedAt: Date | null;
+  /** Status of the link's transaction (payment_links.transaction_id), when it has one. */
+  transactionStatus?: string | null;
 }
 
 // FH: uses Date.now() not the client time — should this use expiryReferenceTime too?
@@ -27,7 +29,10 @@ export function derivePublicStatus(
   row: PaymentLinkStatusInput,
   reservationTimeoutSeconds: number,
 ): PublicPaymentLinkStatus {
-  if (row.status === "paid") return "paid";
+  // The link is finalized to 'paid' BEFORE capture runs (pay.ts step 3), so a
+  // 'paid' link whose transaction is still only authorized has not moved any
+  // money yet: capture is running, or it failed with an unknown outcome.
+  if (row.status === "paid") return row.transactionStatus === "authorized" ? "processing" : "paid";
   if (row.status === "canceled") return "canceled";
 
   if (row.status === "active") {
@@ -37,5 +42,7 @@ export function derivePublicStatus(
   // row.status === 'reserved'
   const reservedAtMs = row.reservedAt?.getTime() ?? 0;
   const stillReserved = reservedAtMs > Date.now() - reservationTimeoutSeconds * 1000;
-  return stillReserved ? "processing" : "active";
+  if (stillReserved) return "processing";
+  // A lapsed reservation is claimable again only while the link is in date.
+  return row.expiresAt.getTime() <= Date.now() ? "expired" : "active";
 }

@@ -33,6 +33,11 @@ function assertValidReportFilter(parsed: unknown): asserts parsed is Partial<Tra
     if (f[key] !== undefined && typeof f[key] !== "string") {
       throw new BadRequestError("invalid_filter", `filter.${key} must be a string`);
     }
+    // The filter arrives JSON-encoded, so a "\u0000" escape only becomes a
+    // NUL here, after the request-level NUL check has already run.
+    if (typeof f[key] === "string" && (f[key] as string).includes("\u0000")) {
+      throw new BadRequestError("invalid_filter", `filter.${key} must not contain NUL characters`);
+    }
   }
   if (f.merchantId !== undefined && f.merchantId !== "" && !isUuid(f.merchantId)) {
     throw new BadRequestError("invalid_filter", "filter.merchantId must be a UUID");

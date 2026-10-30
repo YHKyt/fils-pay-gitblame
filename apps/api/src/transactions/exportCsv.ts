@@ -12,12 +12,15 @@ export interface TransactionsExportFilters {
 
 /**
  * Escapes one free-text cell. A cell a spreadsheet would read as a formula
- * (leading = + - @, or a tab/CR that some importers strip first) is prefixed
- * with a single quote so Excel/Sheets show it as text (CSV/formula injection).
+ * (leading = + - @, or a tab/CR/LF that some importers strip first) is
+ * prefixed with a single quote so Excel/Sheets show it as text (CSV/formula
+ * injection). A ";" forces quoting too: spreadsheets in locales whose list
+ * separator is ";" split an unquoted cell there, and the next cell could
+ * start with "=".
  */
 function csvEscape(raw: string): string {
-  const value = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
-  if (value.includes(",") || value.includes('"') || value.includes("\n") || value.includes("\r")) {
+  const value = /^[=+\-@\t\r\n]/.test(raw) ? `'${raw}` : raw;
+  if (/[,;"\n\r]/.test(value)) {
     return `"${value.replace(/"/g, '""')}"`;
   }
   return value;

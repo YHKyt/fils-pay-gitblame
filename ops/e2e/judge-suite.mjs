@@ -442,11 +442,19 @@ async function main() {
   }
   const batches = (await apiA.req("GET", "/v1/settlement/batches?limit=50")).body;
   const blist = batches?.batches ?? batches?.items ?? [];
+  // net = gross - fee only for a batch with no refunds and no carried-in
+  // shortfall. The close deducts each refund (amount - fee reversed, never
+  // negative) and adds a negative carried-in balance, so the batch DTO
+  // (which carries neither field) can only promise net <= gross - fee. Where
+  // a DTO does expose the refund and carry-in amounts, check them exactly.
   const inconsistent = blist.filter((x) => {
-    const g = x.grossFils ?? x.capturedGrossFils, f = x.feeFils ?? x.mdrFils, r = x.refundFils ?? x.refundedFils ?? 0, n = x.netFils ?? x.netPayoutFils;
-    return [g, f, n].every(isFils) && isFils(r) && g - f - r !== n && g - f !== n;
+    const g = x.grossFils ?? x.capturedGrossFils, f = x.feeFils ?? x.mdrFils, n = x.netFils ?? x.netPayoutFils;
+    if (![g, f, n].every(isFils)) return false;
+    const r = x.refundDeductionFils ?? x.refundFils ?? x.refundedFils, c = x.carriedInFils;
+    if (isFils(r) && isFils(c)) return g - f - r + c !== n;
+    return n > g - f;
   });
-  check("each batch: net = gross - fee (- refunds) where those fields exist", inconsistent.length === 0, inconsistent.slice(0, 3));
+  check("each batch: net = gross - fee - refunds + carried-in (net <= gross - fee when not itemised)", inconsistent.length === 0, inconsistent.slice(0, 3));
 
   section("web + admin bundles");
   for (const [label, url] of [["web", WEB_URL], ["admin", ADMIN_URL]]) {

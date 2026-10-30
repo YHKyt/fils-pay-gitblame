@@ -16,6 +16,22 @@ export function isOutcomeUnknown(err: unknown): boolean {
   return statusCode >= 500 && statusCode !== 502;
 }
 
+/**
+ * Pay answers that end this attempt, so the next "Pay" is a new one with a
+ * new Idempotency-Key. `409 payment_link_processing` / `request_in_progress`
+ * mean "a payment for this link is still in flight" (possibly this very
+ * attempt): a new key there would start a second authorization next to the
+ * first, which is then left holding the card. 5xx and 429 keep the key too.
+ */
+export function endsCheckoutAttempt(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const { statusCode, code } = err as { statusCode?: unknown; code?: unknown };
+  if (typeof statusCode !== "number") return false;
+  if (statusCode >= 500 || statusCode === 429) return false;
+  if (statusCode === 409 && (code === "payment_link_processing" || code === "request_in_progress")) return false;
+  return true;
+}
+
 export type LostPaymentResolution =
   /** The link is paid: show the receipt, never offer to pay again. */
   | { kind: "paid"; link: PaymentLinkPublicDto }

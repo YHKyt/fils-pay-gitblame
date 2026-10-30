@@ -30,6 +30,8 @@ interface ClaimedLinkRow {
 interface LinkStatusRow {
   status: string;
   expires_at: Date;
+  reserved_at: Date | null;
+  transaction_status: string | null;
 }
 
 /**
@@ -143,27 +145,19 @@ export async function payPaymentLink(
   // transaction was just authorized for exactly link.amountFils and
   // nothing else could have touched it yet.
   const captureKey = `paylink:${link.id}:${input.idempotencyKey}:capture`;
-  let captureResult: Awaited<ReturnType<typeof captureTransaction>>;
-  try {
-    captureResult = await captureTransaction(pool, acquirer, {
-      transactionId: txnId,
-      merchantId: link.merchantId,
-      idempotencyKey: captureKey,
-      actor: { type: "system", id: link.id },
-    });
-  } catch (err) {
-    // Capture threw, so its own DB transaction rolled back and nothing was
-    // recorded. Don't leave the link showing 'paid' for an uncaptured
-    // authorization: put it back to 'reserved' (as before this change, it
-    // self-heals after the reservation timeout, and a retry with the same
-    // Idempotency-Key replays this authorization).
-    await pool.query(
-      `UPDATE payment_links SET status = 'reserved', reserved_at = now(), paid_at = NULL, transaction_id = NULL
-        WHERE id = $1 AND status = 'paid' AND transaction_id = $2`,
-      [link.id, txnId],
-    );
-    throw err;
-  }
+  // If capture throws, the link deliberately stays 'paid' against this
+  // authorized transaction. The throw may come AFTER the acquirer approved
+  // the capture (a DB failure while journalling), so the acquirer outcome is
+  // unknown. Reopening the link on a throw let a second payer claim it after
+  // the reservation timeout and be captured too: two acquirer captures for
+  // one link. The public read and the claim-failure path report such a link
+  // as 'processing' until the merchant captures or voids the authorization.
+  const captureResult = await captureTransaction(pool, acquirer, {
+    transactionId: txnId,
+    merchantId: link.merchantId,
+    idempotencyKey: captureKey,
+    actor: { type: "system", id: link.id },
+  });
 
   if (captureResult.statusCode !== 200) {
     // Nothing was captured: hand the link back so the customer can retry.
@@ -253,13 +247,22 @@ async function classifyClaimFailure(
   reservationTimeoutSeconds: number,
   expiryCheckTime: Date,
 ): Promise<PayPaymentLinkResult> {
-  const result = await pool.query<LinkStatusRow>(`SELECT status, expires_at FROM payment_links WHERE token = $1`, [
-    token,
-  ]);
+  const result = await pool.query<LinkStatusRow>(
+    `SELECT pl.status, pl.expires_at, pl.reserved_at, t.status AS transaction_status
+       FROM payment_links pl
+       LEFT JOIN transactions t ON t.id = pl.transaction_id
+      WHERE pl.token = $1`,
+    [token],
+  );
   const row = result.rows[0];
 
   if (!row) {
     return { statusCode: 404, body: { error: "payment_link_not_found" } };
+  }
+  if (row.status === "paid" && row.transaction_status === "authorized") {
+    // Finalized but not yet captured (capture running, or its outcome is
+    // unknown): no money has moved, so "already paid" would be false.
+    return { statusCode: 409, body: { error: "payment_link_processing" } };
   }
   if (row.status === "paid") {
     return { statusCode: 409, body: { error: "payment_link_already_paid" } };
@@ -268,6 +271,16 @@ async function classifyClaimFailure(
     return { statusCode: 409, body: { error: "payment_link_canceled" } };
   }
   if (row.status === "active" && row.expires_at.getTime() <= expiryCheckTime.getTime()) {
+    return { statusCode: 410, body: { error: "payment_link_expired" } };
+  }
+  if (
+    row.status === "reserved" &&
+    row.expires_at.getTime() <= expiryCheckTime.getTime() &&
+    !(row.reserved_at && row.reserved_at.getTime() > expiryCheckTime.getTime() - reservationTimeoutSeconds * 1000)
+  ) {
+    // An abandoned reservation on a link that has since expired: nobody is
+    // paying it and nobody can. Answering 'processing' here kept the
+    // customer retrying forever while the public read said 'active'.
     return { statusCode: 410, body: { error: "payment_link_expired" } };
   }
   if (row.status === "reserved") {

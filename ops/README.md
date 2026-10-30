@@ -8,7 +8,7 @@ instance uses the same compose file with its own `ops/.env`.
 ## Quick start
 
 ```
-cp ops/.env.example ops/.env   # then fill in the four required secrets
+cp ops/.env.example ops/.env   # fill in the four secrets; set CHECKOUT_BASE_URL on a hosted box
 docker compose -f ops/docker-compose.yml up -d --build
 ```
 
@@ -122,7 +122,7 @@ failure path.
 | File | Purpose |
 |---|---|
 | `docker-compose.yml` | the stack |
-| `.env.example` | the settings each host supplies in `ops/.env` (gitignored); four are required |
+| `.env.example` | the settings each host supplies in `ops/.env` (gitignored); four secrets and `CHECKOUT_BASE_URL` are required |
 | `.env.docker` | shared non-secret service settings (`NODE_ENV`, `PORT`), loaded via `env_file` |
 | `Dockerfile.node` | one image (`filspay-node:${IMAGE_TAG:-local}`) for api, reporting, migrate and seed |
 | `Dockerfile.go` | multi-stage build of `apps/settlement` |

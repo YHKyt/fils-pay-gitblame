@@ -5,7 +5,7 @@ import { getPaymentLink, payPaymentLink } from "../../api/paymentLinks.js";
 import { ApiError } from "../../api/client.js";
 import { bahrainDateTime } from "../../format.js";
 import type { PaymentLinkPublicDto, SimulatedCardInput } from "../../types.js";
-import { isOutcomeUnknown, resolveLostPayment } from "../../utils/checkoutRecovery.js";
+import { endsCheckoutAttempt, isOutcomeUnknown, resolveLostPayment } from "../../utils/checkoutRecovery.js";
 import "./CheckoutPage.css";
 
 type LoadState =
@@ -74,6 +74,30 @@ export function CheckoutPage() {
     };
   }, [token]);
 
+  // A 'processing' link has a payment in flight (or a capture whose outcome
+  // is still being settled): keep re-reading it until it resolves instead
+  // of asking the customer to refresh. 'paid' is only reported once the
+  // capture has landed.
+  const linkStatus = loadState.kind === "loaded" ? loadState.link.status : null;
+  useEffect(() => {
+    if (!token || linkStatus !== "processing") return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      getPaymentLink(token)
+        .then((link) => {
+          if (!cancelled) setLoadState({ kind: "loaded", link });
+        })
+        .catch(() => {
+          // Transient read failure: re-arm the poll by re-setting the same state.
+          if (!cancelled) setLoadState((s) => (s.kind === "loaded" ? { ...s, link: { ...s.link } } : s));
+        });
+    }, VERIFY_POLL.delayMs);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [token, linkStatus, loadState]); // a fresh loadState re-arms the next poll
+
   async function handleSubmit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
     if (!token || payState.kind === "submitting" || payState.kind === "verifying") return;
@@ -97,8 +121,9 @@ export function CheckoutPage() {
       if (err instanceof ApiError) {
         const { statusCode, body } = err;
         // A decline or other definitive answer ends this attempt; "try
-        // again" (e.g. with another card) is a new one. 5xx keeps the key.
-        if (statusCode < 500) setIdempotencyKey(crypto.randomUUID());
+        // again" (e.g. with another card) is a new one. 5xx and an
+        // in-flight 409 keep the key.
+        if (endsCheckoutAttempt(err)) setIdempotencyKey(crypto.randomUUID());
         if (statusCode === 402) {
           const stageLabel = body.stage === "capture" ? "Your payment could not be completed." : "Your card was declined.";
           setPayState({ kind: "declined", message: stageLabel, retryable: true });
@@ -246,7 +271,7 @@ export function CheckoutPage() {
     return (
       <main className="checkout-page">
         <h1>Payment processing</h1>
-        <p>A payment is being processed for this link — please wait a moment and refresh.</p>
+        <p>A payment is being processed for this link. This page updates automatically.</p>
       </main>
     );
   }

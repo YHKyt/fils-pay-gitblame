@@ -14,6 +14,7 @@ import { Pool } from "pg";
 import type { AcquirerSimulator } from "../acquirer/types.js";
 import { recordKycReview } from "../onboarding/review.js";
 import { payPaymentLink } from "./pay.js";
+import { getPublicPaymentLink } from "./read.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 const CARD_A = { pan: "4242424242424242", expiryMonth: 12, expiryYear: 2030, cvv: "123" };
@@ -128,6 +129,31 @@ test("an authorize that outlives the reservation timeout voids itself instead of
   }
 });
 
+test("while capture runs the link reads 'processing', not 'paid'", { skip: !databaseUrl }, async () => {
+  const pool = new Pool({ connectionString: databaseUrl, max: 5 });
+  try {
+    const { token } = await linkFixture(pool);
+    const gate = gatedAcquirer();
+    gate.arm("capture");
+
+    const first = payPaymentLink(pool, gate.acquirer, config, { token, card: CARD_A, idempotencyKey: randomUUID() });
+    await gate.entered; // finalized, capture in flight, no money moved yet
+    const during = await getPublicPaymentLink(pool, token, config.paymentLinkReservationTimeoutSeconds);
+    const second = await payPaymentLink(pool, gate.acquirer, config, { token, card: CARD_B, idempotencyKey: randomUUID() });
+    gate.release();
+    const firstRes = await first;
+    const after = await getPublicPaymentLink(pool, token, config.paymentLinkReservationTimeoutSeconds);
+
+    assert.equal(during?.status, "processing");
+    assert.equal(second.statusCode, 409);
+    assert.deepEqual(second.body, { error: "payment_link_processing" });
+    assert.equal(firstRes.statusCode, 200, JSON.stringify(firstRes.body));
+    assert.equal(after?.status, "paid");
+  } finally {
+    await pool.end();
+  }
+});
+
 function acquirerWithCapture(capture: AcquirerSimulator["capture"]): AcquirerSimulator {
   return {
     async authorize() {
@@ -156,7 +182,9 @@ test("a declined capture frees the link and voids its authorization", { skip: !d
   }
 });
 
-test("a capture that throws does not leave the link showing paid", { skip: !databaseUrl }, async () => {
+// Previously asserted the link went back to 'reserved' with no transaction:
+// that reopen is what let a second payer be captured too (next test).
+test("a capture that throws keeps the link bound to its authorized transaction", { skip: !databaseUrl }, async () => {
   const pool = new Pool({ connectionString: databaseUrl, max: 5 });
   try {
     const { merchantId, token, linkId } = await linkFixture(pool);
@@ -169,9 +197,66 @@ test("a capture that throws does not leave the link showing paid", { skip: !data
       `SELECT status, transaction_id FROM payment_links WHERE id = $1`,
       [linkId],
     );
-    assert.equal(link.rows[0]!.status, "reserved");
-    assert.equal(link.rows[0]!.transaction_id, null);
+    assert.equal(link.rows[0]!.status, "paid");
+    assert.notEqual(link.rows[0]!.transaction_id, null);
     assert.deepEqual(await transactionStatuses(pool, merchantId), ["authorized"]);
+    // Not captured, so not 'paid' to the outside: a crash here is visible.
+    const pub = await getPublicPaymentLink(pool, token, config.paymentLinkReservationTimeoutSeconds);
+    assert.equal(pub?.status, "processing");
+  } finally {
+    await pool.end();
+  }
+});
+
+test("a capture that throws after the acquirer approved cannot be followed by a second capture", { skip: !databaseUrl }, async () => {
+  const pool = new Pool({ connectionString: databaseUrl, max: 5 });
+  const trigger = `fp_capture_fail_${randomUUID().replace(/-/g, "")}`;
+  try {
+    const { merchantId, token, linkId } = await linkFixture(pool);
+    // The acquirer approves; the DB then fails while journalling the capture.
+    await pool.query(
+      `CREATE OR REPLACE FUNCTION ${trigger}() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'db failure after acquirer'; END $$ LANGUAGE plpgsql`,
+    );
+    await pool.query(
+      `CREATE TRIGGER ${trigger} BEFORE INSERT ON ledger_entries FOR EACH ROW
+         WHEN (NEW.merchant_id = '${merchantId}' AND NEW.description = 'capture: gross') EXECUTE FUNCTION ${trigger}()`,
+    );
+    let approvedCaptures = 0;
+    const acquirer = acquirerWithCapture(async (req) => {
+      approvedCaptures++;
+      return { outcome: "approved", acquirerReference: req.acquirerReference, latencyMs: 0 };
+    });
+    await assert.rejects(payPaymentLink(pool, acquirer, config, { token, card: CARD_A, idempotencyKey: randomUUID() }));
+    await pool.query(`DROP TRIGGER ${trigger} ON ledger_entries`);
+    await pool.query(`UPDATE payment_links SET reserved_at = now() - interval '2 minutes' WHERE id = $1`, [linkId]);
+
+    const second = await payPaymentLink(pool, acquirer, config, { token, card: CARD_B, idempotencyKey: randomUUID() });
+
+    assert.equal(second.statusCode, 409, JSON.stringify(second.body));
+    assert.equal(approvedCaptures, 1, "one link, one acquirer capture");
+    assert.deepEqual(await transactionStatuses(pool, merchantId), ["authorized"]);
+  } finally {
+    await pool.query(`DROP TRIGGER IF EXISTS ${trigger} ON ledger_entries`).catch(() => {});
+    await pool.query(`DROP FUNCTION IF EXISTS ${trigger}()`).catch(() => {});
+    await pool.end();
+  }
+});
+
+test("an expired link with an abandoned reservation answers 410 and reads 'expired'", { skip: !databaseUrl }, async () => {
+  const pool = new Pool({ connectionString: databaseUrl, max: 5 });
+  try {
+    const { token, linkId } = await linkFixture(pool);
+    await pool.query(
+      `UPDATE payment_links SET status = 'reserved', reserved_at = now() - interval '10 minutes',
+              expires_at = now() - interval '1 minute' WHERE id = $1`,
+      [linkId],
+    );
+    const res = await payPaymentLink(pool, gatedAcquirer().acquirer, config, { token, card: CARD_A, idempotencyKey: randomUUID() });
+    const pub = await getPublicPaymentLink(pool, token, config.paymentLinkReservationTimeoutSeconds);
+
+    assert.equal(res.statusCode, 410, JSON.stringify(res.body));
+    assert.deepEqual(res.body, { error: "payment_link_expired" });
+    assert.equal(pub?.status, "expired");
   } finally {
     await pool.end();
   }
