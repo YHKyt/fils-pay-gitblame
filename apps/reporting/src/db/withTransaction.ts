@@ -21,6 +21,9 @@ export async function withTransaction<T>(
 ): Promise<T> {
   // MK: copy of apps/api/src/db/withTransaction.ts, keep the two in sync
   const client = await pool.connect();
+  // A client whose ROLLBACK failed is broken; release(err) makes pg destroy
+  // it instead of handing it to the next caller.
+  let broken: Error | undefined;
   try {
     await client.query("BEGIN");
     try {
@@ -28,10 +31,18 @@ export async function withTransaction<T>(
       await client.query("COMMIT");
       return result;
     } catch (err) {
-      await client.query("ROLLBACK");
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackErr) {
+        // Surface the error that caused the rollback, not the rollback's
+        // own failure (typically "Client has encountered a connection
+        // error and is not queryable"), which hid the real cause.
+        broken = rollbackErr instanceof Error ? rollbackErr : new Error(String(rollbackErr));
+        console.error("withTransaction: ROLLBACK failed after an error", broken);
+      }
       throw err;
     }
   } finally {
-    client.release();
+    client.release(broken);
   }
 }
