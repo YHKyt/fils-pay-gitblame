@@ -204,7 +204,9 @@ async function postCreditToLedger(client: PoolClient, credit: PostableCredit): P
 
 /**
  * Creates a credit request and posts it immediately when it is under the threshold.
- * Requires finance or super_admin; a support caller gets a 403 from here.
+ * Any signed-in admin role may call this, support included: ADMIN.md lets support
+ * issue small credits. A credit above CREDIT_APPROVAL_THRESHOLD_FILS is held for a
+ * second approver, and approving or rejecting it requires finance or super_admin.
  *
  * With an `idempotencyKey` (the console always sends one), a retry with the same
  * key and body returns the first response and creates nothing; see

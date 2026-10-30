@@ -36,7 +36,7 @@ Counted from the write-ups in `docs/audit/`. Each one has a fix commit and a reg
 
 | Area (write-up) | Critical | High | Medium | Low | Total |
 |---|---|---|---|---|---|
-| Money, settlement, balances, boot (`money-and-settlement.md`, M1-M17) | 3 | 9 | 4 | 1 | 17 |
+| Money, settlement, balances, boot (`money-and-settlement.md`, M1-M17) | 3 | 8 | 5 | 1 | 17 |
 | API security, refunds, webhooks, payment links, hosting (`api-security-and-refunds.md`, S/R/W/P/H/T) | 6 | 10 | 4 | 1 | 21 |
 | Admin plane sweep (A1-A8) | 0 | 5 | 1 | 2 | 8 |
 | Merchant plane sweep (table "M1-M13" in the API write-up) | 1 | 2 * | 7 | 3 | 13 |
@@ -45,7 +45,7 @@ Counted from the write-ups in `docs/audit/`. Each one has a fix commit and a reg
 | Settlement run guards (`settleguards.md`, G1-G3) | 0 | 1 | 2 ** | 0 | 3 |
 | Recalculate MDR (`settlemdr.md`, R1-R4) | 0 | 1 | 3 | 0 | 4 |
 | Admin money actions (`adminmoney.md`) | 0 | 1 | 1 | 0 | 2 |
-| **Total** | **10** | **40** | **31** | **9** | **90** |
+| **Total** | **10** | **39** | **32** | **9** | **90** |
 
 \* Sweep M5 (capture idempotency) is rated "Medium-High" and counted as High.
 \** G2 is rated "Medium-Low" and counted as Medium.
@@ -70,10 +70,10 @@ Counted from the write-ups in `docs/audit/`. Each one has a fix commit and a reg
 
 | Branch | Commits | What |
 |---|---|---|
-| `agent/settlebatch` | `3aadad7`, `33fa69c`, `8fa8f37` | refunds deducted from the batch payout; per-transaction `test_mode` so sandbox captures never settle; eligibility checked first |
+| `agent/settlebatch` (merged since, `5cdcce7`) | `3aadad7`, `33fa69c`, `8fa8f37` | refunds deducted from the batch payout; per-transaction `test_mode` so sandbox captures never settle; eligibility checked first |
 | `agent/settlebal` | `f392013`, `b4dafd7` | cache moves with `merchant_payable` (no double count after a rebuild); `rebuild-balances --merchant` writes the cache |
-| `agent/ledgerint` | `20533d6`, `8f5513b`, `69857c1` | `ledger_entries` append-only (0092); payout disbursement recorded at pay (0093); rebuild lock order |
-| `agent/reporting` | `e83438a` | outbox consumed in commit-safe order under a locked cursor (0096) |
+| `agent/ledgerint` (merged since, `362e251`) | `20533d6`, `8f5513b`, `69857c1` | `ledger_entries` append-only (0092); payout disbursement recorded at pay (0093); rebuild lock order |
+| `agent/reporting` (merged since, `3667bd7`) | `e83438a` | outbox consumed in commit-safe order under a locked cursor (0096) |
 | `agent/webdisplay` | `f47a55b`, `8331920`, `f997ec5` | Bahrain dates in admin defaults and web filters |
 | `b/h2-auth-edges`, `b/h4-idempotency`, `b/h5-kyc-onboarding` | 5 commits | suspended merchants' sessions and keys refused; acquirer key reused on retry; KYC upload hardening |
 
@@ -91,8 +91,8 @@ Some branches also have a `wip:` commit on top. Only merge what has passed revie
 | "Recalculate cached balances": 135K → 7K | M6 `eb687f0` (FP-203) | The button read the scheme-export view, not the ledger; it now rebuilds from `ledger_entries` like the CLI |
 | MDR recalculation changed paid batches | M7 `55ef623`, settlemdr R1-R4 | `status = 'closed'` only; rate resolved exactly like `CloseBatch`; outbox event; correct period; refuses unlinked batches |
 | Dashboard fee 245 bps vs charged 225 bps | M11 `62f5b93` | Display used the latest-entered schedule; it now uses the schedule in effect, like billing |
-| CSV import: 4.755 → 4.750, 4.75 → 0.475 (10×) | M3 `a28a623` | The parser defaulted to 2 decimals: it dropped the third digit and read the rest as cents. It now uses `parseBhdToFils` (3 decimals) |
-| "Daily close runs at 3am local" | M8 `b27651a`, G1 `37348d1` | The daemon took the UTC date; it now uses Bahrain time; days that have not ended cannot be closed |
+| CSV import: 4.75 → 0.475 (10×), and 4.755 → 475 fils (also 0.475) | M3 `a28a623` | The parser defaulted to 2 decimals: it dropped the third digit and read the rest as cents. It now uses `parseBhdToFils` (3 decimals) |
+| "Daily close runs at 3am local" | M8 `b27651a`, G1 `37348d1` | The daemon took the UTC date, so each close fired ~3 h late (the window itself was always the correct Bahrain day); it now uses Bahrain time; days that have not ended cannot be closed |
 | "Lifetime payout estimate drifts" | M10 `94f1215` | `REAL`/float32 → `BIGINT` (0074) |
 | "Test merchants in the real settlement run" | M14 `4ae29bb` + `48e2cbe` | Status recompute silently set `test_mode = false`; removed. Per-transaction test mode is on `agent/settlebatch` (`33fa69c`) |
 | "Login works without the OTP?" | S1 `2304512` | The merchant session lookup ignored `authenticated = true` |
@@ -177,7 +177,7 @@ For each finding: what broke and why, how we fixed it with the smallest change, 
    - Proof: in `sign.test.ts` the receiver verifies the raw body. The old test, which asserted the bug, was replaced.
 
 8. **M3: CSV balance import 10× too small (Critical, finance memo)**
-   - `parseDecimalMinor` defaults to 2 decimals ("cents"), but BHD has 3. So "4.75" became 475 fils, and "4.755" lost its last digit.
+   - `parseDecimalMinor` defaults to 2 decimals ("cents"), but BHD has 3. So "4.75" became 475 fils (0.475 BD), and "4.755" also became 475 fils: the third digit was dropped and the rest read as cents (run against `8b58b0f`: `4.75`, `4.750` and `4.755` all give 475).
    - We fixed it with the canonical `parseBhdToFils`. Existing tests that expected 475 encoded the bug and were corrected.
    - Proof: `adjustmentCsvParsing.fix.test.ts` shows 4.75 → 4750 and 4.755 → 4755.
 
@@ -217,7 +217,7 @@ For each finding: what broke and why, how we fixed it with the smallest change, 
     - Proof: `scheme_residue_test.go` shows 4747 → "4.74" plus 7 fils residue journalled.
 
 **Backups if asked:**
-- M8 daily close in UTC.
+- M8 daily close ~3 h late (daemon read the UTC date).
 - S5 impersonation could move money.
 - M14 test merchants taken live.
 - E1 export OOM.
@@ -294,14 +294,14 @@ Do a dry run before Saturday. Seed logins are in `db/seed/fixtures/merchants.ts`
 5. AI rule files (CLAUDE.md, AGENTS.md, .cursorrules) were planted to make the next AI keep the bugs.
 6. He left three coded transmissions. Every warning he wrote that we checked was a real bug, and we fixed them.
 
-**Note:** the "still open" list at the end of `mystery-timeline.md` was written at `329e2d4` and is now stale. Since then:
+**Note:** the "still open" list at the end of `mystery-timeline.md` was first written at `329e2d4`; it has been updated. Since that first version:
 - Row 10 (replay ids) is fixed by B3a `a50ab82`.
 - Row 16 (holds) is fixed by M16 `ce85168`.
 - Row 18 (credit approver) is fixed by A6 `dee2df4`.
 - Row 20 (key rotation) is fixed by A3 `211330f`.
 - Row 21 (admin session fixation) is fixed by A1 `30acdda`.
 - Row 22 (export) is fixed by E1 `40babc3`.
-- Row 23 (outbox ordering) is fixed on `agent/reporting` `e83438a`, not merged yet.
+- Row 23 (outbox ordering) is fixed by RP1 `e83438a` (merged in `3667bd7`).
 
 ---
 
@@ -395,7 +395,7 @@ Do a dry run before Saturday. Seed logins are in `db/seed/fixtures/merchants.ts`
 | Time | Who | What to say or show |
 |---|---|---|
 | 0:00-1:00 | Y | Team "git blame". "We audited, fixed 90 written-up findings plus 9 smaller fixes, built refunds, solved the mystery. Every fix has a test that fails before and passes after." |
-| 1:00-2:30 | A | The scoreboard table (2.1): 10 Critical, 40 High. Then the case-file table (2.2): every memo, incident and handwritten item maps to a commit. Name the two honest gaps (payout netting on a branch, reporting rollup). |
+| 1:00-2:30 | A | The scoreboard table (2.1): 10 Critical, 39 High. Then the case-file table (2.2): every memo, incident and handwritten item maps to a commit. Name the two honest gaps (payout netting on a branch, reporting rollup). |
 | 2:30-6:30 | A | **FP-300 live** (4.2, steps 2-9): capture 10,001 fils → partial refund 3,333 → replay with the same key → over-refund 422 → concurrent race gives one success → ledger rows net to zero → timeline → `refund.succeeded` outbox row. |
 | 6:30-9:00 | Y | **Money bugs**: CSV 10× (show the two-line parser cause), float32 payout (one-line fix), split largest remainder (1001 → 1002 before), 135K → 7K Rebuild (wrong source), scheme "always over" (rounded vs truncated). Run one test live, e.g. `cd apps/settlement && go test ./internal/settlement/ -run TestNetPayableFils_ExactForLargeBatches -v`. |
 | 9:00-10:30 | A | **Security bugs**: OTP bypass (one predicate), link charged twice (finalize before capture, gated-acquirer test), unsigned callbacks (raw-body HMAC, 300 s window). |

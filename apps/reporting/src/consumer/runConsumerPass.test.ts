@@ -13,6 +13,7 @@ import { test } from "node:test";
 import { Pool } from "pg";
 import { enqueueEvent } from "@filspay/events";
 import { runConsumerPass, CONSUMER_NAME } from "./runConsumerPass.js";
+import { waitForHorizon } from "./testSupport.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -60,6 +61,7 @@ test("runConsumerPass: end-to-end over real events with the producers' exact pay
     payload: { merchantId },
   });
 
+  await waitForHorizon(pool, [capturedEvent.id, voidedEvent.id]);
   const before = await getCursor();
   const { processedCount } = await runConsumerPass(pool, config);
   assert.ok(processedCount >= 2, "at least this test's two events were processed (shared DB across the suite)");
@@ -97,13 +99,14 @@ test("runConsumerPass: end-to-end settlement.batch_closed populates merchant_pay
   );
   const batchId = batchResult.rows[0]!.id;
 
-  await enqueueEvent(pool, {
+  const closedEvent = await enqueueEvent(pool, {
     eventType: "settlement.batch_closed",
     aggregateType: "settlement_batch",
     aggregateId: batchId,
     payload: { merchantId, batchId, batchDate: "2026-02-01", grossFils: 8_000, feeFils: 200, netPayoutFils: 7_800 },
   });
 
+  await waitForHorizon(pool, [closedEvent.id]);
   await runConsumerPass(pool, config);
 
   const result = await pool.query(
@@ -142,6 +145,7 @@ test("runConsumerPass: atomicity — an apply failure partway through a multi-ev
   });
   assert.ok(badEvent.id > goodEvent.id, "bad event sorts after the good one, so the good one is applied first");
 
+  await waitForHorizon(pool, [goodEvent.id, badEvent.id]);
   const cursorBefore = await getCursor();
 
   await assert.rejects(runConsumerPass(pool, config));
