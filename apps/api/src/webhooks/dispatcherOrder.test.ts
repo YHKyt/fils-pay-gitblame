@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { Pool } from "pg";
-import { enqueueEvent } from "@filspay/events";
+import { enqueueEvent, type EventType } from "@filspay/events";
 import { loadConfig } from "../config.js";
 import { createWebhookEndpoint } from "./create.js";
 import { runDispatchPass } from "./dispatcher.js";
@@ -48,7 +48,7 @@ test.after(async () => {
  *  refund 7,000. Returns the expected `data.status` sequence. */
 async function enqueueTransactionLifecycle(merchantId: string): Promise<string[]> {
   const transactionId = randomUUID();
-  const events: Array<{ eventType: string; payload: Record<string, unknown>; status: string }> = [
+  const events: Array<{ eventType: EventType; payload: Record<string, unknown>; status: string }> = [
     {
       eventType: "transaction.captured",
       payload: { merchantId, amountCapturedFils: 6_000, feeFils: 150, newStatus: "partially_captured", capturedTotalFils: 6_000 },
@@ -76,6 +76,22 @@ async function enqueueTransactionLifecycle(merchantId: string): Promise<string[]
   return events.map((e) => e.status);
 }
 
+/**
+ * Runs dispatch passes until this endpoint has nothing due. One pass sends a
+ * bounded number of deliveries, and other test files leave deliveries due in
+ * the shared database, so a single pass may not reach this test's rows.
+ */
+async function drainEndpoint(endpointId: string, transport: WebhookTransport): Promise<void> {
+  for (let i = 0; i < 50; i += 1) {
+    await runDispatchPass(pool, transport, config);
+    const due = await pool.query(
+      `SELECT 1 FROM webhook_deliveries WHERE endpoint_id = $1 AND status = 'pending' AND next_attempt_at <= now() LIMIT 1`,
+      [endpointId],
+    );
+    if (due.rowCount === 0) return;
+  }
+}
+
 test("one pass sends a transaction's webhooks in event order (tied next_attempt_at)", async () => {
   const merchant = await pool.query<{ id: string }>(
     `INSERT INTO merchants (display_name, mdr_bps) VALUES ($1, 250) RETURNING id`,
@@ -94,6 +110,32 @@ test("one pass sends a transaction's webhooks in event order (tied next_attempt_
   const expected: string[][] = [];
   for (let i = 0; i < 5; i += 1) expected.push(await enqueueTransactionLifecycle(merchantId));
 
+  // Let Step A create all 20 deliveries while every send to this endpoint
+  // fails (rows stay pending), then give them one shared next_attempt_at, as
+  // a single Step A pass does. With other tests' events queued in the shared
+  // database, Step A may take more than one pass to reach these.
+  const failing: WebhookTransport = async (req) => {
+    if (req.url === url) throw new Error("receiver unreachable (test)");
+    return { statusCode: 200, body: "ok" };
+  };
+  const errorLog = console.error;
+  console.error = () => {};
+  try {
+    for (let i = 0; i < 50; i += 1) {
+      await runDispatchPass(pool, failing, config);
+      const n = await pool.query(`SELECT 1 FROM webhook_deliveries WHERE endpoint_id = $1`, [endpoint.id]);
+      if ((n.rowCount ?? 0) >= 20) break;
+    }
+  } finally {
+    console.error = errorLog;
+  }
+  const tied = await pool.query(
+    `UPDATE webhook_deliveries SET status = 'pending', next_attempt_at = now() - interval '1 minute'
+      WHERE endpoint_id = $1`,
+    [endpoint.id],
+  );
+  assert.equal(tied.rowCount, 20, "Step A created one delivery per event");
+
   const sent: Array<{ transactionId: string; status: string }> = [];
   const transport: WebhookTransport = async (req) => {
     if (req.url === url) {
@@ -102,16 +144,7 @@ test("one pass sends a transaction's webhooks in event order (tied next_attempt_
     }
     return { statusCode: 200, body: "ok" };
   };
-
-  await runDispatchPass(pool, transport, config);
-
-  // Every delivery of the pass was created with the same next_attempt_at:
-  // the order has to come from the tie-breaker, not from distinct times.
-  const created = await pool.query<{ n: string }>(
-    `SELECT count(DISTINCT created_at)::text AS n FROM webhook_deliveries WHERE endpoint_id = $1`,
-    [endpoint.id],
-  );
-  assert.equal(created.rows[0]!.n, "1", "all deliveries come from one Step A transaction");
+  await drainEndpoint(endpoint.id, transport);
 
   assert.equal(sent.length, 20);
   const byTransaction = new Map<string, string[]>();
@@ -171,7 +204,7 @@ test("tied deliveries are claimed in event order even when their physical order 
     if (req.url === url) sent.push((JSON.parse(req.body) as { data: { status: string } }).data.status);
     return { statusCode: 200, body: "ok" };
   };
-  await runDispatchPass(pool, transport, config);
+  await drainEndpoint(endpoint.id, transport);
 
   assert.deepEqual(sent, expected, `webhooks sent out of event order: ${sent.join(" -> ")}`);
 });

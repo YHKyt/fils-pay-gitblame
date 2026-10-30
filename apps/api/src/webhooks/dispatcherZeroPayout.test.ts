@@ -79,8 +79,15 @@ test("no payout webhook for a paid batch with zero or negative net; a positive o
     if (req.url === url) sent.push((JSON.parse(req.body) as { data: { settlementBatchId: string; netPayoutFils: number } }).data);
     return { statusCode: 200, body: "ok" };
   };
-  await runDispatchPass(pool, transport, config);
-  await runDispatchPass(pool, transport, config);
+  // Several passes: one pass sends a bounded number, and other test files
+  // leave deliveries due in the shared database.
+  for (let i = 0; i < 50; i += 1) {
+    await runDispatchPass(pool, transport, config);
+    if (sent.length > 0) {
+      await runDispatchPass(pool, transport, config);
+      break;
+    }
+  }
 
   assert.deepEqual(
     sent.map((d) => d.settlementBatchId),
