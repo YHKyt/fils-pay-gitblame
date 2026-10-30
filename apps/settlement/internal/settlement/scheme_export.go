@@ -3,12 +3,14 @@ package settlement
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/filspay/settlement/internal/money"
@@ -118,6 +120,21 @@ func formatFilsAsTwoDecimalString(amount money.Fils) string {
 // recomputes anything — it only re-serializes rows that were frozen once,
 // at close time.
 func ExportSchemeFile(ctx context.Context, db *pgxpool.Pool, batchID uuid.UUID, outPath string) (int, error) {
+	// Lines are frozen at close. An open batch has none yet and an unknown
+	// id has none at all; exporting either used to write an empty file and
+	// report success, which reads exactly like a day with no captures.
+	var status string
+	err := db.QueryRow(ctx, `SELECT status FROM settlement_batches WHERE id = $1`, batchID).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, fmt.Errorf("settlement: ExportSchemeFile: batch %s not found", batchID)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("settlement: ExportSchemeFile: read batch: %w", err)
+	}
+	if status != "closed" && status != "paid" {
+		return 0, fmt.Errorf("settlement: ExportSchemeFile: batch %s is %s; its scheme lines are written when it closes", batchID, status)
+	}
+
 	lines, err := LoadSchemeExportLines(ctx, db, batchID)
 	if err != nil {
 		return 0, err
