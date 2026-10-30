@@ -14,7 +14,7 @@ import { Pool } from "pg";
 import { enqueueEvent } from "@filspay/events";
 import { loadConfig } from "../config.js";
 import { createWebhookEndpoint } from "./create.js";
-import { runDispatchPass } from "./dispatcher.js";
+import { runDispatchPass, startWebhookDispatcher } from "./dispatcher.js";
 import { WEBHOOK_DELIVERY_ID_HEADER } from "./headers.js";
 import type { WebhookTransport, WebhookTransportRequest, WebhookTransportResponse } from "./transport.js";
 
@@ -172,5 +172,48 @@ test("a slow send early in a pass's batch must not let the lease on the rows sti
   assert.equal(ids.length, 3, `no delivery may be sent twice, got ${ids.length} sends`);
   const rows = await deliveryStatuses(endpointId);
   assert.ok(rows.every((r) => r.attempt_count === 1), JSON.stringify(rows));
+});
+
+test("stop() waits for the in-flight pass and claims nothing further, so no outcome is lost at shutdown", async () => {
+  const merchantId = await createMerchant("shutdown");
+  const url = `https://load-shutdown-${randomUUID()}.example.test/hook`;
+  const endpointId = await createEndpoint(merchantId, url);
+  await enqueueCaptured(merchantId);
+  await enqueueCaptured(merchantId);
+
+  const sent: WebhookTransportRequest[] = [];
+  const firstSendStarted = deferred();
+  const releaseFirstSend = deferred();
+  const transport = recordingTransport(url, sent, async () => {
+    if (sent.length === 1) {
+      firstSendStarted.resolve();
+      await releaseFirstSend.promise;
+    }
+  });
+
+  const handle = startWebhookDispatcher(pool, transport, makeConfig({ WEBHOOK_POLL_INTERVAL_MS: "20" }));
+  await firstSendStarted.promise;
+
+  let stopResolved = false;
+  const stopPromise = handle.stop().then(() => {
+    stopResolved = true;
+  });
+  await new Promise((r) => setTimeout(r, 150));
+  const resolvedWhileSending = stopResolved;
+
+  releaseFirstSend.resolve();
+  await stopPromise;
+  // Give a non-waiting implementation's leftover pass time to finish before
+  // the assertions (and before the pool closes).
+  await new Promise((r) => setTimeout(r, 300));
+
+  assert.equal(resolvedWhileSending, false, "stop() must not resolve while a send is in flight");
+  assert.equal(sent.length, 1, "no new delivery may be started after stop()");
+  const rows = await deliveryStatuses(endpointId);
+  assert.deepEqual(
+    rows.map((r) => r.status).sort(),
+    ["pending", "succeeded"],
+    "the in-flight send's outcome is recorded; the unsent one stays pending",
+  );
 });
 

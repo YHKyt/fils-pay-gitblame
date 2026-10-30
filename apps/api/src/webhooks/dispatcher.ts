@@ -239,9 +239,16 @@ async function attemptOneDelivery(
 // has to cover one send (at most webhookRequestTimeoutMs). Claiming the whole
 // batch up front let the lease on rows queued behind slow sends lapse while
 // they still waited their turn, so another pass claimed and sent them too.
-async function attemptDueDeliveries(pool: Pool, transport: WebhookTransport, config: DispatcherConfig): Promise<number> {
+async function attemptDueDeliveries(
+  pool: Pool,
+  transport: WebhookTransport,
+  config: DispatcherConfig,
+  shouldStop: () => boolean,
+): Promise<number> {
   let attempted = 0;
-  while (attempted < STEP_B_BATCH_LIMIT) {
+  // Checked before each claim, so a stopping dispatcher finishes the send it
+  // is on and claims nothing more.
+  while (attempted < STEP_B_BATCH_LIMIT && !shouldStop()) {
     const row = await claimNextDueDelivery(pool, config);
     if (!row) break;
     attempted += 1;
@@ -306,9 +313,10 @@ export async function runDispatchPass(
   pool: Pool,
   transport: WebhookTransport,
   config: DispatcherConfig,
+  shouldStop: () => boolean = () => false,
 ): Promise<{ createdCount: number; attemptedCount: number }> {
   const createdCount = await createMissingDeliveries(pool);
-  const attemptedCount = await attemptDueDeliveries(pool, transport, config);
+  const attemptedCount = await attemptDueDeliveries(pool, transport, config, shouldStop);
   return { createdCount, attemptedCount };
 }
 
@@ -326,20 +334,23 @@ export interface WebhookDispatcherHandle {
  * timer.
  */
 export function startWebhookDispatcher(pool: Pool, transport: WebhookTransport, config: Config): WebhookDispatcherHandle {
-  let running = false;
+  // The pass in flight, if any. stop() waits for it: the caller closes the
+  // pool right after, and a send whose outcome can't be written stays
+  // `sending` until its lease runs out and is then sent a second time.
+  let inFlight: Promise<void> | null = null;
   let stopped = false;
 
   const triggerPass = (): void => {
-    if (running || stopped) return;
-    running = true;
-    runDispatchPass(pool, transport, config)
+    if (inFlight || stopped) return;
+    inFlight = runDispatchPass(pool, transport, config, () => stopped)
+      .then(() => undefined)
       .catch((err: unknown) => {
         // A thrown error from one pass must never crash the listener or
         // the process — the next NOTIFY or poll tick simply tries again.
         console.error("[webhooks/dispatcher] dispatch pass failed", err);
       })
       .finally(() => {
-        running = false;
+        inFlight = null;
       });
   };
 
@@ -372,6 +383,7 @@ export function startWebhookDispatcher(pool: Pool, transport: WebhookTransport, 
     async stop(): Promise<void> {
       stopped = true;
       clearInterval(interval);
+      await inFlight;
       await connectPromise;
       if (listenClientConnected) {
         await listenClient.end().catch(() => {});
