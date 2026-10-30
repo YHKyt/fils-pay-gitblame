@@ -66,6 +66,26 @@ export function hashRequest(body: unknown): string {
   return createHash("sha256").update(canonicalJson(body)).digest("hex");
 }
 
+/**
+ * The idempotency key sent to the acquirer for this claim's current attempt.
+ *
+ * Derived only from what the client controls (merchant, endpoint, key, the
+ * request hash) plus the attempt number — never from the claim row's id.
+ * authorize/capture claim inside the same DB transaction as the acquirer
+ * call, so an acquirer call that throws (a timeout: the acquirer may already
+ * have acted) rolls the claim row back, and the retry gets a NEW row id. A
+ * row-id-based key made that retry a brand-new charge at the acquirer; this
+ * one is identical, so the acquirer replays its first answer. The attempt
+ * number still changes after a recorded, definitive acquirer 'error'
+ * (failIdempotencyKey), where a fresh attempt is wanted.
+ */
+export function acquirerIdempotencyKey(row: IdempotencyKeyRow): string {
+  const scope = createHash("sha256")
+    .update(canonicalJson([row.merchantId, row.endpoint, row.key, row.requestHash]))
+    .digest("hex");
+  return `${scope}:${row.attemptCount}`;
+}
+
 interface IdempotencyKeyDbRow {
   id: string;
   merchant_id: string;

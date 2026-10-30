@@ -2,7 +2,13 @@ import type { Pool } from "pg";
 import type { Fils } from "@filspay/money";
 import { withTransaction } from "../db/withTransaction.js";
 import type { AcquirerSimulator, SimulatedCardInput } from "../acquirer/types.js";
-import { claimIdempotencyKey, completeIdempotencyKey, failIdempotencyKey, hashRequest } from "./idempotency.js";
+import {
+  acquirerIdempotencyKey,
+  claimIdempotencyKey,
+  completeIdempotencyKey,
+  failIdempotencyKey,
+  hashRequest,
+} from "./idempotency.js";
 import { recordTransactionEvent } from "../transactions/events.js";
 import { serializeTransaction, type TransactionRow } from "../transactions/serialize.js";
 import { ConflictError, UnprocessableEntityError } from "../lib/errors.js";
@@ -95,7 +101,7 @@ export async function authorizeTransaction(
       amountFils: input.amountFils,
       currency: "BHD",
       card: input.card,
-      idempotencyKey: `${claim.row.id}:${claim.row.attemptCount}`,
+      idempotencyKey: acquirerIdempotencyKey(claim.row),
     });
 
     if (acquirerResult.outcome === "approved") {

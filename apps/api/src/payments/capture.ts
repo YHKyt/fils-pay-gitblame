@@ -4,7 +4,13 @@ import { ZERO_FILS, addFils, applyRateFils, compareFils, subtractFils, toFils, t
 import { enqueueEvent } from "@filspay/events";
 import { withTransaction } from "../db/withTransaction.js";
 import type { AcquirerSimulator } from "../acquirer/types.js";
-import { claimIdempotencyKey, completeIdempotencyKey, failIdempotencyKey, hashRequest } from "./idempotency.js";
+import {
+  acquirerIdempotencyKey,
+  claimIdempotencyKey,
+  completeIdempotencyKey,
+  failIdempotencyKey,
+  hashRequest,
+} from "./idempotency.js";
 import { recordTransactionEvent } from "../transactions/events.js";
 import { serializeTransaction, type TransactionRow } from "../transactions/serialize.js";
 import { ConflictError, UnprocessableEntityError } from "../lib/errors.js";
@@ -200,7 +206,7 @@ export async function captureTransaction(
     const acquirerResult = await acquirer.capture({
       acquirerReference: txn.acquirer_reference,
       amountFils: requestedAmount,
-      idempotencyKey: `${claim.row.id}:${claim.row.attemptCount}`,
+      idempotencyKey: acquirerIdempotencyKey(claim.row),
     });
 
     if (acquirerResult.outcome === "declined") {
