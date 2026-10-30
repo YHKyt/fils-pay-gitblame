@@ -81,19 +81,21 @@ export function SettlementBatchDetailPage() {
   }
 
   const { batch } = state;
-  const displayProgress = parseFloat((batch.grossFils / 10000).toFixed(2));
 
   return (
     <section>
-      <h1>Settlement batch {batch.batchDate}</h1>
-      {batch.status === "closed" && (
-        <div className="dash-progress-bar" style={{ width: "100%", background: "var(--fp-border)", height: 6 }}>
-          <div style={{ width: `${Math.min(displayProgress, 100)}%`, background: "var(--fp-accent)", height: 6 }} />
+      <div className="dash-page-head">
+        <div>
+          <p className="dash-eyebrow">
+            <Link to="/dashboard/settlement">Settlements</Link> / Batch
+          </p>
+          <h1>Settlement batch {batch.batchDate}</h1>
+          <p className="dash-muted dash-id-line">
+            <code>{batch.id}</code>
+          </p>
         </div>
-      )}
-      <p className="dash-muted">
-        <code>{batch.id}</code>
-      </p>
+        <span className={`dash-status dash-status-${batch.status}`}>{statusLabel(batch.status)}</span>
+      </div>
 
       <dl className="dash-dl">
         <dt>Status</dt>
@@ -109,7 +111,7 @@ export function SettlementBatchDetailPage() {
         <dt>Closed at</dt>
         <dd>{dateTime(batch.closedAt)}</dd>
         <dt>Paid at</dt>
-        <dd>{dateTime(batch.paidAt)}</dd>
+        <dd>{batch.paidAt ? dateTime(batch.paidAt) : "Not paid yet"}</dd>
         <dt>Included transactions</dt>
         <dd>{batch.includedTransactionCount}</dd>
         <dt>Capture events in this batch</dt>
@@ -127,7 +129,7 @@ export function SettlementBatchDetailPage() {
       </dl>
 
       <h2>Included transactions</h2>
-      <table className="dash-table">
+      <div className="dash-tablewrap"><table className="dash-table">
         <thead>
           <tr>
             <th className="dash-num">Line</th>
@@ -163,7 +165,7 @@ export function SettlementBatchDetailPage() {
             </tr>
           ) : null}
         </tbody>
-      </table>
+      </table></div>
       <p className="dash-muted">
         The scheme amount is the card-network export figure, quantized to two
         decimal places at that boundary — it can be up to 9 fils below the

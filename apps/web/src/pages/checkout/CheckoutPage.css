@@ -4,9 +4,14 @@
    tokens.css, so the checkout and the dashboard share one palette and type. */
 
 /* A plain reset for the standalone page; harmless for the dashboard, whose
-   .dash-shell paints its own full-height background over the body. */
+   .dash-shell paints its own full-height background over the body. The pearl
+   background is painted on html/body too so there is never a bare strip below
+   the content on a tall viewport. */
+html,
 body {
   margin: 0;
+  min-height: 100%;
+  background: var(--fp-bg);
 }
 
 .checkout-root {
@@ -34,6 +39,10 @@ body {
   background: var(--fp-aurora);
   opacity: 0.9;
   pointer-events: none;
+  /* Fade the aurora out so its bottom edge never reads as a hard horizontal
+     seam across the middle of the page. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 40%, transparent);
+  mask-image: linear-gradient(to bottom, #000 40%, transparent);
 }
 .checkout-root::after {
   content: "";
@@ -274,6 +283,31 @@ body {
   cursor: not-allowed;
   opacity: 0.65;
   box-shadow: none;
+}
+
+/* Test-mode note (development/demo only). */
+.checkout-testmode {
+  margin-top: 1.3rem;
+  padding-top: 0.95rem;
+  border-top: 1px solid var(--fp-border);
+}
+.checkout-testmode-pill {
+  display: inline-block;
+  margin-bottom: 0.4rem;
+  padding: 0.12rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--fp-tracking-wide);
+  color: var(--fp-warning);
+  background: var(--fp-warning-bg);
+  border: 1px solid var(--fp-warning-bd);
+}
+.checkout-testmode .checkout-help {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
 }
 
 /* YA: cosmetic only, never sent to the server */

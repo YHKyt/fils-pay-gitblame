@@ -142,7 +142,7 @@ export function OverviewPage() {
         Captured volume{" "}
         {volumes ? <StalenessBadge readModelAsOf={volumes.readModelAsOf} live={volumes.live} /> : null}
       </h2>
-      <table className="dash-table">
+      <div className="dash-tablewrap"><table className="dash-table">
         <thead>
           <tr>
             <th>Date</th>
@@ -175,13 +175,13 @@ export function OverviewPage() {
             </tr>
           ) : null}
         </tbody>
-      </table>
+      </table></div>
 
       <h2>
         Payout trends{" "}
         {payouts ? <StalenessBadge readModelAsOf={payouts.readModelAsOf} live={payouts.live} /> : null}
       </h2>
-      <table className="dash-table">
+      <div className="dash-tablewrap"><table className="dash-table">
         <thead>
           <tr>
             <th>Batch date</th>
@@ -213,7 +213,7 @@ export function OverviewPage() {
             </tr>
           ) : null}
         </tbody>
-      </table>
+      </table></div>
 
       <h2>
         Top paid links{" "}
@@ -221,7 +221,7 @@ export function OverviewPage() {
           <StalenessBadge readModelAsOf={topLinks.readModelAsOf} live={topLinks.live} />
         ) : null}
       </h2>
-      <table className="dash-table">
+      <div className="dash-tablewrap"><table className="dash-table">
         <thead>
           <tr>
             <th className="dash-num">#</th>
@@ -249,7 +249,7 @@ export function OverviewPage() {
             </tr>
           ) : null}
         </tbody>
-      </table>
+      </table></div>
     </section>
   );
 }

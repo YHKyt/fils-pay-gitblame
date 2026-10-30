@@ -159,7 +159,7 @@ export function WebhookEndpointDetailPage() {
 
       {error ? <p className="dash-error">{error}</p> : null}
 
-      <table className="dash-table">
+      <div className="dash-tablewrap"><table className="dash-table">
         <thead>
           <tr>
             <th>Created</th>
@@ -236,7 +236,7 @@ export function WebhookEndpointDetailPage() {
             </tr>
           ) : null}
         </tbody>
-      </table>
+      </table></div>
 
       {loading ? <p className="dash-loading">Loading…</p> : null}
 

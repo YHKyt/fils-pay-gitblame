@@ -129,7 +129,12 @@
 .dash-nav {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.2rem;
+}
+/* Developer settings sit apart at the trailing edge of the nav. */
+.dash-nav-dev {
+  margin-left: 0.6rem;
 }
 
 .dash-nav a {
@@ -649,12 +654,14 @@ footer.dash-main {
   box-shadow: none;
 }
 
-/* Filled accent CTA — gradient fill, a glow lift on hover. */
+/* Filled accent CTA — brass gradient fill with dark petrol ink text (AA on
+   gold), a glow lift on hover. */
 .dash-button-link,
 .dash-button-primary {
   background: var(--fp-gradient);
   border-color: transparent;
-  color: #fff;
+  color: #241a06;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.25);
   box-shadow: 0 2px 8px rgba(var(--fp-accent-rgb), 0.28);
 }
 .dash-button-link:hover,
@@ -731,16 +738,25 @@ footer.dash-main {
 }
 
 /* ---- Tables -------------------------------------------------------- */
-.dash-table {
+/* The wrapper owns the frame and the horizontal scroll, so a wide table
+   scrolls inside its card at ANY width instead of pushing the page — and,
+   because the wrapper does not clip overflow, the sticky header keeps working
+   while the page scrolls. Every dashboard table is wrapped in `.dash-tablewrap`. */
+.dash-tablewrap {
   width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
   margin: 1rem 0;
   background: var(--fp-surface);
   border: 1px solid var(--fp-border);
   border-radius: var(--fp-radius);
-  overflow: hidden;
   box-shadow: var(--fp-shadow-sm);
+  overflow-x: auto;
+  overflow-y: visible;
+}
+.dash-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: transparent;
   font-size: 0.9rem;
 }
 
@@ -1413,10 +1429,9 @@ footer.dash-main {
     min-width: 0;
     width: 100%;
   }
-  /* Let wide tables scroll rather than break the layout. */
-  .dash-table {
-    display: block;
-    overflow-x: auto;
+  /* Keep cells on one line so the wrapper scrolls them rather than wrapping
+     into an unreadable stack. */
+  .dash-tablewrap .dash-table {
     white-space: nowrap;
   }
 }

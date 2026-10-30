@@ -107,6 +107,10 @@ const EMPTY_CARD: SimulatedCardInput = { pan: "", expiryMonth: 1, expiryYear: ne
 
 export function CheckoutPage() {
   const { token } = useParams<{ token: string }>();
+  // Show the simulated-acquirer test-card note only on a development build or
+  // when explicitly opted in — never to a real payer in production.
+  const showTestCards =
+    import.meta.env.DEV || import.meta.env.VITE_SHOW_TEST_CARDS === "true";
   const [loadState, setLoadState] = useState<LoadState>({ kind: "loading" });
   const [payState, setPayState] = useState<PayState>({ kind: "idle" });
   const [card, setCard] = useState<SimulatedCardInput>(EMPTY_CARD);
@@ -263,8 +267,10 @@ export function CheckoutPage() {
   if (loadState.kind === "not_found") {
     return (
       <CheckoutShell tone="error">
-        <h1>Payment link not found</h1>
-        <p className="checkout-message">This payment link does not exist.</p>
+        <h1>This payment link isn't valid</h1>
+        <p className="checkout-message">
+          Check the link with the business that sent it. No payment was taken.
+        </p>
       </CheckoutShell>
     );
   }
@@ -441,11 +447,20 @@ export function CheckoutPage() {
         </button>
       </form>
 
-      <p className="checkout-help">
-        Test cards (simulated acquirer, no real charge): any other number approves; a PAN ending{" "}
-        <code>0002</code> always declines (do not honor); ending <code>0119</code> always declines
-        (insufficient funds); ending <code>0069</code> always errors.
-      </p>
+      {/* The simulated-acquirer cheat sheet is for development and the demo
+          only — never shown to a real payer on a production build. Gated on
+          the Vite build mode (import.meta.env.DEV) / an explicit opt-in flag;
+          the field names and request are unchanged either way. */}
+      {showTestCards ? (
+        <div className="checkout-testmode">
+          <span className="checkout-testmode-pill">Test mode</span>
+          <p className="checkout-help">
+            Simulated acquirer, no real charge. Any card number approves; a card number ending{" "}
+            <code>0002</code> is declined by the bank; ending <code>0119</code> has insufficient
+            funds; ending <code>0069</code> errors.
+          </p>
+        </div>
+      ) : null}
     </CheckoutShell>
   );
 }

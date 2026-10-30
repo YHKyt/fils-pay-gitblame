@@ -45,7 +45,7 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const redirectTo = (location.state as { from?: string } | null)?.from ?? "/dashboard/transactions";
+  const redirectTo = (location.state as { from?: string } | null)?.from ?? "/dashboard/overview";
 
   if (status === "authenticated") {
     return <Navigate to={redirectTo} replace />;
@@ -140,20 +140,19 @@ export function LoginPage() {
       {step.kind === "credentials" ? (
         <form onSubmit={(e) => void handleCredentials(e)} className="dash-form">
           <label>
-            Merchant ID
+            Business ID
             <input
               type="text"
               required
               autoComplete="off"
               spellCheck={false}
-              placeholder="00000000-0000-0000-0000-000000000000"
               value={merchantId}
               onChange={(e) => setMerchantId(e.target.value)}
             />
           </label>
           <p className="dash-muted dash-hint">
-            The UUID issued when your account was created. Your API integration
-            already uses this value.
+            Find it in your welcome email or ask your FilsPay contact. We
+            remember it on this device after your first sign-in.
           </p>
           <label>
             Email

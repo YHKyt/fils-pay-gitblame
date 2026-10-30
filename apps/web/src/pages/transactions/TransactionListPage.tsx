@@ -129,7 +129,7 @@ export function TransactionListPage() {
 
       <p>{pluralize(transactions.length, "transaction")} loaded</p>
 
-      <table className="dash-table">
+      <div className="dash-tablewrap"><table className="dash-table">
         <thead>
           <tr>
             <th>Occurred</th>
@@ -164,7 +164,7 @@ export function TransactionListPage() {
             </tr>
           ) : null}
         </tbody>
-      </table>
+      </table></div>
 
       {loading ? <p className="dash-loading">Loading…</p> : null}
 

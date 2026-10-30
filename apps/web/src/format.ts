@@ -14,9 +14,34 @@ export function bhd(amountFils: number): string {
 }
 
 /** A machine status (`partially_refunded`) as a readable label
- *  (`Partially refunded`). Presentation only — the raw value still drives the
- *  status pill's CSS class, so colours and logic are unchanged. */
+ *  (`Partly refunded`). Presentation only — the raw value still drives the
+ *  status pill's CSS class, so colours and logic are unchanged. Unknown values
+ *  fall back to a de-underscored, capitalised form so nothing shows raw. */
+const STATUS_LABELS: Record<string, string> = {
+  authorized: "Authorized",
+  captured: "Captured",
+  partially_captured: "Partly captured",
+  voided: "Voided",
+  partially_refunded: "Partly refunded",
+  refunded: "Refunded",
+  chargeback: "Chargeback",
+  pending: "Pending",
+  processing: "Processing",
+  active: "Active",
+  paid: "Paid",
+  expired: "Expired",
+  canceled: "Canceled",
+  closed: "Closed",
+  open: "Open",
+  reserved: "Reserved",
+  disabled: "Disabled",
+  exhausted: "Used up",
+  failed: "Failed",
+  succeeded: "Delivered",
+};
 export function statusLabel(status: string): string {
+  const known = STATUS_LABELS[status];
+  if (known) return known;
   const spaced = status.replace(/_/g, " ").trim();
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }

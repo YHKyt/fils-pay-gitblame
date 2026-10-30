@@ -246,7 +246,7 @@ export function TransactionDetailPage() {
 
         <div className="dash-split-side">
       <h2>Event timeline</h2>
-      <table className="dash-table">
+      <div className="dash-tablewrap"><table className="dash-table">
         <thead>
           <tr>
             <th>Occurred</th>
@@ -279,7 +279,7 @@ export function TransactionDetailPage() {
             </tr>
           ) : null}
         </tbody>
-      </table>
+      </table></div>
 
         </div>
       </div>
