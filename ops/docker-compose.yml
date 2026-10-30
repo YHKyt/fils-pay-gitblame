@@ -120,6 +120,15 @@ services:
       TRUST_PROXY: loopback,linklocal,uniquelocal
     volumes:
       - filspay_kyc:/app/data/kyc
+    # GET /healthz must answer within 4 s. After three failures in a row the
+    # script kills the hung server so the restart policy replaces it (Docker
+    # itself never restarts an unhealthy container); see ops/healthcheck.mjs.
+    healthcheck:
+      test: ["CMD", "node", "ops/healthcheck.mjs", "api"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -138,6 +147,13 @@ services:
     restart: unless-stopped
     ports:
       - "${WEB_HOST_PORT:-8080}:8080"
+    # nginx answering a static page (not /healthz, which would fail whenever
+    # the api restarts and is not this container's fault).
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/dashboard"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
     depends_on:
       - api
 
@@ -156,6 +172,13 @@ services:
     environment:
       SETTLEMENT_INTERNAL_TOKEN: ${SETTLEMENT_INTERNAL_TOKEN:?set in ops/.env}
       DATABASE_URL: *database-url
+    # The internal HTTP server answers (any status; / is a 404).
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -S -O /dev/null http://127.0.0.1:8091/ 2>&1 | grep -q 'HTTP/'"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     # After seed too: the daemon reads the tables the seed truncates.
     depends_on:
       migrate:
@@ -173,6 +196,13 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: *database-url
+    # The consumer has no HTTP port; check that it can still reach Postgres.
+    healthcheck:
+      test: ["CMD", "node", "ops/healthcheck.mjs", "reporting"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     # After seed, not just migrate: the seed's TRUNCATE ... CASCADE needs an
     # exclusive lock on outbox_events, which this consumer polls. Started
     # alongside the seed, the two deadlocked (40P01) and the first `up` on an

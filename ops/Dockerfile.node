@@ -27,6 +27,7 @@ COPY packages ./packages
 COPY apps/api ./apps/api
 COPY apps/reporting ./apps/reporting
 COPY db ./db
+COPY ops/healthcheck.mjs ./ops/healthcheck.mjs
 
 # KYC uploads (KYC_UPLOAD_DIR=./data/kyc) are written by the unprivileged
 # `node` user; compose mounts a volume here, which inherits this ownership.
