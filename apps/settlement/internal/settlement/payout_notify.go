@@ -33,8 +33,59 @@ import (
 // both enqueue settlement.paid for one batch = duplicate payout webhooks.
 // Each insert re-checks under a per-batch advisory lock, in one transaction.
 func EnqueuePayoutNotifications(ctx context.Context, db *pgxpool.Pool) (int, error) {
-	// Ordered by paid_at so notifications go out in payout order. LIMIT 500
-	// bounds one scan; the next tick picks up whatever is left.
+	// Pages of payoutNotifyPageSize, drained in one call. Every idle merchant
+	// gets a zero-net paid batch each day, so one page per call (the old
+	// "LIMIT 500, the next tick picks up the rest") would let a day's empty
+	// batches push real payout notifications back by a tick or more. Every
+	// row a page returns ends up with an event (inserted here or by a
+	// concurrent scanner), so the NOT EXISTS shrinks the set and the loop ends.
+	count := 0
+	for {
+		batches, err := selectUnnotifiedPaidBatches(ctx, db)
+		if err != nil {
+			return count, err
+		}
+		for _, b := range batches {
+			// merchantId at the top level is required, not decorative: the webhook
+			// dispatcher's delivery-creation step joins webhook_endpoints on
+			// (outbox_events.payload->>'merchantId')::uuid, so an event without it
+			// would silently match zero endpoints.
+			payload, err := json.Marshal(map[string]any{
+				"merchantId":    b.merchantID,
+				"batchId":       b.id,
+				"batchDate":     b.batchDate,
+				"netPayoutFils": b.netPayoutFils,
+			})
+			if err != nil {
+				return count, fmt.Errorf("settlement: EnqueuePayoutNotifications: marshal payload: %w", err)
+			}
+			inserted, err := enqueuePaidOnce(ctx, db, b.id, payload)
+			if err != nil {
+				return count, fmt.Errorf("settlement: EnqueuePayoutNotifications: insert batch %s: %w", b.id, err)
+			}
+			if inserted {
+				count++
+			}
+		}
+		if len(batches) < payoutNotifyPageSize {
+			return count, nil
+		}
+	}
+}
+
+const payoutNotifyPageSize = 500
+
+type paidBatch struct {
+	id            uuid.UUID
+	merchantID    uuid.UUID
+	batchDate     string
+	netPayoutFils int64
+}
+
+// selectUnnotifiedPaidBatches returns up to payoutNotifyPageSize paid batches
+// with no settlement.paid event yet, ordered by paid_at so notifications go
+// out in payout order.
+func selectUnnotifiedPaidBatches(ctx context.Context, db *pgxpool.Pool) ([]paidBatch, error) {
 	rows, err := db.Query(ctx, `
 		SELECT sb.id, sb.merchant_id, sb.batch_date, sb.net_payout_fils
 		  FROM settlement_batches sb
@@ -43,58 +94,28 @@ func EnqueuePayoutNotifications(ctx context.Context, db *pgxpool.Pool) (int, err
 		     SELECT 1 FROM outbox_events oe
 		      WHERE oe.event_type = 'settlement.paid' AND oe.aggregate_id = sb.id
 		   )
-		 ORDER BY sb.paid_at ASC
-		 LIMIT 500
-	`)
+		 ORDER BY sb.paid_at ASC, sb.id ASC
+		 LIMIT $1
+	`, payoutNotifyPageSize)
 	if err != nil {
-		return 0, fmt.Errorf("settlement: EnqueuePayoutNotifications: select: %w", err)
+		return nil, fmt.Errorf("settlement: EnqueuePayoutNotifications: select: %w", err)
 	}
 	defer rows.Close()
 
-	type paidBatch struct {
-		id            uuid.UUID
-		merchantID    uuid.UUID
-		batchDate     string
-		netPayoutFils int64
-	}
 	var batches []paidBatch
 	for rows.Next() {
 		var b paidBatch
 		var batchDate time.Time
 		if err := rows.Scan(&b.id, &b.merchantID, &batchDate, &b.netPayoutFils); err != nil {
-			return 0, fmt.Errorf("settlement: EnqueuePayoutNotifications: scan: %w", err)
+			return nil, fmt.Errorf("settlement: EnqueuePayoutNotifications: scan: %w", err)
 		}
 		b.batchDate = batchDate.Format("2006-01-02")
 		batches = append(batches, b)
 	}
 	if err := rows.Err(); err != nil {
-		return 0, fmt.Errorf("settlement: EnqueuePayoutNotifications: iterate: %w", err)
+		return nil, fmt.Errorf("settlement: EnqueuePayoutNotifications: iterate: %w", err)
 	}
-
-	count := 0
-	for _, b := range batches {
-		// merchantId at the top level is required, not decorative: the webhook
-		// dispatcher's delivery-creation step joins webhook_endpoints on
-		// (outbox_events.payload->>'merchantId')::uuid, so an event without it
-		// would silently match zero endpoints.
-		payload, err := json.Marshal(map[string]any{
-			"merchantId":    b.merchantID,
-			"batchId":       b.id,
-			"batchDate":     b.batchDate,
-			"netPayoutFils": b.netPayoutFils,
-		})
-		if err != nil {
-			return count, fmt.Errorf("settlement: EnqueuePayoutNotifications: marshal payload: %w", err)
-		}
-		inserted, err := enqueuePaidOnce(ctx, db, b.id, payload)
-		if err != nil {
-			return count, fmt.Errorf("settlement: EnqueuePayoutNotifications: insert batch %s: %w", b.id, err)
-		}
-		if inserted {
-			count++
-		}
-	}
-	return count, nil
+	return batches, nil
 }
 
 // enqueuePaidOnce inserts the settlement.paid event for one batch unless one
