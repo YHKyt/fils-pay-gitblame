@@ -107,7 +107,8 @@ Every fix carries a regression test that fails before the change and passes afte
 
 ## R6. Refund summary view joined the wrong key — Medium
 **Where:** `db/migrations/0072_refund_merchant_summary.sql` → new `0075`
-- **What:** `JOIN transactions t ON t.id = r.id` (a refund id is never a transaction id) made `original_captured_fils` always NULL. It also summed captured once per refund.
+- **What:** `JOIN transactions t ON t.id = r.id` is an inner join on the wrong key (a refund id is never a transaction id), so no refund matched and the view was always empty. Had it matched, it would also have summed captured once per refund.
+- **Impact:** no live caller. No API route, job or report reads `refund_merchant_summary`, so this is a defensive fix (and the view was never refreshed either; see sqlhunt Q1).
 - **Fix:** 0075 recreates the view joined on `r.transaction_id`, counting each transaction once per day.
 
 ## R7. Admin status recompute overwrote chargebacks — Medium
@@ -183,10 +184,11 @@ Every fix carries a regression test that fails before the change and passes afte
   - The claim returns a lease token (`reserved_at`, exact text).
   - Finalize (`reserved → paid`, matched on the holder's own lease) now runs right after authorize and **before** capture. Only the request that wins it captures, so a lease that expires mid-flight cannot cause a second charge.
   - A holder that lost the finalize voids its own authorization (no money moved yet) and answers 409. The exception is a link that was finalized with this very transaction, i.e. a same-key retry; that request owns the capture.
-  - If capture is declined, the link is handed back (`paid → active`, matched on its transaction) and the authorization is voided, so no orphan hold is left on the card. An acquirer error (502) keeps the authorization, so a retry with the same Idempotency-Key can finish the capture.
-  - If capture throws, the link returns to `reserved` instead of showing `paid` for money that never moved. It then self-heals after the reservation timeout, as before.
+  - If capture is declined (any non-200 other than 502), the link is handed back (`paid → active`, matched on its transaction) and the authorization is voided.
+  - If capture answers 502 (acquirer error), the link is also handed back to `active`, but the authorization is **not** voided, so a retry with the same Idempotency-Key replays it and can finish the capture (the capture key was marked failed, so it is retryable). Limit: the link is open to any payer meanwhile. If someone else pays it first, or the customer never retries, that first authorization is left holding funds on the card; nothing voids it later.
+  - If capture throws, its database transaction rolls back (the capture idempotency claim too), and the link is put back to `reserved` with a fresh `reserved_at` that no request holds, so it is not shown as `paid`. The authorization is **not** voided. The link is unpayable (409 `payment_link_processing`) until the reservation timeout passes, after which any payer can claim it; a same-key retry then replays the authorization and captures. The code does not check whether the acquirer captured before the throw.
   - Release only matches the holder's own lease.
-  - Residual risk: a process crash between finalize and capture leaves a paid link with an `authorized` transaction. That is under-collection, which is visible and capturable, instead of a second charge.
+  - Residual risk: a process crash between finalize and capture leaves a paid link with an `authorized` transaction. That is under-collection, which is visible and capturable, instead of a second charge. The 502 and throw paths above can likewise leave an uncaptured authorization holding the customer's funds.
 - **Test:**
   - A second claim lands during authorize → the first attempt's transaction is voided with 0 captured.
   - `pay.doubleCharge.test.ts` uses a gated acquirer to hold the first request inside **capture**, or inside authorize, while its lease expires. On the original code, and with the renew-before-capture version, the merchant ends with `['captured', 'captured']`. With the fix there is one capture, and the loser gets 409.
@@ -199,7 +201,7 @@ Every fix carries a regression test that fails before the change and passes afte
 
 ## Verification
 
-On a fresh Postgres 16: `npm run migrate` applies all 70 migrations. `npm test` passes in full, and `cd apps/settlement && go test ./...` passes. Run twice back-to-back on the same database (state left over from the first run) and it still passes.
+On a fresh Postgres 16: `npm run migrate` applies every migration (81 at `d68585e`; this section was first written when there were fewer). `npm test` passes in full, and `cd apps/settlement && go test -p 1 ./...` passes (the Go packages share one database, so run them one at a time; see `ledgerint.md`). Run twice back-to-back on the same database (state left over from the first run) and it still passes.
 
 ---
 
@@ -214,11 +216,11 @@ Smallest fix each, one commit each, with a regression test confirmed to fail bef
 | A1 | **Admin session fixation**: the pre-OTP cookie became the logged-in admin session unchanged (the "re-issued at verify" comment re-set the same token) | High | new token issued at OTP verify |
 | A2 | **Admin OTP attempt race**: 26 of 30 parallel guesses were checked against a limit of 5 (the `FOR UPDATE` comment was false) | High | atomic conditional UPDATE reserves each attempt |
 | A3 | **API key rotation left the old key working** (no "24h grace" exists) | High | old key revoked with reason `rotated` (0037); the test that asserted the old key stays active was corrected. Trade-off: 0056 intended a staged overlap (`revoke_after`), but immediate revocation is the safe default when the reason for rotating is a leaked key, at the cost of a hard cut-over for the merchant's integration (a staged overlap would need an explicit opt-in, not the default) |
-| A4 | `api_keys.revoke_after` ignored: the sweep job promised in 0056 does not exist | Medium | checked at verification time |
+| A4 | `api_keys.revoke_after` ignored: the sweep job promised in 0056 does not exist | Low (nothing writes `revoke_after` today, so no key is affected yet; defensive) | checked at verification time |
 | A5 | **Bulk KYC approve** approved rejected or never-reviewed merchants and set `kyc_passed` | High | only `under_review` merchants |
 | A6 | **Credit four-eyes compared display names**: the requester could approve their own credit after a rename | High | compare admin user ids |
-| A7 | `notifySettlementRefundAdjustment` sent `amountFils / 10` (ADR-0001) | Low (no callers yet) | integer fils |
-| A8 | Admin invite codes from `Math.random` | Low (no callers) | `crypto.randomInt` |
+| A7 | `notifySettlementRefundAdjustment` sent `amountFils / 10` (ADR-0001) | Low (no live callers, defensive) | integer fils |
+| A8 | Admin invite codes from `Math.random` | Low (no live callers: nothing calls `createAdminInvite`; defensive) | `crypto.randomInt` |
 
 ### Merchant plane
 
@@ -242,9 +244,9 @@ Smallest fix each, one commit each, with a regression test confirmed to fail bef
 - No password rate limiting on admin login.
 - Multipart does not enforce one file per request.
 - The KYC filename is put unescaped into `Content-Disposition`.
-- Malformed report filters return 500 instead of 400.
+- Malformed report filters returned 500 instead of 400. Fixed since by B6b (`invalid_filter`, `apps/api/src/routes/reporting.ts`).
 - `streamTransactionsExportCsv` (unused) paginates on `occurred_at >` alone.
-- Admin replay-batch accepts `statuses: ["succeeded"]` although a comment says it is rejected.
+- Admin replay-batch accepted `statuses: ["succeeded"]` although a comment said it was rejected. Fixed since by B3b (`38f9688`): unknown statuses are 400, and `pending`/`succeeded` need finance or super_admin.
 - ADMIN.md says "adjust balance" is journaled; per ADR-0004/0006 it is cache-only. The code is right and the doc needs fixing.
 ## S7. Merchant OTP: resend reset the guess budget; login cookie fixation; 10-minute logouts — High
 **Where:** `apps/api/src/routes/auth.ts`, `apps/api/src/auth/sessions.ts`
@@ -287,4 +289,4 @@ Each fix has a regression test that failed on the old code and passes after the 
 | B6c | **`amountFils: 0` was approved at the acquirer and then failed on insert** (orphan authorization); bad types returned 500 | High | 400 `invalid_amount` before the idempotency claim and before any acquirer call |
 | B6d | A business-profile PATCH with unknown keys built invalid SQL (500) | Medium | 400 naming the fields |
 
-**Verified:** the combined branch on a fresh DB applies 72 migrations; `npm run typecheck` is clean; `npm test` passes in full (490 API tests); `go test ./...` passes.
+**Verified:** the combined round-2 branch on a fresh DB applied every migration (72 at the time; 81 at `d68585e`); `npm run typecheck` is clean; `npm test` passes in full (490 API tests at the time); `go test -p 1 ./...` passes.
