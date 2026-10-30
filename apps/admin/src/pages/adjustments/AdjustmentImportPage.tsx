@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { formatBhd, toFils } from "@filspay/money";
 import {
   approveAdjustmentImport,
   getAdjustmentImportRows,
@@ -8,7 +7,8 @@ import {
   uploadAdjustmentImport,
 } from "../../api/adjustmentImports.js";
 import { describeError } from "../../api/client.js";
-import { dateTime } from "../../format.js";
+import { bhd, dateTime, readBhdInput } from "../../format.js";
+import { ConfirmAction } from "../../components/ConfirmAction.js";
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { StatusPill } from "../../components/StatusPill.js";
@@ -18,16 +18,26 @@ import type {
   AdjustmentImportSummary,
 } from "../../types.js";
 
-// FH: another copy of bhd() in admin, claude says extract it
-function bhd(fils: number): string {
-  return `${formatBhd(toFils(fils, { allowNegative: true }))} BHD`;
+/** Client-side preview of a pasted CSV: row count, BHD total and the rows
+ *  whose amount cannot be read. The server re-parses and is authoritative. */
+function previewCsv(content: string): { rows: number; totalFils: number; badRows: number[] } {
+  const lines = content.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  let totalFils = 0;
+  const badRows: number[] = [];
+  lines.slice(1).forEach((line, index) => {
+    const amount = line.split(",")[1] ?? "";
+    const parsed = readBhdInput(amount, { allowNegative: true });
+    if (parsed.ok) totalFils += parsed.fils;
+    else badRows.push(index + 1);
+  });
+  return { rows: Math.max(lines.length - 1, 0), totalFils, badRows };
 }
 
 const CSV_PLACEHOLDER = `merchantId,amount,reason
 00000000-0000-0000-0000-000000000000,4.750,statement correction`;
 
 const STATUS_LABEL: Record<AdjustmentImportStatus, string> = {
-  pending_approval: "Awaiting second approver",
+  pending_approval: "Waiting for approval",
   posted: "Posted",
   rejected: "Rejected",
 };
@@ -47,6 +57,12 @@ export function AdjustmentImportPage() {
   const [csvContent, setCsvContent] = useState("");
   const [filename, setFilename] = useState("");
   const [busy, setBusy] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [confirmingUpload, setConfirmingUpload] = useState(false);
+  const [pendingDecision, setPendingDecision] = useState<
+    { item: AdjustmentImportSummary; decision: "approve" | "reject" } | null
+  >(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -72,10 +88,10 @@ export function AdjustmentImportPage() {
   }, [loadHistory]);
 
   /** Amounts are BD with three decimals and are parsed server-side with parseBhdToFils. */
-  async function handleApply(event: React.FormEvent): Promise<void> {
-    event.preventDefault();
+  async function handleApply(): Promise<void> {
     setBusy(true);
     setError(null);
+    setConfirmError(null);
     setNotice(null);
     try {
       const result = await uploadAdjustmentImport(
@@ -84,22 +100,24 @@ export function AdjustmentImportPage() {
       );
       setNotice(
         result.status === "posted"
-          ? `Applied ${result.rowCount} row(s), posting ${bhd(result.totalPostedFils)} in total.`
-          : `Held ${result.rowCount} row(s) (${bhd(result.totalPostedFils)}) for a second approver. Nothing is posted until another finance admin approves it below.`,
+          ? `Posted ${result.rowCount} ${result.rowCount === 1 ? "row" : "rows"}, ${bhd(result.totalPostedFils)} in total.`
+          : `${result.rowCount} ${result.rowCount === 1 ? "row" : "rows"} (${bhd(result.totalPostedFils)}) are waiting for a second finance admin. Nothing is posted until they approve it below.`,
       );
       setCsvContent("");
       setFilename("");
+      setConfirmingUpload(false);
       await loadHistory();
     } catch (err) {
-      setError(describeError(err));
+      setConfirmError(describeError(err));
     } finally {
       setBusy(false);
     }
   }
 
   async function handleDecision(importId: string, decision: "approve" | "reject"): Promise<void> {
-    setBusy(true);
+    setBusyId(importId);
     setError(null);
+    setConfirmError(null);
     setNotice(null);
     try {
       const result =
@@ -108,14 +126,15 @@ export function AdjustmentImportPage() {
           : await rejectAdjustmentImport(importId);
       setNotice(
         result.status === "posted"
-          ? `Approved: posted ${result.rowCount} row(s), ${bhd(result.totalPostedFils)} in total.`
+          ? `Approved: posted ${result.rowCount} ${result.rowCount === 1 ? "row" : "rows"}, ${bhd(result.totalPostedFils)} in total.`
           : "Rejected: nothing was posted.",
       );
+      setPendingDecision(null);
       await loadHistory();
     } catch (err) {
-      setError(describeError(err));
+      setConfirmError(describeError(err));
     } finally {
-      setBusy(false);
+      setBusyId(null);
     }
   }
 
@@ -138,11 +157,8 @@ export function AdjustmentImportPage() {
     <section>
       <h1>Import adjustments</h1>
       <p className="admin-muted">
-        Applies a CSV of manual balance corrections — one balanced ledger posting per row. A batch
-        whose total (ignoring sign) is over the credit approval limit waits for a second finance
-        admin; smaller batches post immediately. The same batch cannot be imported twice. Uploading
-        and approving are gated server-side to the <code>finance</code> and{" "}
-        <code>super_admin</code> roles.
+        Upload a CSV of balance corrections. Totals above the approval limit wait for a second
+        finance admin. The same file can&apos;t be imported twice.
       </p>
 
       <RequireRole
@@ -153,17 +169,29 @@ export function AdjustmentImportPage() {
           </p>
         }
       >
-        <form className="admin-form" onSubmit={(e) => void handleApply(e)}>
+        <form
+          className="admin-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setConfirmError(null);
+            setConfirmingUpload(true);
+          }}
+        >
           <label>
-            File name (optional)
+            CSV file
             <input
-              value={filename}
-              onChange={(e) => setFilename(e.target.value)}
-              placeholder="march-corrections.csv"
+              type="file"
+              accept=".csv,text/csv"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                setFilename(file.name);
+                void file.text().then(setCsvContent);
+              }}
             />
           </label>
           <label>
-            CSV (columns: merchantId, amount, reason)
+            Or paste CSV (columns: merchantId, amount in BHD, reason)
             <textarea
               value={csvContent}
               onChange={(e) => setCsvContent(e.target.value)}
@@ -172,14 +200,23 @@ export function AdjustmentImportPage() {
               required
             />
           </label>
+          {csvContent.trim() ? (
+            <p className="admin-money-preview">
+              {(() => {
+                const p = previewCsv(csvContent);
+                return `${p.rows} ${p.rows === 1 ? "row" : "rows"}, total ${bhd(p.totalFils)}` +
+                  (p.badRows.length > 0 ? `. Check the amount on row ${p.badRows.join(", ")}.` : "");
+              })()}
+            </p>
+          ) : null}
           <button type="submit" disabled={busy || !csvContent.trim()}>
-            {busy ? "Applying…" : "Apply"}
+            {busy ? "Importing…" : "Review and import"}
           </button>
         </form>
       </RequireRole>
 
       {error ? <p className="admin-error">{error}</p> : null}
-      {notice ? <p>{notice}</p> : null}
+      {notice ? <p className="admin-notice">{notice}</p> : null}
 
       <h2>Past imports</h2>
       {listError ? <p className="admin-error">{listError}</p> : null}
@@ -214,13 +251,16 @@ export function AdjustmentImportPage() {
                     <RequireRole allow={["finance", "super_admin"]}>
                       {" "}
                       {admin?.adminUserId === item.uploadedByAdminUserId ? (
-                        <span className="admin-muted">another admin must approve</span>
+                        <span className="admin-muted">Another admin must approve</span>
                       ) : (
                         <button
                           type="button"
                           className="admin-btn-primary"
-                          disabled={busy}
-                          onClick={() => void handleDecision(item.id, "approve")}
+                          disabled={busyId === item.id}
+                          onClick={() => {
+                            setConfirmError(null);
+                            setPendingDecision({ item, decision: "approve" });
+                          }}
                         >
                           Approve
                         </button>
@@ -228,8 +268,11 @@ export function AdjustmentImportPage() {
                       <button
                         type="button"
                         className="admin-btn-danger"
-                        disabled={busy}
-                        onClick={() => void handleDecision(item.id, "reject")}
+                        disabled={busyId === item.id}
+                        onClick={() => {
+                          setConfirmError(null);
+                          setPendingDecision({ item, decision: "reject" });
+                        }}
                       >
                         Reject
                       </button>
@@ -273,6 +316,63 @@ export function AdjustmentImportPage() {
           </table></div>
         </div>
       ) : null}
+      <ConfirmAction
+        open={confirmingUpload}
+        title="Import these adjustments?"
+        confirmLabel="Import"
+        busy={busy}
+        error={confirmError}
+        onCancel={() => setConfirmingUpload(false)}
+        onConfirm={() => void handleApply()}
+      >
+        {confirmingUpload ? (
+          (() => {
+            const p = previewCsv(csvContent);
+            return (
+              <dl className="admin-dialog-summary">
+                <dt>File</dt>
+                <dd>{filename || "Pasted CSV"}</dd>
+                <dt>Rows</dt>
+                <dd>{p.rows}</dd>
+                <dt>Net total</dt>
+                <dd>{bhd(p.totalFils)}</dd>
+                {p.badRows.length > 0 ? (
+                  <>
+                    <dt>Check rows</dt>
+                    <dd>{p.badRows.join(", ")}</dd>
+                  </>
+                ) : null}
+              </dl>
+            );
+          })()
+        ) : null}
+        <p>Small totals post immediately; larger ones wait for a second finance admin.</p>
+      </ConfirmAction>
+
+      <ConfirmAction
+        open={pendingDecision !== null}
+        title={pendingDecision?.decision === "reject" ? "Reject this import?" : "Approve and post this import?"}
+        confirmLabel={pendingDecision?.decision === "reject" ? "Reject import" : "Approve and post"}
+        danger={pendingDecision?.decision === "reject"}
+        busy={pendingDecision !== null && busyId === pendingDecision.item.id}
+        error={confirmError}
+        onCancel={() => setPendingDecision(null)}
+        onConfirm={() => {
+          if (pendingDecision) void handleDecision(pendingDecision.item.id, pendingDecision.decision);
+        }}
+      >
+        {pendingDecision ? (
+          <dl className="admin-dialog-summary">
+            <dt>File</dt>
+            <dd>{pendingDecision.item.originalFilename}</dd>
+            <dt>Rows</dt>
+            <dd>{pendingDecision.item.rowCount}</dd>
+            <dt>Uploaded</dt>
+            <dd>{dateTime(pendingDecision.item.createdAt)}</dd>
+          </dl>
+        ) : null}
+        {pendingDecision?.decision === "reject" ? <p>Nothing is posted.</p> : null}
+      </ConfirmAction>
     </section>
   );
 }
