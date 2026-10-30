@@ -252,10 +252,12 @@ export interface AnalyticsRebuildSummary {
 export type WebhookDeliveryStatus = "pending" | "succeeded" | "failed" | "exhausted";
 
 /** `POST /v1/admin/merchants/:id/webhook-endpoints/:endpointId/replay-batch`
- *  → `200 { matchedCount, replayedDeliveryIds }`. */
+ *  → `200 { matchedCount, replayedDeliveryIds, hasMore }`. */
 export interface BatchReplayResult {
   matchedCount: number;
   replayedDeliveryIds: string[];
+  /** One call replays at most 500; true when more matched. */
+  hasMore?: boolean;
 }
 
 // ---------------------------------------------------------------------------

@@ -99,7 +99,10 @@ waiting for the worker. Quick, safe, and repeatable.
 statuses to resend (default: `exhausted`). Support can resend `failed` and
 `exhausted`; resending `pending` or `succeeded` needs finance or super_admin. Each
 delivery is re-signed and queued with its original `Webhook-Delivery-Id`,
-so a receiver that already processed it can dedupe it.
+so a receiver that already processed it can dedupe it. One replay sends at
+most 500 deliveries, oldest first; when more match, the result says so
+(`hasMore`) and running the same replay again sends the next ones (a
+delivery whose replay is still pending is not queued again).
 
 **Archive / restore** — before a merchant rotates their webhook URL,
 archive the endpoint's history; after they register the new one, restore
@@ -107,9 +110,10 @@ the archive against it to backfill. No screen for this yet — it's
 `POST /v1/admin/merchants/:id/webhook-endpoints/:endpointId/archive` and
 `.../archive/:archiveId/replay`. Restoring resends every archived delivery,
 succeeded ones included, so it needs finance or super_admin. Archives are
-not paged: the whole range is read at once and stored as one value, and a
-restore loads it back whole in one transaction. Keep the range to what the
-rotation needs; a very wide range costs API memory on both steps.
+not paged: the whole range is stored as one value and a restore writes it
+back in one transaction. Both steps run inside Postgres, so the range does
+not cost API memory, but keep it to what the rotation needs: the archive is
+built as one jsonb value, which Postgres limits to 255 MB, and a wide restore is one long transaction.
 
 ## Incident review: duplicate `settlement.paid` (2026-08-21)
 

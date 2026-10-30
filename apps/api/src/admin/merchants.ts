@@ -114,6 +114,11 @@ export async function listMerchantsForAdmin(
   // uuid cast; narrowing to UUID-shaped input first keeps the predicate
   // honest about what it means (an exact id match, not a text coincidence).
   const qUuid = q !== null && UUID_RE.test(q) ? q : null;
+  // LIKE wildcards in the search are literal characters, as in the
+  // transaction search: "%" must not list every merchant, "_" must not match
+  // any character, and a "%a%a%a…" pattern must not make the matcher
+  // backtrack over every name. "\" is LIKE's escape character.
+  const qPattern = q === null ? null : q.replace(/[\\%_]/g, "\\$&");
 
   const result = await pool.query<MerchantRow & { created_at_text: string }>(
     `SELECT m.id, m.display_name, m.status, m.onboarding_status, m.kyc_passed,
@@ -121,14 +126,14 @@ export async function listMerchantsForAdmin(
        FROM merchants m
        LEFT JOIN merchant_business_profiles bp ON bp.merchant_id = m.id
       WHERE ($1::text IS NULL
-             OR m.display_name ILIKE '%' || $1 || '%'
+             OR m.display_name ILIKE '%' || $7 || '%'
              OR m.id::text = $2::text
              OR bp.contact_email = $1)
         AND ($3::text[] IS NULL OR m.onboarding_status = ANY($3))
         AND ($4::timestamptz IS NULL OR (m.created_at, m.id) < ($4, $5::uuid))
       ORDER BY m.created_at DESC, m.id DESC
       LIMIT $6`,
-    [q, qUuid, statusArray, decodedCursor?.createdAt ?? null, decodedCursor?.id ?? null, limit],
+    [q, qUuid, statusArray, decodedCursor?.createdAt ?? null, decodedCursor?.id ?? null, limit, qPattern],
   );
 
   const merchants = result.rows.map(toSummary);

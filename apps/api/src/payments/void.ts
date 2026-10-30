@@ -4,6 +4,7 @@ import { withTransaction } from "../db/withTransaction.js";
 import { recordTransactionEvent } from "../transactions/events.js";
 import { serializeTransaction, type TransactionRow } from "../transactions/serialize.js";
 import { NotFoundError } from "../lib/errors.js";
+import { activeCaptureReservationFils } from "./idempotency.js";
 
 export interface VoidInput {
   transactionId: string;
@@ -64,8 +65,17 @@ export async function voidTransaction(pool: Pool, input: VoidInput): Promise<Voi
       return { statusCode: 409, body, alreadyVoided: false };
     }
 
+    // A capture of this transaction is at the acquirer right now (it holds
+    // no row lock during the call). Voiding under it would release a hold
+    // the acquirer is capturing: refuse, as the row lock used to.
+    if ((await activeCaptureReservationFils(client, txn.id)) > 0) {
+      const body = { error: "not_voidable", status: txn.status, reason: "capture_in_progress" };
+      return { statusCode: 409, body, alreadyVoided: false };
+    }
+
     // A capture whose acquirer call threw may have captured the card
-    // (capture.ts, 0123). Voiding locally would leave the customer charged
+    // (capture.ts, 0123): outcome unknown even though no reservation is
+    // live any longer. Voiding locally would leave the customer charged
     // with nothing on the merchant's books. A capture of the same amount
     // resolves it (the acquirer replays its answer); a refund can follow.
     const unresolved = await client.query(`SELECT 1 FROM capture_attempts_unresolved WHERE transaction_id = $1`, [txn.id]);

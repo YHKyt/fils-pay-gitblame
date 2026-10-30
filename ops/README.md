@@ -92,25 +92,58 @@ session tokens in clear text, so it is acceptable only for a throwaway demo
 on a private network, never on a public box. It is not set anywhere in this
 stack.
 
-## Logging in: the OTP decision (open, for the team)
+## Logging in on the hosted box (the OTP)
 
 Merchant and admin login are password + one-time code. This codebase has no
 delivery channel for the code (no email or SMS sender). With
-`NODE_ENV=production` the api neither returns nor logs it, so on the hosted
-box nobody can complete a browser login as things stand. Options:
+`NODE_ENV=production` the api neither returns nor logs it. That stays the
+default: the seeded passwords are public in the repository, so on the hosted
+box the one-time code is the only thing between the internet and the
+`finance` and `super_admin` consoles. How each kind of client logs in:
 
-1. **`OTP_DEV_EXPOSE=true` on a demo/judging box only.** The login response
-   then carries `devOtpCode`; the merchant
-   login page displays it. Anyone who knows a
-   password can log in without a second factor, so this must never be set
-   on a box holding real merchants. It is off by default
-   (`OTP_DEV_EXPOSE=${OTP_DEV_EXPOSE:-false}` in compose).
-2. **Operator reads the code from the database** for each demo login (the
-   challenge rows store only a salted hash, so the operator re-keys the
-   newest pending challenge to a known code, as `ops/e2e/judge-suite.mjs`
-   does with `DATABASE_URL`). Keeps the second factor; needs shell access.
-3. **Build a delivery channel** (email via a provider). The real fix; not
-   in scope for the handover.
+1. **A person at a browser (demo, judges in the room): the operator issues
+   the code.** Start the login, then on the box re-key that account's newest
+   pending challenge to a code you choose, and type that code in. The
+   challenge rows store only a salted SHA-256, so the code is written the
+   same way (`hashOtpCode` in `apps/api/src/auth/otp.ts`); it keeps the
+   challenge's own expiry and attempt limit. Merchant login (the email and
+   the merchant's id, as on the login form):
+
+   ```
+   docker compose -f ops/docker-compose.yml exec -T postgres psql -U filspay -d filspay \
+     -v email='owner@alpharetail.example' -v merchant='<merchant id>' -v code='<6 digits>' <<'SQL'
+   UPDATE otp_challenges c
+      SET code_salt = s.salt, code_hash = encode(sha256(convert_to(s.salt || :'code', 'UTF8')), 'hex')
+     FROM (SELECT gen_random_uuid()::text AS salt) s
+    WHERE c.id = (SELECT c2.id FROM otp_challenges c2 JOIN merchant_users u ON u.id = c2.merchant_user_id
+                   WHERE u.email = :'email' AND u.merchant_id = :'merchant'::uuid AND c2.consumed_at IS NULL
+                   ORDER BY c2.created_at DESC LIMIT 1);
+   SQL
+   ```
+
+   Admin login: the same with `admin_otp_challenges`, `admin_users` and
+   `admin_user_id`, and no merchant condition. `UPDATE 1` means the code is
+   set; `UPDATE 0` means no login is pending for that account.
+2. **Our own black-box suite (`ops/e2e/judge-suite.mjs`) against the hosted
+   box** does the same re-key itself when `DATABASE_URL` is set. Postgres
+   is published on the box's loopback only, so reach it through SSH:
+   `ssh -L 15432:127.0.0.1:5432 <box>`, then
+   `DATABASE_URL=postgres://filspay:<POSTGRES_PASSWORD>@127.0.0.1:15432/filspay`
+   with `BASE_URL=https://<public origin>`.
+3. **API-key clients need no code.** After one login as in 1, create a key
+   with `POST /v1/merchants/{merchantId}/api-keys` and hand it to the
+   client; merchant-API traffic then runs unattended.
+4. **An external suite that can only finish a login from the login response
+   itself** (`devOtpCode`, which both login pages display): that needs
+   `OTP_DEV_EXPOSE=true` in `ops/.env` on that box. Not set by default, and
+   it is a decision for the team, made only if the organisers' test
+   instructions require it: with it, anyone who reads the seed passwords in
+   the repository can sign in to every console with no second factor. If it
+   is used, the box must hold seeded data only, it is for the judging
+   window only, and afterwards set it back to `false` and reseed with
+   `SEED_RESET=1`. Never on a box with real merchants.
+5. **A delivery channel** (email via a provider) is the real fix; not in
+   scope for the handover.
 
 `NODE_ENV` must be exactly `production`, `development` or `test`; any other
 value (`Production`, `prod`, `staging`) stops the api at boot instead of

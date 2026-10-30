@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Client, type Pool } from "pg";
+import { Client, type Pool, type PoolClient } from "pg";
 import type { Config } from "../config.js";
 import { withTransaction } from "../db/withTransaction.js";
 import { decodeEncryptionKey, decryptSecret } from "./secretCrypto.js";
@@ -72,6 +72,77 @@ interface DueEventRow {
   endpoint_id: string;
 }
 
+/** min over active endpoints of their watermark; 0 for an endpoint without one. */
+const SKIP_BOUND_SQL = `COALESCE(min(COALESCE(w.below_id, 0)), 0)::text AS skip_below_id,
+       COALESCE(min(COALESCE(w.below_xmin, '0'::xid8)), '0'::xid8)::text AS skip_below_xmin`;
+
+interface DueEventsSnapshot {
+  snapshot_xmin: string;
+  max_visible_id: string | null;
+  active_endpoint_ids: string[] | null;
+  bound_holds: boolean;
+}
+
+/**
+ * The Step A read, skipping events with id < skipBelowId AND xact_id <
+ * skipBelowXmin. One statement, so everything in it shares one snapshot:
+ * the due rows, that snapshot's xmin, the highest visible outbox id, the
+ * endpoints active in it (the watermark written after the inserts is a claim
+ * about this snapshot), and whether the skip still covers every endpoint
+ * active in it. Always at least one row (the snapshot's); due columns are
+ * NULL on it when nothing is due.
+ */
+async function selectDueEvents(
+  client: PoolClient,
+  skipBelowId: string,
+  skipBelowXmin: string,
+): Promise<Array<Partial<DueEventRow> & DueEventsSnapshot>> {
+  const result = await client.query<Partial<DueEventRow> & DueEventsSnapshot>(
+    `WITH snap AS MATERIALIZED (
+       SELECT pg_snapshot_xmin(pg_current_snapshot())::text AS snapshot_xmin,
+              (SELECT max(id) FROM outbox_events)::text AS max_visible_id,
+              (SELECT array_agg(id ORDER BY id) FROM webhook_endpoints WHERE status = 'active')::text[] AS active_endpoint_ids,
+              (SELECT b.skip_below_id::bigint >= $3::bigint AND b.skip_below_xmin::xid8 >= $4::xid8
+                 FROM (SELECT ${SKIP_BOUND_SQL}
+                         FROM webhook_endpoints we
+                         LEFT JOIN webhook_step_a_watermarks w ON w.endpoint_id = we.id
+                        WHERE we.status = 'active') b) AS bound_holds
+     ),
+     due AS (
+       SELECT oe.id AS outbox_event_id, oe.event_type, oe.aggregate_id, oe.payload, oe.created_at,
+              we.id AS endpoint_id
+         FROM outbox_events oe
+         JOIN webhook_endpoints we
+           -- Compared as text, not cast: one outbox row whose merchantId is
+           -- not a uuid ("" or a typo) made ::uuid raise, failing this query
+           -- on every pass and stopping webhook creation for every merchant.
+           ON we.merchant_id::text = oe.payload->>'merchantId'
+          AND we.status = 'active'
+          AND oe.created_at >= we.created_at
+        WHERE oe.event_type = ANY($1::text[])
+          AND (oe.id >= $3::bigint OR oe.xact_id >= $4::xid8)
+          -- settlement.paid is enqueued for every paid batch (reporting needs
+          -- it); a batch with nothing to pay out is not a payout to announce.
+          -- CASE so a non-numeric value is skipped rather than raising.
+          AND (oe.event_type <> 'settlement.paid'
+               OR CASE WHEN jsonb_typeof(oe.payload->'netPayoutFils') = 'number'
+                       THEN (oe.payload->>'netPayoutFils')::numeric > 0
+                       ELSE false END)
+          AND NOT EXISTS (
+            SELECT 1 FROM webhook_deliveries wd
+             WHERE wd.outbox_event_id = oe.id AND wd.endpoint_id = we.id
+          )
+        ORDER BY oe.id ASC
+        LIMIT $2
+     )
+     SELECT snap.*, due.*
+       FROM snap LEFT JOIN due ON true
+      ORDER BY due.outbox_event_id ASC`,
+    [WEBHOOK_ELIGIBLE_EVENT_TYPES, STEP_A_BATCH_LIMIT, skipBelowId, skipBelowXmin],
+  );
+  return result.rows;
+}
+
 /**
  * Step A: find outbox events with at least one active endpoint that has no
  * delivery row yet, and create one 'pending' webhook_deliveries row per
@@ -88,36 +159,31 @@ interface DueEventRow {
  */
 async function createMissingDeliveries(pool: Pool): Promise<number> {
   return withTransaction(pool, async (client) => {
-    const dueResult = await client.query<DueEventRow>(
-      `SELECT oe.id AS outbox_event_id, oe.event_type, oe.aggregate_id, oe.payload, oe.created_at,
-              we.id AS endpoint_id
-         FROM outbox_events oe
-         JOIN webhook_endpoints we
-           -- Compared as text, not cast: one outbox row whose merchantId is
-           -- not a uuid ("" or a typo) made ::uuid raise, failing this query
-           -- on every pass and stopping webhook creation for every merchant.
-           ON we.merchant_id::text = oe.payload->>'merchantId'
-          AND we.status = 'active'
-          AND oe.created_at >= we.created_at
-        WHERE oe.event_type = ANY($1::text[])
-          -- settlement.paid is enqueued for every paid batch (reporting needs
-          -- it); a batch with nothing to pay out is not a payout to announce.
-          -- CASE so a non-numeric value is skipped rather than raising.
-          AND (oe.event_type <> 'settlement.paid'
-               OR CASE WHEN jsonb_typeof(oe.payload->'netPayoutFils') = 'number'
-                       THEN (oe.payload->>'netPayoutFils')::numeric > 0
-                       ELSE false END)
-          AND NOT EXISTS (
-            SELECT 1 FROM webhook_deliveries wd
-             WHERE wd.outbox_event_id = oe.id AND wd.endpoint_id = we.id
-          )
-        ORDER BY oe.id ASC
-        LIMIT $2`,
-      [WEBHOOK_ELIGIBLE_EVENT_TYPES, STEP_A_BATCH_LIMIT],
+    // The skip: every active endpoint's watermark row (0122) says each
+    // eligible event with id < below_id and xact_id < below_xmin already has
+    // its delivery. Only what ALL of them cover is skipped (the minimum of
+    // each; an active endpoint without a row makes it 0, a full scan), so
+    // the anti-join below still decides every pair that is read. The bound
+    // is passed as literal parameters so the planner sees how narrow it is
+    // and reads two index ranges (pkey, idx_outbox_events_xact_id_id): a
+    // steady-state pass reads only events newer than the last pass.
+    const bound = await client.query<{ skip_below_id: string; skip_below_xmin: string }>(
+      `SELECT ${SKIP_BOUND_SQL}
+         FROM webhook_endpoints we
+         LEFT JOIN webhook_step_a_watermarks w ON w.endpoint_id = we.id
+        WHERE we.status = 'active'`,
     );
+    let rows = await selectDueEvents(client, bound.rows[0]!.skip_below_id, bound.rows[0]!.skip_below_xmin);
+    if (!rows[0]!.bound_holds) {
+      // An endpoint became active (or a watermark moved back) between the
+      // two statements: the bound no longer covers it. Read everything.
+      rows = await selectDueEvents(client, "0", "0");
+    }
+    const snap = rows[0]!;
+    const dueRows = rows.filter((r) => r.outbox_event_id != null) as Array<DueEventRow & DueEventsSnapshot>;
 
     let createdCount = 0;
-    for (const row of dueResult.rows) {
+    for (const row of dueRows) {
       const deliveryEventId = randomUUID();
       const envelope = buildEnvelope(deliveryEventId, {
         eventType: row.event_type,
@@ -134,6 +200,29 @@ async function createMissingDeliveries(pool: Pool): Promise<number> {
         [row.endpoint_id, row.outbox_event_id, row.event_type, deliveryEventId, JSON.stringify(envelope)],
       );
       createdCount += insertResult.rowCount ?? 0;
+    }
+
+    // Move the watermark of every endpoint active in the snapshot, in the
+    // same transaction as the deliveries it vouches for. ORDER BY oe.id with
+    // LIMIT gives a prefix: every due pair visible in the snapshot below the
+    // last row's id was in this batch (the LIMIT can cut between endpoints
+    // of that last id itself, hence "below"). A batch that was not full
+    // covered every due pair the snapshot could see. Never moved backwards,
+    // and not rewritten when it does not move, so an idle pass writes
+    // nothing.
+    if (snap && snap.active_endpoint_ids && snap.max_visible_id !== null) {
+      const belowId =
+        dueRows.length >= STEP_A_BATCH_LIMIT
+          ? String(dueRows[dueRows.length - 1]!.outbox_event_id)
+          : String(BigInt(snap.max_visible_id) + 1n);
+      await client.query(
+        `INSERT INTO webhook_step_a_watermarks (endpoint_id, below_id, below_xmin)
+         SELECT we.id, $2::bigint, $3::xid8 FROM webhook_endpoints we WHERE we.id = ANY($1::uuid[])
+         ON CONFLICT (endpoint_id) DO UPDATE
+           SET below_id = EXCLUDED.below_id, below_xmin = EXCLUDED.below_xmin, updated_at = now()
+         WHERE webhook_step_a_watermarks.below_id < EXCLUDED.below_id`,
+        [snap.active_endpoint_ids, belowId, snap.snapshot_xmin],
+      );
     }
     return createdCount;
   });
@@ -339,18 +428,34 @@ export function startWebhookDispatcher(pool: Pool, transport: WebhookTransport, 
   // `sending` until its lease runs out and is then sent a second time.
   let inFlight: Promise<void> | null = null;
   let stopped = false;
+  // Run another pass as soon as this one ends: set when a pass filled a
+  // whole batch (more work is waiting), or when a NOTIFY or tick arrived
+  // during the pass. Without it a backlog drained at one Step B batch (100)
+  // per poll interval, and an event committed mid-pass waited for the next
+  // tick (perfload; the reporting consumer had the same shape, PL3).
+  let rerun = false;
 
   const triggerPass = (): void => {
-    if (inFlight || stopped) return;
+    if (stopped) return;
+    if (inFlight) {
+      rerun = true;
+      return;
+    }
+    rerun = false;
     inFlight = runDispatchPass(pool, transport, config, () => stopped)
-      .then(() => undefined)
+      .then(({ createdCount, attemptedCount }) => {
+        if (createdCount >= STEP_A_BATCH_LIMIT || attemptedCount >= STEP_B_BATCH_LIMIT) rerun = true;
+      })
       .catch((err: unknown) => {
         // A thrown error from one pass must never crash the listener or
         // the process — the next NOTIFY or poll tick simply tries again.
+        // No immediate rerun: a failing pass must not spin.
+        rerun = false;
         console.error("[webhooks/dispatcher] dispatch pass failed", err);
       })
       .finally(() => {
         inFlight = null;
+        if (rerun) triggerPass();
       });
   };
 
