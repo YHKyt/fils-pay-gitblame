@@ -440,6 +440,12 @@ export function MerchantDetailPage() {
           </p>
         }
       >
+        {merchant.onboardingStatus !== "under_review" ? (
+          <p className="admin-muted">
+            Only a merchant in <code>under_review</code> can be approved or rejected (this one is{" "}
+            <code>{merchant.onboardingStatus}</code>); the API answers <code>409</code> otherwise.
+          </p>
+        ) : (
         <div className="admin-form">
           <label>
             Notes (optional)
@@ -454,6 +460,7 @@ export function MerchantDetailPage() {
             </button>
           </div>
         </div>
+        )}
       </RequireRole>
 
       <h3>Review history</h3>
