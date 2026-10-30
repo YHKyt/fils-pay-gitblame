@@ -221,6 +221,7 @@ function groupPan(digits: string): string {
 type LoadState =
   | { kind: "loading" }
   | { kind: "not_found" }
+  | { kind: "unavailable" }
   | { kind: "loaded"; link: PaymentLinkPublicDto };
 
 /** transactionId / paidAt are known only when the pay response itself
@@ -280,10 +281,13 @@ export function CheckoutPage() {
       .then((link) => {
         if (!cancelled) setLoadState({ kind: "loaded", link });
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         // Never distinguishes "malformed token" from "doesn't exist" —
-        // matches the API's own non-disclosure choice.
-        if (!cancelled) setLoadState({ kind: "not_found" });
+        // matches the API's own non-disclosure choice. A server or network
+        // failure is not an invalid link: say so, and let the payer retry.
+        if (cancelled) return;
+        const invalid = err instanceof ApiError && (err.statusCode === 404 || err.statusCode === 400);
+        setLoadState({ kind: invalid ? "not_found" : "unavailable" });
       });
     return () => {
       cancelled = true;
@@ -404,6 +408,23 @@ export function CheckoutPage() {
         <div className="checkout-state" aria-busy="true">
           <span className="checkout-spinner" aria-hidden="true" />
           <p className="checkout-loading">Loading payment details…</p>
+        </div>
+      </CheckoutShell>
+    );
+  }
+
+  if (loadState.kind === "unavailable") {
+    return (
+      <CheckoutShell tone="error">
+        <div className="checkout-state">
+          <StateIcon kind="error" />
+          <h1>We couldn't load this payment</h1>
+          <p className="checkout-message">
+            This is on our side, not your link. No payment was taken. Please try again in a moment.
+          </p>
+          <button type="button" className="checkout-pay" onClick={() => window.location.reload()}>
+            Try again
+          </button>
         </div>
       </CheckoutShell>
     );
