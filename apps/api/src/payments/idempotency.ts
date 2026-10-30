@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import type { PoolClient } from "pg";
+import { createHash, randomUUID } from "node:crypto";
+import type { Pool, PoolClient } from "pg";
 
 /**
  * Generic, endpoint-agnostic request idempotency, backed by the
@@ -75,11 +75,13 @@ export function hashRequest(body: unknown): string {
  *
  * Derived only from what the client controls (merchant, endpoint, key, the
  * request hash) plus the attempt number — never from the claim row's id.
- * authorize/capture claim inside the same DB transaction as the acquirer
- * call, so an acquirer call that throws (a timeout: the acquirer may already
- * have acted) rolls the claim row back, and the retry gets a NEW row id. A
- * row-id-based key made that retry a brand-new charge at the acquirer; this
- * one is identical, so the acquirer replays its first answer. The attempt
+ * An authorize/capture acquirer call that throws (a timeout: the acquirer
+ * may already have acted) gives its claim up (releaseAcquirerAttempt), and
+ * the retry takes it over with the same attempt number; before the claim
+ * was committed ahead of the call, the throw rolled the row back and the
+ * retry got a NEW row id. A row-id-based key made that retry a brand-new
+ * charge at the acquirer; this one is identical, so the acquirer replays
+ * its first answer. The attempt
  * number still changes after a recorded, definitive acquirer 'error'
  * (failIdempotencyKey), where a fresh attempt is wanted.
  */
@@ -198,18 +200,133 @@ export async function claimIdempotencyKey(
     return { outcome: "retry_after_failure", row: toRow(updated) };
   }
 
-  // existing.status === 'in_progress'. authorize, capture and the admin
-  // actions claim, act and record the outcome in ONE transaction, so their
-  // in_progress row is never committed: a concurrent request blocks on the
-  // INSERT above instead, and a crash rolls the claim back. Only
-  // refunds.create commits its claim before the acquirer call
-  // (processRefund): a same-key request lands here while that attempt is in
-  // flight, and for good if its process died. There is no sweeper
-  // (scripts/sweep_idempotency.ts never existed); processRefund takes over a
-  // stale attempt itself and resends its acquirer key. Marking such a row
-  // 'failed' instead is NOT safe: the retry would run as a new attempt, with
-  // a new acquirer key, and could charge or refund the card a second time.
+  // existing.status === 'in_progress'. The admin actions claim, act and
+  // record the outcome in ONE transaction, so their in_progress row is never
+  // committed: a concurrent request blocks on the INSERT above instead, and a
+  // crash rolls the claim back. authorize, capture and refunds.create commit
+  // their claim before the acquirer call, so that no pool connection is held
+  // while the acquirer runs: a same-key request lands here while that attempt
+  // is in flight, and for good if its process died. There is no sweeper
+  // (scripts/sweep_idempotency.ts never existed); processRefund and
+  // takeOverAcquirerAttempt (authorize, capture) take over a stale attempt
+  // themselves and resend its acquirer key. Marking such a row 'failed'
+  // instead is NOT safe: the retry would run as a new attempt, with a new
+  // acquirer key, and could charge or refund the card a second time.
   return { outcome: "conflict_in_progress", row: toRow(existing) };
+}
+
+/**
+ * authorize / capture: an attempt at the acquirer whose claim is older than
+ * this is taken to be dead (its process crashed), so a same-key retry may
+ * take it over, and a capture's reservation stops counting. Far longer than
+ * any acquirer call.
+ */
+export const ACQUIRER_ATTEMPT_STALE_SECONDS = 5 * 60;
+
+/**
+ * Marks a fresh / retried authorize or capture claim as being at the
+ * acquirer, in the transaction that validated it, so both commit together
+ * before the acquirer is called with no connection held. `reservedFils` and
+ * `resourceId` are the capture's reservation: the amount and the transaction
+ * it is being captured from (activeCaptureReservationFils). Returns this
+ * attempt's fence token (ownsAcquirerAttempt).
+ */
+export async function markAcquirerAttempt(
+  client: PoolClient,
+  claimId: string,
+  reservation?: { resourceId: string; reservedFils: number },
+): Promise<string> {
+  const attemptId = randomUUID();
+  await client.query(
+    `UPDATE idempotency_keys
+        SET response_body = jsonb_build_object(
+              'acquirerOutcome', 'in_flight', 'attemptId', $2::text, 'claimedAt', now(),
+              'reservedFils', $3::bigint),
+            resource_id = COALESCE($4::uuid, resource_id)
+      WHERE id = $1`,
+    [claimId, attemptId, reservation?.reservedFils ?? 0, reservation?.resourceId ?? null],
+  );
+  return attemptId;
+}
+
+/**
+ * A same-key request found the key in_progress (conflict_in_progress). If
+ * that attempt is dead (claimed more than ACQUIRER_ATTEMPT_STALE_SECONDS ago,
+ * or released by releaseAcquirerAttempt after its call threw), this request
+ * takes it over and runs it again from the top with the SAME attempt_count,
+ * so acquirerIdempotencyKey is unchanged and the acquirer replays whatever
+ * the dead attempt got. That is what the old single transaction did: a
+ * crash or a throw rolled the claim back and the retry reclaimed it with the
+ * same attempt number. Returns null when the attempt is still live (409).
+ */
+export async function takeOverAcquirerAttempt(client: PoolClient, row: IdempotencyKeyRow): Promise<IdempotencyKeyRow | null> {
+  const result = await client.query<IdempotencyKeyDbRow>(
+    `UPDATE idempotency_keys SET response_body = NULL
+      WHERE id = $1 AND status = 'in_progress'
+        AND response_body->>'acquirerOutcome' = 'in_flight'
+        AND (response_body->>'claimedAt')::timestamptz < now() - make_interval(secs => $2)
+      RETURNING *`,
+    [row.id, ACQUIRER_ATTEMPT_STALE_SECONDS],
+  );
+  const updated = result.rows[0];
+  return updated ? toRow(updated) : null;
+}
+
+/**
+ * Locks this attempt's claim row. False once its claim was released or a
+ * later request took it over, so a slow attempt can never record its result
+ * on top of the one that replaced it.
+ */
+export async function ownsAcquirerAttempt(client: PoolClient, claimId: string, attemptId: string): Promise<boolean> {
+  const result = await client.query(
+    `SELECT 1 FROM idempotency_keys
+      WHERE id = $1 AND status = 'in_progress' AND response_body->>'attemptId' = $2
+        FOR UPDATE`,
+    [claimId, attemptId],
+  );
+  return result.rows.length > 0;
+}
+
+/**
+ * The attempt threw (an acquirer timeout, a DB fault while recording): as
+ * the old single transaction's ROLLBACK did, give the claim up at once. Its
+ * capture reservation stops counting and a same-key retry takes it over with
+ * the same acquirer key. Best effort: if this fails too, the claim goes
+ * stale after ACQUIRER_ATTEMPT_STALE_SECONDS.
+ */
+export async function releaseAcquirerAttempt(pool: Pool, claimId: string, attemptId: string): Promise<void> {
+  await pool
+    .query(
+      `UPDATE idempotency_keys
+          SET response_body = jsonb_set(response_body, '{claimedAt}', to_jsonb('epoch'::timestamptz))
+        WHERE id = $1 AND status = 'in_progress' AND response_body->>'attemptId' = $2`,
+      [claimId, attemptId],
+    )
+    .catch(() => undefined);
+}
+
+/**
+ * The amount of transaction `transactionId` held by captures that are at the
+ * acquirer right now (live claims marked by markAcquirerAttempt). Capture
+ * treats it as already captured, and void refuses while it is non-zero: this
+ * is what the row lock held across the acquirer call used to guarantee.
+ * `exceptClaimId` leaves the caller's own claim out.
+ */
+export async function activeCaptureReservationFils(
+  client: PoolClient,
+  transactionId: string,
+  exceptClaimId: string | null = null,
+): Promise<number> {
+  const result = await client.query<{ total: string }>(
+    `SELECT COALESCE(SUM((response_body->>'reservedFils')::bigint), 0)::text AS total
+       FROM idempotency_keys
+      WHERE resource_id = $1 AND status = 'in_progress' AND endpoint = 'transactions.capture'
+        AND id IS DISTINCT FROM $2::uuid
+        AND response_body->>'acquirerOutcome' = 'in_flight'
+        AND (response_body->>'claimedAt')::timestamptz >= now() - make_interval(secs => $3)`,
+    [transactionId, exceptClaimId, ACQUIRER_ATTEMPT_STALE_SECONDS],
+  );
+  return Number(result.rows[0]!.total);
 }
 
 /**

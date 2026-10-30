@@ -1,8 +1,8 @@
 import { createHmac, hkdfSync } from "node:crypto";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type { Fils } from "@filspay/money";
 import { withTransaction } from "../db/withTransaction.js";
-import type { AcquirerSimulator, SimulatedCardInput } from "../acquirer/types.js";
+import type { AcquirerAuthorizeResult, AcquirerSimulator, SimulatedCardInput } from "../acquirer/types.js";
 import {
   acquirerIdempotencyKey,
   canonicalJson,
@@ -10,6 +10,10 @@ import {
   completeIdempotencyKey,
   failIdempotencyKey,
   hashRequest,
+  markAcquirerAttempt,
+  ownsAcquirerAttempt,
+  releaseAcquirerAttempt,
+  takeOverAcquirerAttempt,
 } from "./idempotency.js";
 import { recordTransactionEvent } from "../transactions/events.js";
 import { serializeTransaction, type TransactionRow } from "../transactions/serialize.js";
@@ -75,12 +79,13 @@ export interface AuthorizeResult {
 }
 
 /**
- * `POST /v1/transactions` business logic. One `withTransaction`: claim
- * idempotency -> check merchant approval -> call the acquirer -> on
- * approval, insert the transaction + hold + 'authorized' event. A decline or
- * acquirer error never produces a `transactions` row (the status CHECK has
- * no 'declined' value) — the only durable trace of such an attempt is its
- * idempotency_keys row.
+ * `POST /v1/transactions` business logic, in two short transactions with the
+ * acquirer call between them and no pool connection held during it: claim
+ * idempotency -> check merchant approval -> mark the claim in flight; call
+ * the acquirer; then, on approval, insert the transaction + hold +
+ * 'authorized' event. A decline or acquirer error never produces a
+ * `transactions` row (the status CHECK has no 'declined' value) — the only
+ * durable trace of such an attempt is its idempotency_keys row.
  */
 export async function authorizeTransaction(
   pool: Pool,
@@ -94,8 +99,8 @@ export async function authorizeTransaction(
     reference: input.reference ?? null,
   });
 
-  return withTransaction(pool, async (client) => {
-    const claim = await claimIdempotencyKey(client, {
+  const prepared = await withTransaction(pool, async (client) => {
+    let claim = await claimIdempotencyKey(client, {
       merchantId: input.merchantId,
       endpoint: ENDPOINT,
       key: input.idempotencyKey,
@@ -107,10 +112,16 @@ export async function authorizeTransaction(
       throw new UnprocessableEntityError("idempotency_key_reused");
     }
     if (claim.outcome === "conflict_in_progress") {
-      throw new ConflictError("request_in_progress");
+      // Another attempt with this key is at the acquirer (409, retry later),
+      // or its process died: then this request takes it over.
+      const takenOver = await takeOverAcquirerAttempt(client, claim.row);
+      if (!takenOver) {
+        throw new ConflictError("request_in_progress");
+      }
+      claim = { outcome: "retry_after_failure", row: takenOver };
     }
     if (claim.outcome === "replay") {
-      return { statusCode: claim.row.responseStatusCode ?? 200, body: claim.row.responseBody };
+      return { settled: { statusCode: claim.row.responseStatusCode ?? 200, body: claim.row.responseBody } };
     }
     // 'fresh' / 'retry_after_failure' — continue.
 
@@ -127,7 +138,7 @@ export async function authorizeTransaction(
     if (!merchant || merchant.onboarding_status !== "approved") {
       const body = { error: "merchant_not_approved" };
       await completeIdempotencyKey(client, claim.row.id, { statusCode: 403, body });
-      return { statusCode: 403, body };
+      return { settled: { statusCode: 403, body } };
     }
     // A suspended or closed merchant takes no payments. API keys and sessions
     // already refuse it, but the public payment-link checkout reaches here
@@ -135,64 +146,93 @@ export async function authorizeTransaction(
     if (merchant.status !== "active") {
       const body = { error: "merchant_not_active" };
       await completeIdempotencyKey(client, claim.row.id, { statusCode: 403, body });
-      return { statusCode: 403, body };
+      return { settled: { statusCode: 403, body } };
     }
 
+    const attemptId = await markAcquirerAttempt(client, claim.row.id);
+    return { claim: claim.row, attemptId };
+  });
+  if ("settled" in prepared) {
+    return prepared.settled!;
+  }
+  const { claim, attemptId } = prepared;
+
+  try {
+    // No DB connection is checked out during this call.
     const acquirerResult = await acquirer.authorize({
       merchantId: input.merchantId,
       amountFils: input.amountFils,
       currency: "BHD",
       card: input.card,
-      idempotencyKey: acquirerIdempotencyKey(claim.row),
+      idempotencyKey: acquirerIdempotencyKey(claim),
+    });
+    return await withTransaction(pool, (client) => recordAuthorization(client, claim.id, attemptId, acquirerResult, input, actor));
+  } catch (err) {
+    await releaseAcquirerAttempt(pool, claim.id, attemptId);
+    throw err;
+  }
+}
+
+async function recordAuthorization(
+  client: PoolClient,
+  claimId: string,
+  attemptId: string,
+  acquirerResult: AcquirerAuthorizeResult,
+  input: AuthorizeInput,
+  actor: NonNullable<AuthorizeInput["actor"]>,
+): Promise<AuthorizeResult> {
+  if (!(await ownsAcquirerAttempt(client, claimId, attemptId))) {
+    // A same-key retry took this attempt over (it was stale) and records
+    // the outcome itself, from the same acquirer key.
+    throw new ConflictError("request_in_progress");
+  }
+
+  if (acquirerResult.outcome === "approved") {
+    const insertResult = await client.query<TransactionRow>(
+      `INSERT INTO transactions (merchant_id, status, amount_fils, captured_fils, acquirer_reference, reference)
+       VALUES ($1, 'authorized', $2, 0, $3, $4)
+       RETURNING *`,
+      [input.merchantId, input.amountFils, acquirerResult.acquirerReference, input.reference ?? null],
+    );
+    const txnRow = insertResult.rows[0];
+    if (!txnRow) {
+      throw new Error("authorizeTransaction: insert into transactions returned no row");
+    }
+
+    // MK: 7 days = scheme rule for CNP. expire_holds.ts only flips status to expired,
+    // it never deletes, so the hold history stays
+    await client.query(
+      `INSERT INTO holds (merchant_id, transaction_id, amount_fils, status, expires_at)
+       VALUES ($1, $2, $3, 'active', now() + interval '7 days')`,
+      [input.merchantId, txnRow.id, input.amountFils],
+    );
+
+    await recordTransactionEvent(client, {
+      transactionId: txnRow.id,
+      eventType: "authorized",
+      actor,
     });
 
-    if (acquirerResult.outcome === "approved") {
-      const insertResult = await client.query<TransactionRow>(
-        `INSERT INTO transactions (merchant_id, status, amount_fils, captured_fils, acquirer_reference, reference)
-         VALUES ($1, 'authorized', $2, 0, $3, $4)
-         RETURNING *`,
-        [input.merchantId, input.amountFils, acquirerResult.acquirerReference, input.reference ?? null],
-      );
-      const txnRow = insertResult.rows[0];
-      if (!txnRow) {
-        throw new Error("authorizeTransaction: insert into transactions returned no row");
-      }
+    // No outbox event: nothing consumes 'transaction.authorized', so
+    // packages/events doesn't define it.
 
-      // MK: 7 days = scheme rule for CNP. expire_holds.ts only flips status to expired,
-      // it never deletes, so the hold history stays
-      await client.query(
-        `INSERT INTO holds (merchant_id, transaction_id, amount_fils, status, expires_at)
-         VALUES ($1, $2, $3, 'active', now() + interval '7 days')`,
-        [input.merchantId, txnRow.id, input.amountFils],
-      );
+    const body = serializeTransaction(txnRow);
+    await completeIdempotencyKey(client, claimId, { statusCode: 201, body, resourceId: txnRow.id });
+    return { statusCode: 201, body };
+  }
 
-      await recordTransactionEvent(client, {
-        transactionId: txnRow.id,
-        eventType: "authorized",
-        actor,
-      });
+  if (acquirerResult.outcome === "declined") {
+    const body = {
+      error: "card_declined",
+      declineReason: acquirerResult.declineReason,
+      acquirerReference: acquirerResult.acquirerReference,
+    };
+    await completeIdempotencyKey(client, claimId, { statusCode: 402, body });
+    return { statusCode: 402, body };
+  }
 
-      // No outbox event: nothing consumes 'transaction.authorized', so
-      // packages/events doesn't define it.
-
-      const body = serializeTransaction(txnRow);
-      await completeIdempotencyKey(client, claim.row.id, { statusCode: 201, body, resourceId: txnRow.id });
-      return { statusCode: 201, body };
-    }
-
-    if (acquirerResult.outcome === "declined") {
-      const body = {
-        error: "card_declined",
-        declineReason: acquirerResult.declineReason,
-        acquirerReference: acquirerResult.acquirerReference,
-      };
-      await completeIdempotencyKey(client, claim.row.id, { statusCode: 402, body });
-      return { statusCode: 402, body };
-    }
-
-    // outcome === 'error'
-    const body = { error: "acquirer_unavailable" };
-    await failIdempotencyKey(client, claim.row.id, { statusCode: 502, body });
-    return { statusCode: 502, body };
-  });
+  // outcome === 'error'
+  const body = { error: "acquirer_unavailable" };
+  await failIdempotencyKey(client, claimId, { statusCode: 502, body });
+  return { statusCode: 502, body };
 }
