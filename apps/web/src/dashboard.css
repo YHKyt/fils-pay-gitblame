@@ -1807,3 +1807,10 @@ h1 .dash-ref-sub {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+/* Wide screens: key/value detail cards use two label/value column pairs so
+   values sit next to their labels instead of across a 1400px card. */
+@media (min-width: 1100px) {
+  .dash-dl:not(.dash-dl-stack) {
+    grid-template-columns: 12rem minmax(0, 1fr) 12rem minmax(0, 1fr);
+  }
+}
