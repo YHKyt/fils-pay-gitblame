@@ -73,7 +73,20 @@ function isBlockedIpv6(ip: string): boolean {
     const v4 = `${g[6]! >> 8}.${g[6]! & 0xff}.${g[7]! >> 8}.${g[7]! & 0xff}`;
     return isBlockedIpv4(v4);
   }
-  if (first === 0x64 && g[1] === 0xff9b) return true; // NAT64 64:ff9b::/96
+  // IPv4-translated ::ffff:0:a.b.c.d (RFC 2765): judge the embedded IPv4.
+  if (allZeroPrefix(4) && g[4] === 0xffff && g[5] === 0) {
+    const v4 = `${g[6]! >> 8}.${g[6]! & 0xff}.${g[7]! >> 8}.${g[7]! & 0xff}`;
+    return isBlockedIpv4(v4);
+  }
+  // 6to4 2002::/16 carries an IPv4 address in its next 32 bits
+  // (2002:7f00:1:: is 127.0.0.1); judge that address.
+  if (first === 0x2002) {
+    const v4 = `${g[1]! >> 8}.${g[1]! & 0xff}.${g[2]! >> 8}.${g[2]! & 0xff}`;
+    return isBlockedIpv4(v4);
+  }
+  if (first === 0x2001 && g[1] === 0) return true; // Teredo 2001::/32 (tunnels to an embedded IPv4)
+  if (first === 0x0100 && g[1] === 0 && g[2] === 0 && g[3] === 0) return true; // discard-only 100::/64
+  if (first === 0x64 && g[1] === 0xff9b) return true; // NAT64 64:ff9b::/96 and local-use 64:ff9b:1::/48
   if ((first & 0xfe00) === 0xfc00) return true; // fc00::/7 unique local
   if ((first & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
   if ((first & 0xffc0) === 0xfec0) return true; // fec0::/10 site-local (deprecated)

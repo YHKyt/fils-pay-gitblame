@@ -1,5 +1,8 @@
+import { lookup as dnsLookupCallback, type LookupAddress } from "node:dns";
 import { lookup as dnsLookup } from "node:dns/promises";
-import { isIP } from "node:net";
+import { request as httpRequest, type IncomingMessage } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { isIP, type LookupFunction } from "node:net";
 import { isBlockedHostname, isNonPublicAddress } from "./urlPolicy.js";
 
 /**
@@ -39,6 +42,12 @@ export interface FetchTransportOptions {
   blockPrivateAddresses?: boolean;
   /** Test seam for the DNS step. */
   lookup?: (hostname: string) => Promise<string[]>;
+  /** Test seam for the resolution the connection itself uses when
+   *  blockPrivateAddresses is on (defaults to dns.lookup). */
+  connectLookup?: (hostname: string) => Promise<string[]>;
+  /** Test seam: which connect-time addresses are allowed (defaults to
+   *  public unicast only). */
+  connectAddressAllowed?: (ip: string) => boolean;
 }
 
 /** Response bytes kept from a receiver; callers store a 2000-char excerpt. */
@@ -78,9 +87,9 @@ export function createFetchTransport(options: FetchTransportOptions = {}): Webho
   return async (req: WebhookTransportRequest): Promise<WebhookTransportResponse> => {
     if (options.blockPrivateAddresses) {
       // Re-checked at send time: endpoints stored before the URL policy, and
-      // public-looking names that resolve to private addresses.
-      // (A DNS answer can still change between this lookup and the connect;
-      // pinning the resolved address would close that window.)
+      // public-looking names that resolve to private addresses. A DNS answer
+      // can change between this lookup and the connect (rebinding), so
+      // sendPinned also checks the addresses the connection itself uses.
       let blocked = false;
       try {
         const host = new URL(req.url).hostname;
@@ -96,6 +105,10 @@ export function createFetchTransport(options: FetchTransportOptions = {}): Webho
       if (blocked) {
         return { statusCode: null, body: "", errorMessage: "destination_not_allowed" };
       }
+    }
+
+    if (options.blockPrivateAddresses) {
+      return sendPinned(req, options.connectLookup, options.connectAddressAllowed);
     }
 
     const controller = new AbortController();
@@ -123,4 +136,90 @@ export function createFetchTransport(options: FetchTransportOptions = {}): Webho
       clearTimeout(timeoutHandle);
     }
   };
+}
+
+/**
+ * The guarded send: node:http(s) with a `lookup` that refuses any non-public
+ * address, so the address checked is the address connected to. fetch
+ * resolved the name again on its own, after the check above, and a name
+ * answering a public address to the check and 127.0.0.1 or 169.254.169.254
+ * to the connect (DNS rebinding, TTL 0) reached an internal service whose
+ * reply the merchant then read in the delivery's response excerpt.
+ * Redirects are not followed; the body read is bounded like the fetch path.
+ */
+function sendPinned(
+  req: WebhookTransportRequest,
+  connectLookup?: (hostname: string) => Promise<string[]>,
+  addressAllowed: (ip: string) => boolean = (ip) => !isNonPublicAddress(ip),
+): Promise<WebhookTransportResponse> {
+  const guardedLookup: LookupFunction = (hostname, lookupOptions, callback) => {
+    const resolve: Promise<LookupAddress[]> = connectLookup
+      ? connectLookup(hostname).then((list) => list.map((address) => ({ address, family: isIP(address) })))
+      : new Promise((ok, fail) =>
+          dnsLookupCallback(hostname, { all: true, verbatim: true }, (err, list) => (err ? fail(err) : ok(list))),
+        );
+    resolve.then(
+      (list) => {
+        if (list.length === 0 || !list.every((a) => addressAllowed(a.address))) {
+          callback(new Error("destination_not_allowed"), "", 0);
+          return;
+        }
+        if (lookupOptions.all) {
+          (callback as unknown as (err: null, addresses: LookupAddress[]) => void)(null, list);
+        } else {
+          callback(null, list[0]!.address, list[0]!.family);
+        }
+      },
+      (err: Error) => callback(err as NodeJS.ErrnoException, "", 0),
+    );
+  };
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (result: WebhookTransportResponse) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const fail = (err: unknown) =>
+      done({ statusCode: null, body: "", errorMessage: err instanceof Error ? err.message : String(err) });
+
+    let url: URL;
+    try {
+      url = new URL(req.url);
+    } catch (err) {
+      fail(err);
+      return;
+    }
+    const send = url.protocol === "https:" ? httpsRequest : httpRequest;
+    const outgoing = send(url, {
+      method: "POST",
+      headers: { ...req.headers, "content-length": String(Buffer.byteLength(req.body)) },
+      lookup: guardedLookup,
+    });
+    const timer = setTimeout(() => {
+      outgoing.destroy(new Error("This operation was aborted"));
+    }, req.timeoutMs);
+    outgoing.on("error", fail);
+    outgoing.on("response", (response: IncomingMessage) => {
+      const chunks: Buffer[] = [];
+      let total = 0;
+      response.on("data", (chunk: Buffer) => {
+        if (total >= MAX_RESPONSE_BYTES) return;
+        const piece = chunk.subarray(0, MAX_RESPONSE_BYTES - total);
+        chunks.push(piece);
+        total += piece.length;
+        if (total >= MAX_RESPONSE_BYTES) {
+          done({ statusCode: response.statusCode ?? null, body: Buffer.concat(chunks).toString("utf8") });
+          response.destroy();
+        }
+      });
+      response.on("end", () =>
+        done({ statusCode: response.statusCode ?? null, body: Buffer.concat(chunks).toString("utf8") }),
+      );
+      response.on("error", fail);
+    });
+    outgoing.end(req.body);
+  });
 }
