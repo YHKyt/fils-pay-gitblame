@@ -63,16 +63,63 @@ export async function requestNoContent(path: string, init?: RequestInit): Promis
   await request<unknown>(path, init);
 }
 
+/** Maps the API's machine-readable `error` codes to clear human sentences so
+ *  an operator never sees a raw token like `invalid_credentials` in a banner.
+ *  Presentation only: the code the server sent is unchanged — this just
+ *  chooses the wording shown on screen. */
+const ERROR_MESSAGES: Record<string, string> = {
+  invalid_credentials: "That email or password is not correct.",
+  invalid_code: "That one-time code is not correct. Check it and try again.",
+  otp_expired: "That one-time code has expired. Start over to request a new one.",
+  otp_required: "Enter the one-time code to finish signing in.",
+  too_many_attempts: "Too many attempts. Wait a little while, then try again.",
+  account_locked: "This account is temporarily locked after too many attempts. Try again later.",
+  unauthenticated: "Your session has ended. Please sign in again.",
+  session_expired: "Your session has expired. Please sign in again.",
+  forbidden: "Your admin role does not allow this action.",
+  not_found: "We could not find what you were looking for.",
+  conflict: "That action conflicts with the current state and was not applied.",
+  validation_error: "Some of the details entered are not valid. Please review and try again.",
+  invalid_request: "Some of the details entered are not valid. Please review and try again.",
+  rate_limited: "Too many requests just now. Please slow down and try again.",
+  internal_error: "Something went wrong on our side. Please try again.",
+  service_unavailable: "A required service is temporarily unavailable. Please try again shortly.",
+};
+
+/** A readable fallback for a status when the specific code is not mapped —
+ *  still never surfaces the raw code to the operator. */
+function messageForStatus(statusCode: number): string {
+  if (statusCode === 400 || statusCode === 422) {
+    return "Some of the details entered are not valid. Please review and try again.";
+  }
+  if (statusCode === 401) return "Your session has ended. Please sign in again.";
+  if (statusCode === 403) return "Your admin role does not allow this action.";
+  if (statusCode === 404) return "We could not find what you were looking for.";
+  if (statusCode === 409) return "That action conflicts with the current state and was not applied.";
+  if (statusCode === 429) return "Too many requests just now. Please slow down and try again.";
+  if (statusCode >= 500) return "Something went wrong on our side. Please try again.";
+  return "Something went wrong. Please try again.";
+}
+
+/** Treat a server `message` as human-readable only when it clearly is — not
+ *  when it is just the machine code echoed back (e.g. `invalid_credentials`,
+ *  `otp.expired`). Those should never reach an operator's banner. */
+function looksLikeCode(text: string): boolean {
+  return /^[a-z0-9]+([_.][a-z0-9]+)+$/.test(text.trim());
+}
+
 /** Human-readable text for anything thrown by `request` — used by every
  *  page's error banner so a failure (including a server-side `403` from a
- *  role gate) is always *shown*, never silently swallowed. */
+ *  role gate) is always *shown*, never silently swallowed, and always in
+ *  plain language rather than a raw error code. */
 export function describeError(err: unknown): string {
   if (err instanceof ApiError) {
-    if (err.statusCode === 403) {
-      return `Not permitted (${err.code}) — your admin role does not allow this action.`;
-    }
-    return err.body.message ?? err.code;
+    const mapped = ERROR_MESSAGES[err.code];
+    if (mapped) return mapped;
+    const message = err.body.message;
+    if (message && !looksLikeCode(message)) return message;
+    return messageForStatus(err.statusCode);
   }
-  if (err instanceof Error) return err.message;
-  return "Something went wrong.";
+  if (err instanceof Error && err.message && !looksLikeCode(err.message)) return err.message;
+  return "Something went wrong. Please try again.";
 }
