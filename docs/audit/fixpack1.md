@@ -91,6 +91,7 @@ regression test that fails on the old code and passes on the fix.
 - **Breaks:** That capture is stranded: never in any batch, never paid out.
 - **Fix:** Require the day to have ended at least 2 minutes ago (`BusinessDayCloseGrace` in Go, `BUSINESS_DAY_CLOSE_GRACE_MS` in the API; the daemon already waits 15 minutes by default). The test case that asserted "exactly midnight is allowed" now asserts refusal.
 - **Test:** Go table cases at midnight, grace minus 1 ns and grace; a TS unit test on the extracted date helper.
+- **Follow-up (`d1d5ca8`):** the route test in `routes/admin.test.ts` ("settlement run-batch refuses a business day that has not ended") still took yesterday as Bahrain today minus one day, so it failed whenever it ran between 21:00:00Z and 21:02:00Z. It now takes the date from `latestClosableBusinessDate`. With the clock shifted, the old test fails at 21:01:30Z and the new one passes at 20:59:59Z, 21:01:30Z, 21:01:59.7Z (crossing the boundary) and 21:02:30Z.
 
 ## FX9 Compose kills the settlement daemon mid-drain; hosted links default to localhost — LOW (ops)
 

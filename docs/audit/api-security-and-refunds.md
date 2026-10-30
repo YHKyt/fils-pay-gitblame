@@ -221,6 +221,7 @@ Smallest fix each, one commit each, with a regression test confirmed to fail bef
 | A6 | **Credit four-eyes compared display names**: the requester could approve their own credit after a rename | High | compare admin user ids |
 | A7 | `notifySettlementRefundAdjustment` sent `amountFils / 10` (ADR-0001) | Low (no live callers, defensive) | integer fils |
 | A8 | Admin invite codes from `Math.random` | Low (no live callers: nothing calls `createAdminInvite`; defensive) | `crypto.randomInt` |
+| A9 | **Single KYC review had no status check** (found after A5): `POST /v1/admin/merchants/:id/kyc-reviews` approved a merchant that never uploaded documents or was rejected, rejected an approved one (`kyc_passed` back to false), and two clicks decided a merchant twice | High (A5's bug on the single path) | `4cf0e31`: same rule as bulk. The row is locked and anything but `under_review` is `409 merchant_not_under_review`, with nothing written. `recordKycReview` is unchanged, so the seed still pre-approves. Test `routes/adminKycReviewStatus.test.ts` (3 tests, all fail on the old code) |
 
 ### Merchant plane
 
