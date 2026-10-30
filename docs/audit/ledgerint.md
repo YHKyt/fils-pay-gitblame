@@ -49,10 +49,10 @@ Five findings in the settlement worker and the ledger schema. Each has a regress
 ## Platform volume test flakes under parallel packages — Low
 
 **Where:** `apps/settlement/internal/settlement/platform_volume_test.go`.
-**Evidence:** with a concurrent `CloseBatch` writer, the old test failed 200/200 runs (read 51,010,000 instead of 51,000,000); the new one passed 200/200. Plain `go test -count=1 ./...` was green on 4 consecutive runs after all fixes.
+**Evidence:** with a concurrent `CloseBatch` writer, the old test failed 200/200 runs (read 51,010,000 instead of 51,000,000); the new one passed 200/200. This fixes one source of cross-package interference, not all of them: the Go suite is green only with `go test -p 1 ./...`. At `d68585e`, plain `go test -count=1 ./...` on a fresh database still failed in `internal/settlement` in 2 of 2 runs (`TestRunDailyBatch_SettlesTheFeeBookedAtCapture`, once also `TestCloseBatch_RefundShortfallCarriedForward`), while `-p 1` passed 2 of 2.
 
 - **What:** `go test ./...` runs packages in parallel against one database, and every `CloseBatch` adds to the single `platform_stats` row. The test reset that row in autocommit and then locked it in a new transaction, so a close from another package could land in between.
 - **Why:** the reset and the lock were not in one transaction.
-- **Breaks:** CI is red at random, which hides real failures.
+- **Breaks:** CI is red at random, which hides real failures (CI should run the Go suite with `-p 1`, see the evidence above).
 - **Fix:** the test reads the counter under `FOR UPDATE` inside its own transaction and asserts the growth from that baseline; the lock is held until rollback. Test-only change.
 - **Test:** the test itself, under a concurrent writer.
