@@ -80,3 +80,14 @@ regression test that fails on the old code and passes on the fix.
 - **Breaks:** 500s (and error-log noise) on public and merchant endpoints from a single byte; monitoring cannot tell them from real crashes.
 - **Fix:** One `preValidation` hook rejects a NUL anywhere in params, query or JSON body with `400 invalid_request`; the JSON-encoded report filter is checked after it is parsed. 22009 joins 22007/22008 in the narrow "invalid input reached the database" net (400). Signup applies the same businessType set and two-letter country rule as PATCH. Signup is in B's onboarding lane; the hunk is a two-check validation only.
 - **Test:** One test per surface type (body field on each route, query value, JSON-in-query, 22009 filter and cursor, signup values), plus a unit test on `containsNul`.
+
+## FX8 The manual close guard has no grace at Bahrain midnight — LOW
+
+**Where:** `apps/settlement/internal/settlement/business_day_guard.go` (`RequireBusinessDayOver`, from 37348d1), `apps/api/src/routes/admin.ts` (run-batch guard), new `apps/api/src/lib/businessDay.ts`.
+**Evidence:** `TestRequireBusinessDayOver` "exactly Bahrain midnight is refused" and "one ns before the close grace ends is refused" fail on the old guard; `lib/businessDay.test.ts` fails with a zero grace (the old route rule).
+
+- **What:** Both guards allowed closing day D from the exact instant of Asia/Bahrain midnight (21:00Z).
+- **Why:** `CloseBatch` scans day D's window once and a closed day is never re-scanned. A capture whose row is stamped 23:59:59.999 can still be committing a moment after midnight; a manual close that starts in that gap does not see it.
+- **Breaks:** That capture is stranded: never in any batch, never paid out.
+- **Fix:** Require the day to have ended at least 2 minutes ago (`BusinessDayCloseGrace` in Go, `BUSINESS_DAY_CLOSE_GRACE_MS` in the API; the daemon already waits 15 minutes by default). The test case that asserted "exactly midnight is allowed" now asserts refusal.
+- **Test:** Go table cases at midnight, grace minus 1 ns and grace; a TS unit test on the extracted date helper.

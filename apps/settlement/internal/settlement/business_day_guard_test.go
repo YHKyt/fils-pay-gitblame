@@ -26,7 +26,11 @@ func TestRequireBusinessDayOver(t *testing.T) {
 		{"tomorrow is refused", "2026-10-30", time.Date(2026, 10, 29, 13, 0, 0, 0, bh), false},
 		{"yesterday is allowed", "2026-10-28", time.Date(2026, 10, 29, 13, 0, 0, 0, bh), true},
 		{"one ns before Bahrain midnight is refused", "2026-10-28", time.Date(2026, 10, 29, 0, 0, 0, 0, bh).Add(-1), false},
-		{"exactly Bahrain midnight is allowed", "2026-10-28", time.Date(2026, 10, 29, 0, 0, 0, 0, bh), true},
+		// Previously "exactly Bahrain midnight is allowed": a capture stamped
+		// 23:59:59.999 may still be committing then, and the close would miss it.
+		{"exactly Bahrain midnight is refused (writes may still commit)", "2026-10-28", time.Date(2026, 10, 29, 0, 0, 0, 0, bh), false},
+		{"one ns before the close grace ends is refused", "2026-10-28", time.Date(2026, 10, 29, 0, 2, 0, 0, bh).Add(-1), false},
+		{"midnight plus the close grace is allowed", "2026-10-28", time.Date(2026, 10, 29, 0, 2, 0, 0, bh), true},
 		// 22:00 UTC on the 28th is 01:00 on the 29th in Bahrain: the 28th is
 		// over even though its UTC day is not.
 		{"Bahrain day over before UTC day", "2026-10-28", time.Date(2026, 10, 28, 22, 0, 0, 0, time.UTC), true},

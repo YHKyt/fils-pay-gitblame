@@ -22,6 +22,7 @@ import { adminCreditRoutes } from "./adminCredits.js";
 import { adminMerchantRoutes } from "./adminMerchants.js";
 import { adminMerchantsBulkRoutes } from "./adminMerchantsBulk.js";
 import { adminMerchantsRecomputeRoutes } from "./adminMerchantsRecompute.js";
+import { latestClosableBusinessDate } from "../lib/businessDay.js";
 
 /**
  * The settlement calls, injectable so route-level tests can prove this
@@ -123,10 +124,10 @@ export async function adminRoutes(app: FastifyInstance, options: AdminRoutesOpti
       }
       // A batch only takes its own day's captures and a closed day is never
       // re-scanned, so closing today (or a later day) strands every capture
-      // made after the click. Today is the Asia/Bahrain date (fixed UTC+3).
-      const bahrainNow = Date.now() + 3 * 60 * 60 * 1000;
-      if (date >= new Date(bahrainNow).toISOString().slice(0, 10)) {
-        const latest = new Date(bahrainNow - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      // made after the click. Today is the Asia/Bahrain date (fixed UTC+3);
+      // yesterday only becomes closable a short grace after midnight.
+      const latest = latestClosableBusinessDate(Date.now());
+      if (date > latest) {
         throw new UnprocessableEntityError(
           "business_day_not_over",
           `business day ${date} has not ended yet (Asia/Bahrain); the latest date that can be closed is ${latest}`,
