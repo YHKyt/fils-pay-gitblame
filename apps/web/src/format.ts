@@ -45,6 +45,30 @@ export function shortId(id: string): string {
   return `#${id.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
 }
 
+const EVENT_LABELS: Record<string, string> = {
+  authorized: "Authorized",
+  captured: "Captured",
+  partially_captured: "Partial capture",
+  voided: "Voided",
+  refund_partial: "Partial refund",
+  refunded: "Refunded in full",
+  chargeback: "Chargeback",
+};
+/** A transaction timeline event type as a readable label. */
+export function eventLabel(eventType: string): string {
+  return EVENT_LABELS[eventType] ?? statusLabel(eventType);
+}
+
+const ACTOR_LABELS: Record<string, string> = {
+  merchant_session: "Dashboard user",
+  merchant_api_key: "API key",
+  system: "System",
+};
+/** Who caused a timeline event, in words (the raw id stays secondary). */
+export function actorLabel(actorType: string): string {
+  return ACTOR_LABELS[actorType] ?? statusLabel(actorType);
+}
+
 /** Sets the browser tab title for a dashboard or checkout page. */
 export function pageTitle(name: string): string {
   return `${name} · FilsPay`;

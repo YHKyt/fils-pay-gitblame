@@ -30,7 +30,11 @@ export function PaymentLinkCreatePage() {
   const [amountBhd, setAmountBhd] = useState("");
   const [reference, setReference] = useState("");
   const [description, setDescription] = useState("");
-  const [expiresAt, setExpiresAt] = useState("");
+  // Default: one week from now, as Bahrain wall time for the
+  // datetime-local input (the form labels it Bahrain time).
+  const [expiresAt, setExpiresAt] = useState(() =>
+    new Date(Date.now() + 3 * 3_600_000 + 7 * 86_400_000).toISOString().slice(0, 16),
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,11 +69,11 @@ export function PaymentLinkCreatePage() {
     }
     const expiresAtIso = localDateTimeToIso(expiresAt);
     if (!expiresAtIso) {
-      setError("Expiry must be a valid date and time.");
+      setError("Choose an expiry date and time.");
       return;
     }
     if (new Date(expiresAtIso).getTime() <= Date.now()) {
-      setError("Expiry must be in the future.");
+      setError("Choose an expiry date and time in the future (Bahrain time).");
       return;
     }
 
@@ -123,13 +127,14 @@ export function PaymentLinkCreatePage() {
           <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} />
         </label>
         <label>
-          Expires at (Bahrain time)
+          Expires at (Bahrain time) *
           <input
             type="datetime-local"
             required
             value={expiresAt}
             onChange={(e) => setExpiresAt(e.target.value)}
           />
+          <span className="dash-muted">Required. Defaults to 7 days from now; the customer can't pay after this.</span>
         </label>
         <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
           {submitting ? "Creating..." : "Create payment link"}

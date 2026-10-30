@@ -10,7 +10,7 @@ import {
 import { ApiError, describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { ConfirmDialog } from "../../components/ConfirmDialog.js";
-import { bhdDisplay, dash, dateTime, statusLabel } from "../../format.js";
+import { actorLabel, bhdDisplay, dash, dateTime, eventLabel, shortId, statusLabel } from "../../format.js";
 import { usePageTitle } from "../../hooks/usePageTitle.js";
 import type { TransactionDto, TransactionEventDto } from "../../types.js";
 import { attemptFor, isDefinitiveFailure, type IdempotentAttempt } from "../../utils/idempotencyIntent.js";
@@ -327,14 +327,14 @@ export function TransactionDetailPage() {
           {events.map((event) => (
             <tr key={event.id}>
               <td>{dateTime(event.occurredAt)}</td>
-              <td>{statusLabel(event.eventType)}</td>
+              <td>{eventLabel(event.eventType)}</td>
               <td className="dash-num">{event.amountFils === null ? "—" : bhdDisplay(event.amountFils)}</td>
               <td>
-                {statusLabel(event.actorType)}
-                {event.actorId ? (
-                  <div className="dash-muted">
-                    <code>{event.actorId}</code>
-                  </div>
+                {actorLabel(event.actorType)}
+                {event.actorId && event.actorType !== "system" ? (
+                  <span className="dash-ref-sub" title={event.actorId}>
+                    {shortId(event.actorId)}
+                  </span>
                 ) : null}
               </td>
             </tr>
