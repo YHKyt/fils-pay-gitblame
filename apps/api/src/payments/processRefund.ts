@@ -1,16 +1,30 @@
 import { randomUUID } from "node:crypto";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { ZERO_FILS, addFils, calculateRefundFee, compareFils, subtractFils, toFils, type Fils } from "@filspay/money";
 import { enqueueEvent } from "@filspay/events";
 import { withTransaction } from "../db/withTransaction.js";
 import type { AcquirerSimulator } from "../acquirer/types.js";
-import { claimIdempotencyKey, completeIdempotencyKey, failIdempotencyKey, hashRequest } from "./idempotency.js";
+import {
+  claimIdempotencyKey,
+  completeIdempotencyKey,
+  failIdempotencyKey,
+  hashRequest,
+  type IdempotencyClaim,
+  type IdempotencyKeyRow,
+} from "./idempotency.js";
 import { recordTransactionEvent } from "../transactions/events.js";
 import { nextStatusAfterRefund } from "./refundState.js";
 import { validateRefundRequest, type RefundValidation } from "./refundValidation.js";
 import { ConflictError, UnprocessableEntityError } from "../lib/errors.js";
 
 const ENDPOINT = "refunds.create";
+
+/**
+ * An attempt still 'in_progress' this long after it was claimed is taken to
+ * be dead (takeOverStaleAttempt). Far longer than an acquirer call; and an
+ * attempt that was only slow cannot record anything once taken over.
+ */
+const STALE_ATTEMPT_SECONDS = 5 * 60;
 
 export interface ProcessRefundInput {
   transactionId: string;
@@ -36,12 +50,19 @@ interface RefundTransactionRow {
   acquirer_reference: string;
 }
 
-/** Stored on a failed key when the acquirer call threw: the outcome is unknown and the reservation is still held. */
+/**
+ * Stored on a failed key when the acquirer call threw: the outcome is unknown
+ * and the reservation is still held. Also stored, with `claimedAt`, on the
+ * in_progress key of every attempt about to call the acquirer
+ * (recordAttemptInFlight), so a key left behind by a dead process says what
+ * it sent.
+ */
 interface UnknownOutcomeMarker {
   error: "acquirer_unavailable";
   acquirerOutcome: "unknown";
   acquirerIdempotencyKey: string;
   reservedFils: number;
+  claimedAt?: string;
 }
 
 function unknownOutcomeMarker(body: unknown): UnknownOutcomeMarker | null {
@@ -83,7 +104,7 @@ export async function processRefund(
 
   // 1 validate
   const prepared = await withTransaction(pool, async (client) => {
-    const claim = await claimIdempotencyKey(client, {
+    let claim: IdempotencyClaim = await claimIdempotencyKey(client, {
       merchantId: input.merchantId,
       endpoint: ENDPOINT,
       key: input.idempotencyKey,
@@ -94,7 +115,13 @@ export async function processRefund(
       throw new UnprocessableEntityError("idempotency_key_reused");
     }
     if (claim.outcome === "conflict_in_progress") {
-      throw new ConflictError("request_in_progress");
+      // Another attempt holds the key: in flight (409, retry later), or
+      // stale because its process died after step 1 committed.
+      const takenOver = await takeOverStaleAttempt(client, claim.row);
+      if (!takenOver) {
+        throw new ConflictError("request_in_progress");
+      }
+      claim = { outcome: "retry_after_failure", row: takenOver };
     }
     if (claim.outcome === "replay") {
       return {
@@ -103,9 +130,9 @@ export async function processRefund(
       };
     }
 
-    // A retry after an acquirer call that threw (outcome unknown): the
-    // step-1 reservation is still held and the acquirer may already have
-    // refunded. Resend the SAME acquirer idempotency key for the reserved
+    // A retry after an acquirer call that threw (outcome unknown), or of a
+    // stale attempt taken over above: the step-1 reservation is still held
+    // and the acquirer may already have refunded. Resend the SAME acquirer idempotency key for the reserved
     // amount, so the acquirer answers with its first result instead of
     // refunding the cardholder a second time.
     const pending = unknownOutcomeMarker(claim.outcome === "retry_after_failure" ? claim.row.responseBody : null);
@@ -116,9 +143,11 @@ export async function processRefund(
       );
       const row = pendingTxn.rows[0];
       if (row) {
+        await recordAttemptInFlight(client, claim.row.id, pending.acquirerIdempotencyKey, pending.reservedFils);
         return {
           kind: "proceed" as const,
           claimId: claim.row.id,
+          attemptCount: claim.row.attemptCount,
           acquirerIdempotencyKey: pending.acquirerIdempotencyKey,
           transactionId: row.id,
           merchantId: row.merchant_id,
@@ -174,17 +203,21 @@ export async function processRefund(
     // Reserve the amount before the lock is released and the acquirer is
     // called: a concurrent refund now sees it as already refunded. Released
     // again in step 3 if the acquirer declines or errors. A crash in between
-    // leaves the key in_progress (never retried), so the reservation errs on
-    // the side of refunding less, never twice.
+    // leaves the key in_progress with the reservation held; once the attempt
+    // is stale, a same-key retry takes it over and resends the same acquirer
+    // key, so the refund is neither lost nor sent twice.
     await client.query(`UPDATE transactions SET refunded_fils = refunded_fils + $2 WHERE id = $1`, [
       txn.id,
       validation.amountFils,
     ]);
 
+    const acquirerIdempotencyKey = `${claim.row.id}:${claim.row.attemptCount}`;
+    await recordAttemptInFlight(client, claim.row.id, acquirerIdempotencyKey, validation.amountFils);
     return {
       kind: "proceed" as const,
       claimId: claim.row.id,
-      acquirerIdempotencyKey: `${claim.row.id}:${claim.row.attemptCount}`,
+      attemptCount: claim.row.attemptCount,
+      acquirerIdempotencyKey,
       transactionId: txn.id,
       merchantId: txn.merchant_id,
       acquirerReference: txn.acquirer_reference,
@@ -221,13 +254,21 @@ export async function processRefund(
       reservedFils: prepared.requestedAmount,
     };
     await withTransaction(pool, async (client) => {
-      await failIdempotencyKey(client, prepared.claimId, { statusCode: 502, body: marker });
+      if (await ownsAttempt(client, prepared.claimId, prepared.attemptCount)) {
+        await failIdempotencyKey(client, prepared.claimId, { statusCode: 502, body: marker });
+      }
     });
     return { statusCode: 502, body: { error: "acquirer_unavailable" } };
   }
 
   // 3 journal
   return withTransaction(pool, async (client) => {
+    if (!(await ownsAttempt(client, prepared.claimId, prepared.attemptCount))) {
+      // This attempt went stale and a same-key retry took it over. That retry
+      // resent the same acquirer key and records the outcome (and releases
+      // the reservation) itself; doing it here too would do it twice.
+      throw new ConflictError("request_in_progress");
+    }
     if (acquirerResult.outcome !== "approved") {
       // Release the step-1 reservation.
       await client.query(`UPDATE transactions SET refunded_fils = refunded_fils - $2 WHERE id = $1`, [
@@ -410,4 +451,64 @@ export async function processRefund(
     });
     return { statusCode: 200, body };
   });
+}
+
+/**
+ * Writes this attempt's acquirer key and reserved amount onto its claim row,
+ * in the step-1 transaction that holds the reservation, so they commit
+ * together. A process that dies before recording the outcome then leaves an
+ * in_progress key that says exactly what to resend.
+ */
+async function recordAttemptInFlight(
+  client: PoolClient,
+  claimId: string,
+  acquirerIdempotencyKey: string,
+  reservedFils: number,
+): Promise<void> {
+  await client.query(
+    `UPDATE idempotency_keys
+        SET response_body = jsonb_build_object(
+              'error', 'acquirer_unavailable', 'acquirerOutcome', 'unknown',
+              'acquirerIdempotencyKey', $2::text, 'reservedFils', $3::bigint, 'claimedAt', now())
+      WHERE id = $1`,
+    [claimId, acquirerIdempotencyKey, reservedFils],
+  );
+}
+
+/**
+ * Recovers a key left 'in_progress' by an attempt whose process died between
+ * step 1 and recording the outcome. Such a key answered 409
+ * request_in_progress forever (no sweeper exists). Once the attempt is older
+ * than STALE_ATTEMPT_SECONDS, this request takes it over and continues as a
+ * retry after an unknown outcome: the SAME acquirer key for the SAME reserved
+ * amount, so the acquirer replays the dead attempt's refund (or makes it, if
+ * it never arrived) instead of refunding twice, and nothing is reserved
+ * again. Bumping attempt_count fences the old attempt off (ownsAttempt), in
+ * case it was only slow, and lets only one of two concurrent retries win.
+ * Only keys carrying the in-flight marker qualify; an older in_progress key
+ * stays 409 for a person to resolve.
+ */
+async function takeOverStaleAttempt(client: PoolClient, row: IdempotencyKeyRow): Promise<IdempotencyKeyRow | null> {
+  const result = await client.query<{ attempt_count: number; response_body: unknown }>(
+    `UPDATE idempotency_keys SET attempt_count = attempt_count + 1
+      WHERE id = $1 AND status = 'in_progress' AND attempt_count = $2
+        AND response_body->>'acquirerOutcome' = 'unknown'
+        AND (response_body->>'claimedAt')::timestamptz < now() - make_interval(secs => $3)
+      RETURNING attempt_count, response_body`,
+    [row.id, row.attemptCount, STALE_ATTEMPT_SECONDS],
+  );
+  const updated = result.rows[0];
+  return updated ? { ...row, attemptCount: updated.attempt_count, responseBody: updated.response_body } : null;
+}
+
+/**
+ * Locks this attempt's claim row. False once a later request took the
+ * attempt over (takeOverStaleAttempt).
+ */
+async function ownsAttempt(client: PoolClient, claimId: string, attemptCount: number): Promise<boolean> {
+  const result = await client.query(
+    `SELECT 1 FROM idempotency_keys WHERE id = $1 AND status = 'in_progress' AND attempt_count = $2 FOR UPDATE`,
+    [claimId, attemptCount],
+  );
+  return result.rows.length > 0;
 }
