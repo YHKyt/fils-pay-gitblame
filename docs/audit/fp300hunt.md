@@ -100,7 +100,8 @@ retry with the same key hit 409 `request_in_progress` forever.
   describes for "an unexpected infrastructure fault caught before rethrowing".
 - **Test:** `apps/api/src/payments/processRefundConcurrency.test.ts` — "an
   acquirer that throws releases the reservation and leaves the key retriable".
-- **Open risk (the retry is not safe):** a thrown call is not the same as an
+- **Update: fixed by fixpack1 FX3 (`5b29ee5`).** A throw now keeps the reservation and stores the acquirer key, and the retry resends that key (`processRefund.ts`, `UnknownOutcomeMarker`). The original risk, kept for the record:
+- **Former open risk (the retry was not safe):** a thrown call is not the same as an
   `error` outcome. A timeout says nothing about whether the acquirer refunded,
   yet the fix releases the reservation and re-opens the key as if it did not.
   The retry then calls the acquirer with a new idempotency key

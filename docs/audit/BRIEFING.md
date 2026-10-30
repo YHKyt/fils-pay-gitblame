@@ -4,10 +4,10 @@ For YHKyt and aalbalushi, to read before Saturday's case review, and for the jud
 State described: integration branch `fix/money-parsing` at `ccfd615` (upstream handover ends at `8b58b0f`).
 Everything below can be checked in `docs/audit/*.md` and in `git log --no-merges 8b58b0f..fix/money-parsing` (186 commits at `ccfd615`: 118 by YHKyt, 68 by aalbalushi).
 
-**Two honest caveats to know before anything else**
+**Caveats to know before anything else** (updated after the final merges)
 
-- **The balance-cache fix (`agent/settlebal`) is not merged, but the nightly 02:00 refresh is.** Until `f392013` lands, captures do not move `merchant_balances` and `CloseBatch` adds the batch net, so a refresh between a capture and its close counts that capture twice (`settlerun.md`). Say "the refresh needs settlebal; merge both or neither". Refund netting in the payout (`3aadad7`) *is* merged (`5cdcce7`). See Q4.
-- **Retrying a refund after the acquirer call throws is not safe yet** (`fp300hunt.md` F4): the retry uses a new acquirer idempotency key, so a refund that actually went through can be paid twice. Known and written up, not fixed on `fix/money-parsing`.
+- **The balance-cache fix (`agent/settlebal`) is now merged** (`4847022`), so the nightly 02:00 refresh no longer double counts: captures and refunds move `merchant_balances` with their `merchant_payable` legs, and `CloseBatch` leaves the cache alone. The seed starts the cache at the ledger balance (`e2f9457`). Refund netting in the payout (`3aadad7`) is merged too (`5cdcce7`). See Q4.
+- **Retrying after an acquirer call throws is now safe.** Refunds (`fp300hunt.md` F4, fixed by fixpack1 FX3 `5b29ee5`) keep the reservation and resend the same acquirer key. Authorize and capture (`b/h4-idempotency`, merged `176286a`) derive the acquirer key from the client's request, so a retry after a rolled-back claim is deduplicated by the acquirer.
 - **`docs/API.md` is not in the repository**, although code comments cite it. We inferred the HTTP contract from the code, the tests, `docs/ARCHITECTURE.md` and the web/admin callers.
 
 ---
@@ -77,20 +77,24 @@ Admin-plane A4 is counted as Low: the `revoke_after` check is real, but nothing 
 - Checkout keeps one idempotency key per payment attempt (`650c162`).
 
 **Reported, not fixed** (listed at the end of each write-up). Examples:
-- No password rate limit on admin login.
+- ~~No password rate limit on admin login.~~ Fixed: merchant and admin accounts lock after 10 wrong passwords for 15 minutes (`b/h2-auth-edges`, merged `c179b43`; tune with `LOGIN_MAX_FAILED_ATTEMPTS` / `LOGIN_LOCKOUT_MINUTES`). No per-IP throttle.
 - `last_settlement_batch_id` is rewound by MDR recalculation (settlemdr R5).
-- A refund retried after the acquirer call throws can be paid twice (fp300hunt F4, open risk).
-- The 30 s settlement drain needs `stop_grace_period` in compose (settleguards G3).
+- ~~A refund retried after the acquirer call throws can be paid twice (fp300hunt F4).~~ Fixed by FX3 `5b29ee5`.
+- ~~The 30 s settlement drain needs `stop_grace_period` in compose (settleguards G3).~~ Fixed by fixpack1 FX9.
 
 (One merchant's error stopping the whole daily run is fixed: `settlerun.md`, `8d79197`.)
 
-**Written and tested on branches, not merged into `fix/money-parsing` yet:**
+**Branches merged in the final pass** (`claude/affectionate-bell-nt8t0o`, on top of `57d78d3`):
 
-| Branch | Commits | What |
+| Branch | Merge | What |
 |---|---|---|
-| `agent/settlebal` | `f392013`, `b4dafd7` | cache moves with `merchant_payable` (no double count after a rebuild); `rebuild-balances --merchant` writes the cache. **Needed by the merged nightly refresh** (`settlerun.md`) |
-| `agent/webdisplay` | `f47a55b`, `8331920`, `f997ec5` | Bahrain dates in admin defaults and web filters |
-| `b/h2-auth-edges`, `b/h4-idempotency`, `b/h5-kyc-onboarding` | 5 commits | suspended merchants' sessions and keys refused; acquirer key reused on retry; KYC upload hardening |
+| `agent/settlebal` | `4847022` | cache moves with `merchant_payable` (no double count after a rebuild or the nightly refresh); `rebuild-balances --merchant` writes the cache; rebuild locks before it reads |
+| `b/h4-idempotency` | `176286a` | authorize/capture reuse the acquirer key on a retry after a timeout |
+| `b/h2-auth-edges` | `c179b43` | login lockout (0084); suspended or closed merchants' sessions and keys refused; double OTP submit keeps the session |
+| `b/h3-dispatcher-load` | `c6acb86` | webhook deliveries claimed one at a time, so a slow batch cannot outlive its lease |
+| `b/h5-kyc-onboarding` | `f7aca97` | one file per KYC upload; file name escaped in `Content-Disposition` |
+
+Not merged: `b/h6-api-contract` (test-send to a deleted endpoint) is already fixed on the integration branch (WF3, `deleted_at IS NULL` in `webhooks/testSend.ts`). `agent/webdisplay` is no longer on the remote; `6de0991` covers Bahrain time in web and admin dates and the web date filters.
 
 Merged since the first version of this briefing: `agent/settlebatch` (`5cdcce7`: refunds netted, per-transaction test mode, eligibility first), `agent/ledgerint` (`362e251`), `agent/reporting` (`3667bd7`), `agent/settlerun` (`10c86d6`), and the later lanes indexed in the README. Some branches also have a `wip:` commit on top. Only merge what has passed review.
 
