@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { ZERO_FILS, addFils, applyRateFils, subtractFils, toFils, type Fils } from "@filspay/money";
-import { enqueueEvent } from "@filspay/events";
 import type { Pool, PoolClient } from "pg";
 import { MERCHANT_FIXTURES } from "./fixtures/merchants.js";
 import { generateMarchReconciliationFixtures } from "./fixtures/marchReconciliation.js";
@@ -750,6 +749,17 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
             );
             transactionEventCount += 1;
           }
+          if (txn.status === "voided") {
+            // void.ts records the void on the timeline; ten minutes after
+            // the authorization, never after the seed's own "now".
+            const voidedAt = new Date(Math.min(txn.occurredAt.getTime() + 10 * 60_000, SEED_BASE_DATE.getTime()));
+            await client.query(
+              `INSERT INTO transaction_events (transaction_id, event_type, actor_type, occurred_at)
+               VALUES ($1, 'voided', 'system', $2)`,
+              [txn.id, voidedAt],
+            );
+            transactionEventCount += 1;
+          }
         }
         for (const event of instalmentEvents) {
           const settled = event.amountFils !== null && bahrainBusinessDate(event.occurredAt) < openBatchDate;
@@ -784,20 +794,6 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
           merchantId,
           lifetimeEstimate,
         ]);
-
-        // The voided example keeps its hand-built event. Captures and closed
-        // batches get their outbox events from the seeded rows below, once
-        // everything is inserted, so reporting sees the whole history.
-        const firstVoided = transactions.find((t) => t.status === "voided");
-        if (firstVoided) {
-          await enqueueEvent(client, {
-            eventType: "transaction.voided",
-            aggregateType: "transaction",
-            aggregateId: firstVoided.id,
-            payload: { merchantId },
-          });
-          outboxEventCount += 1;
-        }
       }
 
       // March 2026 capture activity for Alpha Retail Co. Kept in its own
@@ -1015,6 +1011,22 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
           ORDER BY COALESCE(sb.closed_at, sb.created_at), sb.id`,
       );
       outboxEventCount += batchClosedOutbox.rowCount ?? 0;
+
+      // One transaction.voided per seeded void, with void.ts's payload, dated
+      // when the void happened (enqueueEvent would stamp the wall clock at
+      // seed time, so reporting counted every seeded void on the day the
+      // seed ran).
+      const voidedOutbox = await client.query(
+        `INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload, created_at)
+         SELECT 'transaction.voided', 'transaction', te.transaction_id,
+                jsonb_build_object('merchantId', t.merchant_id),
+                te.occurred_at
+           FROM transaction_events te
+           JOIN transactions t ON t.id = te.transaction_id
+          WHERE te.event_type = 'voided'
+          ORDER BY te.occurred_at, te.id`,
+      );
+      outboxEventCount += voidedOutbox.rowCount ?? 0;
 
       await client.query("COMMIT");
     } catch (err) {

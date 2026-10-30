@@ -138,3 +138,31 @@ test("every seeded closed batch is one business day, settled from its own linked
   );
   assert.equal(unsettled.rows[0]!.n, "0", "captures before 1 September left out of every batch");
 });
+
+test("every seeded void is on the timeline and reaches reporting on the day it happened", { skip, timeout: 300_000 }, async () => {
+  // void.ts writes a 'voided' timeline event and a transaction.voided outbox
+  // event in the same transaction. The March reconciliation fixture is a raw
+  // ledger import and is left out.
+  const voids = await pool.query<{ reference: string; timeline: string; outbox: string }>(
+    `SELECT t.reference,
+            (SELECT COUNT(*) FROM transaction_events te WHERE te.transaction_id = t.id AND te.event_type = 'voided')::text AS timeline,
+            (SELECT COUNT(*) FROM outbox_events o
+              WHERE o.aggregate_id = t.id AND o.event_type = 'transaction.voided'
+                AND o.created_at = (SELECT te.occurred_at FROM transaction_events te
+                                     WHERE te.transaction_id = t.id AND te.event_type = 'voided'))::text AS outbox
+       FROM transactions t
+      WHERE t.status = 'voided' AND t.reference NOT LIKE '%-mar-%'
+      ORDER BY t.reference`,
+  );
+  assert.ok(voids.rows.length >= 10, `expected the seeded voids, got ${voids.rows.length}`);
+  const bad = voids.rows.filter((v) => v.timeline !== "1" || v.outbox !== "1");
+  assert.deepEqual(
+    bad.slice(0, 3).map((v) => `${v.reference}: ${v.timeline} voided event(s), ${v.outbox} dated outbox event(s)`),
+    [],
+    `${bad.length} of ${voids.rows.length} voided transaction(s) missing from the timeline or reporting`,
+  );
+  const stray = await pool.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n FROM outbox_events WHERE created_at > TIMESTAMPTZ '2026-09-01T12:00:00Z'`,
+  );
+  assert.equal(stray.rows[0]!.n, "0", "seeded outbox events dated after the seed's own now");
+});
