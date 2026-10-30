@@ -97,6 +97,9 @@ async function createMissingDeliveries(pool: Pool): Promise<number> {
           AND we.status = 'active'
           AND oe.created_at >= we.created_at
         WHERE oe.event_type = ANY($1::text[])
+          -- settlement.paid is enqueued for every paid batch (reporting needs
+          -- it); a batch with nothing to pay out is not a payout to announce.
+          AND (oe.event_type <> 'settlement.paid' OR (oe.payload->>'netPayoutFils')::bigint > 0)
           AND NOT EXISTS (
             SELECT 1 FROM webhook_deliveries wd
              WHERE wd.outbox_event_id = oe.id AND wd.endpoint_id = we.id
@@ -269,7 +272,11 @@ async function claimNextDueDelivery(pool: Pool, config: DispatcherConfig): Promi
              -- a disabled endpoint's pending rows wait (unclaimed) until it is re-enabled
              AND EXISTS (SELECT 1 FROM webhook_endpoints we
                           WHERE we.id = webhook_deliveries.endpoint_id AND we.status = 'active')
-           ORDER BY next_attempt_at ASC
+           -- Step A gives every delivery of a pass the same next_attempt_at;
+           -- the tie-breaker sends them in event order (outbox ids are
+           -- assigned in commit-order per producer transaction), so a
+           -- receiver keeping the latest status ends on the right one.
+           ORDER BY next_attempt_at ASC, outbox_event_id ASC, id ASC
            LIMIT 1
            FOR UPDATE SKIP LOCKED)
        RETURNING wd.id, wd.endpoint_id, wd.event_type, wd.delivery_event_id, wd.payload, wd.attempt_count
