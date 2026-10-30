@@ -26,6 +26,46 @@ export interface AdjustmentImportResult {
   totalPostedFils: Fils;
   status: AdjustmentImportStatus;
   requiresApproval: boolean;
+  /** True when this upload matched a live import already posted or pending,
+   *  so nothing new was written and the existing import is returned. Lets the
+   *  route answer 200 (idempotent replay) rather than 409. */
+  replayed: boolean;
+}
+
+/** The digest of an import's rows, computed the same way migration 0095's
+ *  `adjustment_import_content_sha256` does, but over the incoming rows rather
+ *  than a stored import, so a re-upload can be recognised before anything is
+ *  written. Used to return an existing live import instead of a 409. */
+async function findLiveImportByContent(
+  pool: Pool,
+  parsedRows: Array<{ merchantId: string; amountFils: Fils; reason?: string }>,
+): Promise<{ id: string; row_count: number; status: AdjustmentImportStatus; requires_approval: boolean } | null> {
+  const result = await pool.query<{
+    id: string;
+    row_count: number;
+    status: AdjustmentImportStatus;
+    requires_approval: boolean;
+  }>(
+    `WITH incoming AS (
+       SELECT encode(sha256(convert_to(
+                merchant_id::text || '|' || parsed_amount_fils::text || '|' || coalesce(reason, ''),
+                'UTF8')), 'hex') AS row_digest
+         FROM unnest($1::uuid[], $2::bigint[], $3::text[]) AS r(merchant_id, parsed_amount_fils, reason)
+     ), digest AS (
+       SELECT encode(sha256(convert_to(string_agg(row_digest, ',' ORDER BY row_digest COLLATE "C"), 'UTF8')), 'hex') AS sha
+         FROM incoming
+     )
+     SELECT ai.id, ai.row_count, ai.status, ai.requires_approval
+       FROM adjustment_imports ai, digest
+      WHERE ai.content_sha256 = digest.sha AND ai.status <> 'rejected'
+      LIMIT 1`,
+    [
+      parsedRows.map((r) => r.merchantId),
+      parsedRows.map((r) => r.amountFils),
+      parsedRows.map((r) => r.reason ?? null),
+    ],
+  );
+  return result.rows[0] ?? null;
 }
 
 async function postAdjustmentToLedgerAndCache(
@@ -81,10 +121,12 @@ async function postImportRows(client: PoolClient, importId: string): Promise<Fil
  * parsed and recorded in adjustment_import_rows with its original text
  * preserved alongside the integer, then
  *
- * - the batch is refused (409) if an identical one is already posted or
- *   pending. Identity is adjustment_import_content_sha256 (migration 0095):
- *   merchant, fils and reason of every row, order-insensitive, filename
- *   ignored. The partial unique index makes the check race-free.
+ * - an identical batch that is already posted or pending is returned as-is
+ *   (idempotent replay, `replayed: true`), so a re-upload of the same file
+ *   never posts twice and never gets stuck on a permanent 409. Identity is
+ *   adjustment_import_content_sha256 (migration 0095): merchant, fils and
+ *   reason of every row, order-insensitive, filename ignored. The partial
+ *   unique index still backs the check for a genuine concurrent race.
  * - the batch is held as 'pending_approval' when its gross amount (sum of
  *   |row|) is above the credit approval threshold. A batch is one person's
  *   single action, so it is measured as a whole: judging rows one by one
@@ -111,6 +153,20 @@ export async function applyAdjustmentImport(
     gross = addFils(gross, toFils(Math.abs(row.amountFils)));
   }
   const requiresApproval = creditRequiresSecondApprover({ baseAmountFils: gross, feeReversalFils: ZERO_FILS });
+
+  // Idempotent replay: if a live import with exactly these rows already
+  // exists, return it rather than posting again or answering a permanent 409.
+  const existing = await findLiveImportByContent(pool, parsedRows);
+  if (existing) {
+    return {
+      importId: existing.id,
+      rowCount: existing.row_count,
+      totalPostedFils: total,
+      status: existing.status,
+      requiresApproval: existing.requires_approval,
+      replayed: true,
+    };
+  }
 
   return withTransaction(pool, async (client) => {
     const importRow = await client.query<{ id: string }>(
@@ -171,6 +227,7 @@ export async function applyAdjustmentImport(
       totalPostedFils: total,
       status: requiresApproval ? "pending_approval" : "posted",
       requiresApproval,
+      replayed: false,
     };
   });
 }
@@ -242,6 +299,7 @@ export async function approveAdjustmentImport(
       totalPostedFils: total,
       status: "posted",
       requiresApproval: row.requires_approval,
+      replayed: false,
     };
   });
 }
@@ -281,6 +339,7 @@ export async function rejectAdjustmentImport(
       totalPostedFils: total,
       status: "rejected",
       requiresApproval: row.requires_approval,
+      replayed: false,
     };
   });
 }

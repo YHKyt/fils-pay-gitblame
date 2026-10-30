@@ -36,8 +36,9 @@ export async function adminAdjustmentImportRoutes(app: FastifyInstance): Promise
    * credit approval threshold (gross) posts on upload; above it, the batch
    * is stored as pending_approval and posts only when a different admin
    * approves it (POST /:id/approve). An identical batch that is already
-   * posted or pending is a 409 duplicate_adjustment_import, so a re-upload
-   * of the same file never posts twice. See applyAdjustmentImport.
+   * posted or pending is returned as-is with 200 (idempotent replay), so a
+   * re-upload of the same file never posts twice and never gets stuck on a
+   * permanent 409. See applyAdjustmentImport.
    *
    * finance/super_admin only — every row posts real money.
    */
@@ -70,7 +71,7 @@ export async function adminAdjustmentImportRoutes(app: FastifyInstance): Promise
         rows,
       });
 
-      reply.code(201).send(result);
+      reply.code(result.replayed ? 200 : 201).send(result);
     },
   );
 
