@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { ZERO_FILS, addFils, applyRateFils, subtractFils, toFils, type Fils } from "@filspay/money";
-import { enqueueEvent } from "@filspay/events";
 import type { Pool, PoolClient } from "pg";
 import { MERCHANT_FIXTURES } from "./fixtures/merchants.js";
 import { generateMarchReconciliationFixtures } from "./fixtures/marchReconciliation.js";
@@ -10,6 +9,7 @@ import {
   generateInstalmentCaptures,
   generateTransactionsForMerchant,
   type GeneratedCaptureEvent,
+  type GeneratedTimelineEvent,
   type GeneratedTransaction,
 } from "./fixtures/transactions.js";
 import { SEED, createRng } from "./rng.js";
@@ -71,11 +71,10 @@ const TRANSACTIONS_PER_MERCHANT = 34;
  * other merchants stay at the small "one closed batch, one open batch"
  * shape.
  *
- * The 60 days run backwards from the day before the single closed batch the
- * shared per-merchant block below already produces (i.e. days -61..-2
- * relative to SEED_BASE_DATE), so this history slots in immediately behind
- * that batch without competing with it for the one settlement_batches row
- * allowed per (merchant, date).
+ * The 60 days are days -61..-2 relative to SEED_BASE_DATE. The merchant's
+ * standard captures that fall on one of those days are settled in that
+ * day's batch (one settlement_batches row per merchant and date); the
+ * shared per-merchant block below batches the remaining days.
  */
 const HIGH_VOLUME_MERCHANT_KEY = "delta-wholesale";
 const HIGH_VOLUME_DAYS = 60;
@@ -87,6 +86,51 @@ const HIGH_VOLUME_MAX_AMOUNT_FILS = 1_500_000; // 1,500.000 BD
  *  generate() on a different wall-clock day still produces byte-identical
  *  timestamps. Deliberately not `new Date()`. */
 const SEED_BASE_DATE = new Date("2026-09-01T12:00:00Z");
+
+/**
+ * Every fixture fee_schedules row (see the comments where they are inserted
+ * below). Kept in one list so the rows written to the table and the rates the
+ * seed charges its own captures and batches can never disagree: a real
+ * capture (capture.ts, getEffectiveMdrBps) and CloseBatch (EffectiveMdrBpsAt)
+ * both charge the newest row whose effective_from has arrived, falling back
+ * to merchants.mdr_bps.
+ */
+const FEE_SCHEDULE_FIXTURES: ReadonlyArray<{
+  merchantKey: string;
+  mdrBps: number;
+  effectiveFrom: Date;
+  /** Omitted: the row gets the column default, now(). */
+  createdAt?: Date;
+}> = [
+  { merchantKey: "beta-digital", mdrBps: 180, effectiveFrom: new Date("2026-01-01T00:00:00Z") },
+  // 2026-09-06T12:00:00Z, five days after SEED_BASE_DATE.
+  { merchantKey: "beta-digital", mdrBps: 165, effectiveFrom: new Date(SEED_BASE_DATE.getTime() + 5 * 86_400_000) },
+  {
+    merchantKey: "alpha-retail",
+    mdrBps: 225,
+    effectiveFrom: new Date("2026-08-01T00:00:00Z"),
+    createdAt: new Date("2026-08-01T00:00:00Z"),
+  },
+  {
+    merchantKey: "alpha-retail",
+    mdrBps: 245,
+    effectiveFrom: new Date("2026-03-01T00:00:00Z"),
+    createdAt: new Date("2026-08-15T00:00:00Z"),
+  },
+];
+
+/** The rate in force for a fixture merchant at `at`: the fixture schedule row
+ *  with the latest effective_from not after `at`, else the merchant's own
+ *  mdr_bps. No two fixture rows share an effective_from, so the created_at
+ *  tie-break the services apply never comes into play here. */
+function fixtureMdrBpsAt(merchantKey: string, fallbackMdrBps: number, at: Date): number {
+  let best: { mdrBps: number; effectiveFrom: Date } | undefined;
+  for (const row of FEE_SCHEDULE_FIXTURES) {
+    if (row.merchantKey !== merchantKey || row.effectiveFrom.getTime() > at.getTime()) continue;
+    if (!best || row.effectiveFrom.getTime() > best.effectiveFrom.getTime()) best = row;
+  }
+  return best ? best.mdrBps : fallbackMdrBps;
+}
 
 // Explicitly truncated tables. Every other table (merchant_business_profiles, kyc_documents, merchant_kyc_reviews,
 // sessions, otp_challenges, api_keys, payment_links, webhook_endpoints,
@@ -156,6 +200,13 @@ export interface SeedSummary {
   apiKeyCount: number;
   adminUserCount: number;
   ledgerChecksum: string;
+}
+
+/** One transaction's captures on one business day: a scheme file line. */
+interface SettledCapture {
+  transactionId: string;
+  amountFils: Fils;
+  feeFils: Fils;
 }
 
 interface InsertedMerchant {
@@ -242,6 +293,7 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
           ],
         );
         merchantIdsByKey.set(fixture.key, merchantId);
+        const rateAt = (at: Date): number => fixtureMdrBpsAt(fixture.key, fixture.mdrBps, at);
 
         const bp = fixture.businessProfile;
         await client.query(
@@ -309,6 +361,7 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
             merchantId,
             merchantKey: fixture.key,
             mdrBps: fixture.mdrBps,
+            mdrBpsAt: rateAt,
             count: fixture.splitParentKey === undefined ? TRANSACTIONS_PER_MERCHANT : 0,
             rng,
             baseDate: SEED_BASE_DATE,
@@ -393,12 +446,15 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
         // each drawn down over two or three separate capture calls, with
         // the full event timeline and one balanced ledger group per call.
         // Only this merchant gets them — one worked example of the shape is
-        // enough, and it keeps the fixture's own trading day unshared.
+        // enough. Their events are written with the standard timeline below,
+        // once the batch that settles their day exists.
+        let instalmentEvents: GeneratedTimelineEvent[] = [];
         if (fixture.key === "alpha-retail") {
           const multiCapture = generateInstalmentCaptures({
             merchantId,
             merchantKey: fixture.key,
             mdrBps: fixture.mdrBps,
+            mdrBpsAt: rateAt,
           });
 
           for (const txn of multiCapture.transactions) {
@@ -441,28 +497,62 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
             ledgerGroupCount += 1;
           }
 
-          for (const event of multiCapture.events) {
-            await client.query(
-              `INSERT INTO transaction_events (transaction_id, event_type, amount_fils, actor_type, metadata, occurred_at)
-               VALUES ($1, $2, $3, 'system', $4, $5)`,
-              [
-                event.transactionId,
-                event.eventType,
-                event.amountFils,
-                JSON.stringify(event.feeFils === null ? {} : { feeFils: event.feeFils }),
-                event.occurredAt,
-              ],
-            );
-            transactionEventCount += 1;
+          instalmentEvents = multiCapture.events;
+        }
+
+        // A standard merchant's captures, by the Asia/Bahrain settlement
+        // business day each falls on (the window CloseBatch uses). The daily
+        // run has closed every day before SEED_BASE_DATE's own: one closed
+        // batch per day. Captures on SEED_BASE_DATE's day are still waiting
+        // for that day's (open) batch.
+        const openBatchDate = toDateOnlyString(SEED_BASE_DATE);
+        const closedDayCaptures = new Map<string, SettledCapture[]>();
+        const addClosedDayCapture = (at: Date, capture: SettledCapture): void => {
+          const day = bahrainBusinessDate(at);
+          if (day >= openBatchDate) return;
+          const dayCaptures = closedDayCaptures.get(day) ?? [];
+          // CloseBatch writes one line per transaction: a transaction's
+          // captures on one day add up into a single line.
+          const line = dayCaptures.find((c) => c.transactionId === capture.transactionId);
+          if (line) {
+            line.amountFils = addFils(line.amountFils, capture.amountFils);
+            line.feeFils = addFils(line.feeFils, capture.feeFils);
+          } else {
+            dayCaptures.push({ ...capture });
+          }
+          closedDayCaptures.set(day, dayCaptures);
+        };
+        // A test-mode merchant is never settled: CloseBatch refuses it
+        // (ErrMerchantNotEligible) and skips test-mode transactions, so its
+        // captures stay on the timeline with no batch.
+        if (fixture.marketplaceBusinessDays === undefined && !fixture.testMode) {
+          for (const txn of transactions) {
+            if (txn.capturedFils <= 0) continue;
+            addClosedDayCapture(txn.occurredAt, {
+              transactionId: txn.id,
+              amountFils: txn.capturedFils,
+              feeFils: applyRateFils(txn.capturedFils, rateAt(txn.occurredAt)),
+            });
+          }
+          for (const event of instalmentEvents) {
+            if (event.amountFils === null) continue;
+            addClosedDayCapture(event.occurredAt, {
+              transactionId: event.transactionId,
+              amountFils: event.amountFils,
+              feeFils: event.feeFils ?? ZERO_FILS,
+            });
           }
         }
+        const batchIdByTransaction = new Map<string, string>();
+        const closedBatchNets: Array<{ batchDate: string; netFils: Fils }> = [];
 
         // The high-volume merchant's long settlement history: one real
         // closed batch per trading day, each with its own transactions,
         // transaction_events (already marked as belonging to that batch,
         // exactly as CloseBatch would leave them), ledger entries and
-        // scheme export lines. Every other merchant skips this entirely.
-        const highVolumeDayNets: Fils[] = [];
+        // scheme export lines. A day's batch also settles the merchant's
+        // standard captures from that day, as CloseBatch would. Every other
+        // merchant skips this entirely.
         if (fixture.key === HIGH_VOLUME_MERCHANT_KEY) {
           for (let dayIndex = 0; dayIndex < HIGH_VOLUME_DAYS; dayIndex++) {
             const dayOffset = -(HIGH_VOLUME_DAYS + 1 - dayIndex); // -61 .. -2
@@ -482,16 +572,24 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
               rng,
             });
 
+            const standardToday = closedDayCaptures.get(dayDateStr) ?? [];
+            closedDayCaptures.delete(dayDateStr);
+
             let dayGross: Fils = ZERO_FILS;
             let dayFee: Fils = ZERO_FILS;
             let dayNet: Fils = ZERO_FILS;
             for (const txn of dayTxns) {
-              const fee = applyRateFils(txn.capturedFils, fixture.mdrBps);
+              const fee = applyRateFils(txn.capturedFils, rateAt(txn.occurredAt));
               dayGross = addFils(dayGross, txn.capturedFils);
               dayFee = addFils(dayFee, fee);
               dayNet = addFils(dayNet, subtractFils(txn.capturedFils, fee));
             }
-            highVolumeDayNets.push(dayNet);
+            for (const capture of standardToday) {
+              dayGross = addFils(dayGross, capture.amountFils);
+              dayFee = addFils(dayFee, capture.feeFils);
+              dayNet = addFils(dayNet, subtractFils(capture.amountFils, capture.feeFils));
+            }
+            closedBatchNets.push({ batchDate: dayDateStr, netFils: dayNet });
 
             await client.query(
               `INSERT INTO settlement_batches
@@ -528,6 +626,7 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
                  VALUES ($1, 'captured', $2, 'system', $3, $4)`,
                 [txn.id, txn.capturedFils, txn.occurredAt, dayBatchId],
               );
+              transactionEventCount += 1;
 
               await client.query(
                 `INSERT INTO scheme_export_lines (settlement_batch_id, transaction_id, amount_fils, amount, line_sequence)
@@ -540,6 +639,11 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
                   dayLineSequence++,
                 ],
               );
+              schemeExportLineCount += 1;
+            }
+            for (const capture of standardToday) {
+              batchIdByTransaction.set(capture.transactionId, dayBatchId);
+              await insertSchemeExportLine(client, dayBatchId, capture.transactionId, capture.amountFils, dayLineSequence++);
               schemeExportLineCount += 1;
             }
 
@@ -576,57 +680,109 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
           continue;
         }
 
-        // Settlement: one closed batch aggregating every transaction that
-        // actually captured money, one open (placeholder, still-accumulating)
-        // batch for the next business day.
-        const settledTxns = transactions.filter((t) => t.capturedFils > 0);
-        const closedBatchId = rng.uuid();
-        const closedBatchDate = toDateOnlyString(shiftDate(SEED_BASE_DATE, -1));
+        // Settlement: one closed batch per business day that had captures
+        // (each closed the next morning, 00:30 Asia/Bahrain), every line
+        // charged the rate in force at its capture, plus the open
+        // (still-accumulating) batch for SEED_BASE_DATE's own day.
+        const closedDays = [...closedDayCaptures.keys()].sort();
+        for (const batchDate of closedDays) {
+          const dayCaptures = closedDayCaptures.get(batchDate) ?? [];
+          const batchId = rng.uuid();
+          let grossFils: Fils = ZERO_FILS;
+          let feeFils: Fils = ZERO_FILS;
+          let netFils: Fils = ZERO_FILS;
+          for (const capture of dayCaptures) {
+            grossFils = addFils(grossFils, capture.amountFils);
+            feeFils = addFils(feeFils, capture.feeFils);
+            netFils = addFils(netFils, subtractFils(capture.amountFils, capture.feeFils));
+          }
 
-        let grossFils: Fils = ZERO_FILS;
-        let feeFils: Fils = ZERO_FILS;
-        let netFils: Fils = ZERO_FILS;
-
-        let lineSequence = 1;
-        const schemeLineParams: Array<{ transactionId: string; amountFils: Fils; lineSequence: number }> = [];
-
-        for (const txn of settledTxns) {
-          const fee = applyRateFils(txn.capturedFils, fixture.mdrBps);
-          const net = subtractFils(txn.capturedFils, fee);
-          grossFils = addFils(grossFils, txn.capturedFils);
-          feeFils = addFils(feeFils, fee);
-          netFils = addFils(netFils, net);
-
-          // Card-scheme boundary: exported lines are quantized down to the
-          // nearest 10 fils (2 decimal places), same as the real exporter.
-          const quantized = toFils(Math.floor(txn.capturedFils / 10) * 10);
-          schemeLineParams.push({ transactionId: txn.id, amountFils: quantized, lineSequence: lineSequence++ });
-        }
-
-        await client.query(
-          `INSERT INTO settlement_batches
-             (id, merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at)
-           VALUES ($1, $2, $3, 'closed', $4, $5, $6, $7)`,
-          [closedBatchId, merchantId, closedBatchDate, grossFils, feeFils, netFils, shiftDate(SEED_BASE_DATE, -1)],
-        );
-        settlementBatchCount += 1;
-
-        for (const line of schemeLineParams) {
           await client.query(
-            `INSERT INTO scheme_export_lines (settlement_batch_id, transaction_id, amount_fils, amount, line_sequence)
-             VALUES ($1, $2, $3, $4, $5)`,
-            [closedBatchId, line.transactionId, line.amountFils, line.amountFils / 1000, line.lineSequence],
+            `INSERT INTO settlement_batches
+               (id, merchant_id, batch_date, status, gross_fils, fee_fils, net_payout_fils, closed_at)
+             VALUES ($1, $2, $3, 'closed', $4, $5, $6, $7)`,
+            [batchId, merchantId, batchDate, grossFils, feeFils, netFils, new Date(`${batchDate}T21:30:00Z`)],
           );
-          schemeExportLineCount += 1;
+          settlementBatchCount += 1;
+          closedBatchNets.push({ batchDate, netFils });
+
+          let lineSequence = 1;
+          for (const capture of dayCaptures) {
+            batchIdByTransaction.set(capture.transactionId, batchId);
+            await insertSchemeExportLine(client, batchId, capture.transactionId, capture.amountFils, lineSequence++);
+            schemeExportLineCount += 1;
+          }
         }
 
-        const openBatchDate = toDateOnlyString(SEED_BASE_DATE);
-        await client.query(
-          `INSERT INTO settlement_batches (id, merchant_id, batch_date, status)
-           VALUES ($1, $2, $3, 'open')`,
-          [rng.uuid(), merchantId, openBatchDate],
-        );
-        settlementBatchCount += 1;
+        if (!fixture.testMode) {
+          await client.query(
+            `INSERT INTO settlement_batches (id, merchant_id, batch_date, status)
+             VALUES ($1, $2, $3, 'open')`,
+            [rng.uuid(), merchantId, openBatchDate],
+          );
+          settlementBatchCount += 1;
+        }
+
+        // The timeline a real authorize and capture leave on each standard
+        // transaction (authorize.ts, capture.ts). The capture event carries
+        // the fee its ledger group journaled, with discountBps, exactly as
+        // capture.ts records it, and the id of the batch that settled it, so
+        // CloseBatch never settles it again and RecalculateMDR can re-rate
+        // the batch from its events. Captures on SEED_BASE_DATE's day stay
+        // unbatched for that day's close.
+        for (const txn of transactions) {
+          await client.query(
+            `INSERT INTO transaction_events (transaction_id, event_type, actor_type, occurred_at)
+             VALUES ($1, 'authorized', 'system', $2)`,
+            [txn.id, txn.occurredAt],
+          );
+          transactionEventCount += 1;
+          if (txn.capturedFils > 0) {
+            const fee = applyRateFils(txn.capturedFils, rateAt(txn.occurredAt));
+            await client.query(
+              `INSERT INTO transaction_events
+                 (transaction_id, event_type, amount_fils, actor_type, metadata, occurred_at, settlement_batch_id)
+               VALUES ($1, $2, $3, 'system', $4, $5, $6)`,
+              [
+                txn.id,
+                txn.status,
+                txn.capturedFils,
+                JSON.stringify({ feeFils: fee, discountBps: fixture.negotiatedDiscountBps ?? 0 }),
+                txn.occurredAt,
+                batchIdByTransaction.get(txn.id) ?? null,
+              ],
+            );
+            transactionEventCount += 1;
+          }
+          if (txn.status === "voided") {
+            // void.ts records the void on the timeline; ten minutes after
+            // the authorization, never after the seed's own "now".
+            const voidedAt = new Date(Math.min(txn.occurredAt.getTime() + 10 * 60_000, SEED_BASE_DATE.getTime()));
+            await client.query(
+              `INSERT INTO transaction_events (transaction_id, event_type, actor_type, occurred_at)
+               VALUES ($1, 'voided', 'system', $2)`,
+              [txn.id, voidedAt],
+            );
+            transactionEventCount += 1;
+          }
+        }
+        for (const event of instalmentEvents) {
+          const settled = event.amountFils !== null && bahrainBusinessDate(event.occurredAt) < openBatchDate;
+          await client.query(
+            `INSERT INTO transaction_events
+               (transaction_id, event_type, amount_fils, actor_type, metadata, occurred_at, settlement_batch_id)
+             VALUES ($1, $2, $3, 'system', $4, $5, $6)`,
+            [
+              event.transactionId,
+              event.eventType,
+              event.amountFils,
+              JSON.stringify(event.feeFils === null ? {} : { feeFils: event.feeFils }),
+              event.occurredAt,
+              settled ? (batchIdByTransaction.get(event.transactionId) ?? null) : null,
+            ],
+          );
+          transactionEventCount += 1;
+        }
 
         // merchants.lifetime_net_payout_monitoring_estimate (0040) as
         // apps/settlement would have left it: PayoutBatch adds each batch's
@@ -635,27 +791,14 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
         // Math.fround matches the column's `real` precision, so the seeded
         // figure is what a live run of apps/settlement would have left.
         let lifetimeEstimate = Math.fround(0);
-        for (const batchNet of [...highVolumeDayNets, netFils]) {
-          lifetimeEstimate = Math.fround(lifetimeEstimate + Math.fround(Number(batchNet)));
+        closedBatchNets.sort((a, b) => (a.batchDate < b.batchDate ? -1 : a.batchDate > b.batchDate ? 1 : 0));
+        for (const { netFils } of closedBatchNets) {
+          lifetimeEstimate = Math.fround(lifetimeEstimate + Math.fround(Number(netFils)));
         }
         await client.query(`UPDATE merchants SET lifetime_net_payout_monitoring_estimate = $2 WHERE id = $1`, [
           merchantId,
           lifetimeEstimate,
         ]);
-
-        // The voided example keeps its hand-built event. Captures and closed
-        // batches get their outbox events from the seeded rows below, once
-        // everything is inserted, so reporting sees the whole history.
-        const firstVoided = transactions.find((t) => t.status === "voided");
-        if (firstVoided) {
-          await enqueueEvent(client, {
-            eventType: "transaction.voided",
-            aggregateType: "transaction",
-            aggregateId: firstVoided.id,
-            payload: { merchantId },
-          });
-          outboxEventCount += 1;
-        }
       }
 
       // March 2026 capture activity for Alpha Retail Co. Kept in its own
@@ -673,6 +816,7 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
         merchantId: alphaInserted.merchantId,
         merchantKey: "alpha-retail",
         mdrBps: alphaFixture.mdrBps,
+        mdrBpsAt: (at) => fixtureMdrBpsAt("alpha-retail", alphaFixture.mdrBps, at),
       });
 
       for (const txn of marchFixtures.transactions) {
@@ -758,19 +902,6 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
       // MERCHANT_FIXTURES mdr_bps exactly, so nothing any pre-cutover
       // transaction resolves to changes; 165 is the renegotiated rate that
       // takes over at the cutover instant.
-      const betaDigitalId = merchantIdsByKey.get("beta-digital");
-      if (!betaDigitalId) {
-        throw new Error("seed: beta-digital fixture is required for the fee_schedules fixture");
-      }
-      const feeScheduleCutover = shiftDate(SEED_BASE_DATE, 5); // 2026-09-06T12:00:00Z
-      await client.query(
-        `INSERT INTO fee_schedules (merchant_id, mdr_bps, effective_from) VALUES
-           ($1, 180, '2026-01-01T00:00:00Z'),
-           ($1, 165, $2)`,
-        [betaDigitalId, feeScheduleCutover.toISOString()],
-      );
-      feeScheduleCount += 2;
-
       // A second merchant carries fee_schedules rows whose insertion order
       // (created_at) doesn't match their effective order (effective_from) —
       // the ordinary result of a real-world data-entry sequence, not a
@@ -781,17 +912,20 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
       // backfilled a correction for the period it actually covered
       // (2026-03-01 onward) — entered 2026-08-15, after the August
       // renegotiation row already existed.
-      const alphaRetailId = merchantIdsByKey.get("alpha-retail");
-      if (!alphaRetailId) {
-        throw new Error("seed: alpha-retail fixture is required for the fee_schedules fixture");
+      // The rows themselves are FEE_SCHEDULE_FIXTURES, the same list the
+      // seeded captures and closed batches above are charged from.
+      for (const row of FEE_SCHEDULE_FIXTURES) {
+        const scheduleMerchantId = merchantIdsByKey.get(row.merchantKey);
+        if (!scheduleMerchantId) {
+          throw new Error(`seed: ${row.merchantKey} fixture is required for the fee_schedules fixture`);
+        }
+        await client.query(
+          `INSERT INTO fee_schedules (merchant_id, mdr_bps, effective_from, created_at)
+           VALUES ($1, $2, $3, COALESCE($4::timestamptz, now()))`,
+          [scheduleMerchantId, row.mdrBps, row.effectiveFrom.toISOString(), row.createdAt?.toISOString() ?? null],
+        );
+        feeScheduleCount += 1;
       }
-      await client.query(
-        `INSERT INTO fee_schedules (merchant_id, mdr_bps, effective_from, created_at) VALUES
-           ($1, 225, '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z'),
-           ($1, 245, '2026-03-01T00:00:00Z', '2026-08-15T00:00:00Z')`,
-        [alphaRetailId],
-      );
-      feeScheduleCount += 2;
 
       // Re-establish the single zero row TRUNCATE just removed.
       await client.query(`INSERT INTO platform_stats (id, total_processed_fils) VALUES (1, 0)`);
@@ -883,6 +1017,22 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
       );
       outboxEventCount += batchClosedOutbox.rowCount ?? 0;
 
+      // One transaction.voided per seeded void, with void.ts's payload, dated
+      // when the void happened (enqueueEvent would stamp the wall clock at
+      // seed time, so reporting counted every seeded void on the day the
+      // seed ran).
+      const voidedOutbox = await client.query(
+        `INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload, created_at)
+         SELECT 'transaction.voided', 'transaction', te.transaction_id,
+                jsonb_build_object('merchantId', t.merchant_id),
+                te.occurred_at
+           FROM transaction_events te
+           JOIN transactions t ON t.id = te.transaction_id
+          WHERE te.event_type = 'voided'
+          ORDER BY te.occurred_at, te.id`,
+      );
+      outboxEventCount += voidedOutbox.rowCount ?? 0;
+
       await client.query("COMMIT");
     } catch (err) {
       await client.query("ROLLBACK");
@@ -916,9 +1066,15 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
       label: "seed default key",
     });
     apiKeyCount += 1;
-    // Dev/test convenience only: the raw key is never stored, so this is
-    // the only place it's ever visible. Fine to print for seed data.
-    console.log(`seed: issued API key for ${merchant.displayName}: ${issued.rawKey}`);
+    // Never the raw key: on the hosted stack this output is the seed job's
+    // container log, and a raw key there is a live credential for anyone
+    // who can read the logs (and NODE_ENV=production issues fp_live_ keys).
+    // The prefix is the display-safe part api_keys stores. An owner issues
+    // a usable key with POST /v1/merchants/:merchantId/api-keys. The
+    // merchant id is printed because the merchant login asks for it.
+    console.log(
+      `seed: ${merchant.displayName}: merchant id ${merchant.merchantId}, API key ${issued.prefix}... issued (not printed)`,
+    );
   }
 
   return {
@@ -940,6 +1096,29 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
     adminUserCount,
     ledgerChecksum,
   };
+}
+
+/** One scheme file line: the captured amount quantized down to the nearest
+ *  10 fils (2 decimal places), same as the real exporter. */
+async function insertSchemeExportLine(
+  client: PoolClient,
+  batchId: string,
+  transactionId: string,
+  capturedFils: Fils,
+  lineSequence: number,
+): Promise<void> {
+  const quantized = toFils(Math.floor(capturedFils / 10) * 10);
+  await client.query(
+    `INSERT INTO scheme_export_lines (settlement_batch_id, transaction_id, amount_fils, amount, line_sequence)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [batchId, transactionId, quantized, quantized / 1000, lineSequence],
+  );
+}
+
+/** The Asia/Bahrain (UTC+3, no DST) calendar date of an instant: the
+ *  settlement business day BusinessDayWindow puts it in. */
+function bahrainBusinessDate(at: Date): string {
+  return toDateOnlyString(new Date(at.getTime() + 3 * 60 * 60 * 1000));
 }
 
 function shiftDate(base: Date, days: number): Date {

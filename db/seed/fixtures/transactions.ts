@@ -76,8 +76,12 @@ export function generateTransactionsForMerchant(params: {
    *  Defaults to the original full-month spread every existing caller
    *  relies on. */
   dayRange?: readonly [number, number];
+  /** The rate in force at a capture instant (fee_schedules, falling back to
+   *  merchants.mdr_bps), as capture.ts resolves it. Defaults to `mdrBps`. */
+  mdrBpsAt?: (at: Date) => number;
 }): GenerateTransactionsResult {
   const { merchantId, merchantKey, mdrBps, count, rng, baseDate, dayRange = [0, 29] as const } = params;
+  const mdrBpsAt = params.mdrBpsAt ?? (() => mdrBps);
   const [minDaysBack, maxDaysBack] = dayRange;
 
   const transactions: GeneratedTransaction[] = [];
@@ -118,7 +122,9 @@ export function generateTransactionsForMerchant(params: {
     transactions.push({ id, merchantId, status, amountFils, capturedFils, reference, acquirerReference, occurredAt });
 
     if (capturedFils > 0) {
-      ledgerGroups.push(buildCaptureLedgerGroup({ transactionId: id, merchantId, mdrBps, capturedFils, occurredAt, reference, rng }));
+      ledgerGroups.push(
+        buildCaptureLedgerGroup({ transactionId: id, merchantId, mdrBps: mdrBpsAt(occurredAt), capturedFils, occurredAt, reference, rng }),
+      );
     }
   }
 
@@ -363,8 +369,11 @@ export function generateInstalmentCaptures(params: {
   merchantId: string;
   merchantKey: string;
   mdrBps: number;
+  /** The rate in force at a capture instant; defaults to `mdrBps`. */
+  mdrBpsAt?: (at: Date) => number;
 }): GenerateMultiCaptureResult {
   const { merchantId, merchantKey, mdrBps } = params;
+  const mdrBpsAt = params.mdrBpsAt ?? (() => mdrBps);
 
   const transactions: GeneratedTransaction[] = [];
   const ledgerGroups: LedgerGroup[] = [];
@@ -403,7 +412,7 @@ export function generateInstalmentCaptures(params: {
       const capturedFils = toFils(instalment);
       // The fee is charged on the instalment actually captured, never on
       // the running total — the same per-call rule capture.ts applies.
-      const feeFils = applyRateFils(capturedFils, mdrBps);
+      const feeFils = applyRateFils(capturedFils, mdrBpsAt(occurredAt));
       const merchantNet = subtractFils(capturedFils, feeFils);
 
       const legs: LedgerLeg[] = [
