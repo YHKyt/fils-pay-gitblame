@@ -204,7 +204,7 @@
   font-size: clamp(2rem, 1.8vw + 0.9rem, 2.8rem);
   font-weight: 600;
   line-height: 1.1;
-  color: var(--fp-heading, #06231f);
+  color: var(--fp-heading, var(--fp-ink));
 }
 .alogin-sub {
   margin: 0 0 1.6rem;

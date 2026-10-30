@@ -161,7 +161,14 @@ export function readBhdInput(
   return { ok: true, fils };
 }
 
-/** `12.500 BHD` / `-3.250 BHD` from integer fils. */
+/** `12.500 BHD` / `-136,518.147 BHD` from integer fils, with thousands
+ *  separators for on-screen reading. Pure string work on `formatBhd`'s
+ *  output, so the money value is never re-derived. */
 export function bhd(fils: number): string {
-  return `${formatBhd(toFils(fils, { allowNegative: true }))} BHD`;
+  const formatted = formatBhd(toFils(fils, { allowNegative: true }));
+  const [whole, frac] = formatted.split(".");
+  const sign = whole!.startsWith("-") ? "-" : "";
+  const digits = sign ? whole!.slice(1) : whole!;
+  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `${sign}${grouped}${frac !== undefined ? "." + frac : ""} BHD`;
 }
