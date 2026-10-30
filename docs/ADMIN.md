@@ -56,9 +56,11 @@ from last month, pick the effective date the credit belongs to.
 
 **Adjust balance** — when a merchant's balance on screen is wrong and support
 has confirmed the right figure (statement, phone call), enter the difference
-and a reason. The adjustment is journaled to the ledger and the dashboard
-shows the corrected balance straight away; no need to wait for the next
-settlement run.
+and a reason. The adjustment updates the merchant's cached display balance
+only, so the dashboard shows the corrected figure straight away. It is not
+journaled to the ledger: payouts are computed from the ledger, and a
+balance rebuild recomputes the cache from it. To move money, use a credit
+(which needs a second approver above 50.000 BHD) instead.
 
 **Recalculate MDR** — after a merchant's rate changes, run this over the
 date range you want the new rate applied to. Their batches are recalculated
