@@ -79,9 +79,9 @@ function useCountUp(targetFils: number, durationMs = 900): number {
     let frame = 0;
     const start = performance.now();
     const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / durationMs);
+      const t = Math.min(1, Math.max(0, (now - start) / durationMs));
       const eased = 1 - Math.pow(1 - t, 3);
-      setValue(Math.round(targetFils * eased));
+      setValue(Math.max(0, Math.round(targetFils * eased)));
       if (t < 1) frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);

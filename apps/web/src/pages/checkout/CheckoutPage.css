@@ -802,3 +802,13 @@ body {
     font-size: 1.15rem;
   }
 }
+
+/* Theme toggle on the pearl panel: ink on a soft chip so it stays visible. */
+.checkout-main-top .fp-theme-toggle {
+  color: var(--fp-heading);
+  background: rgba(216, 178, 83, 0.12);
+  border: 1px solid var(--fp-border);
+}
+.checkout-main-top .fp-theme-toggle:hover {
+  background: rgba(216, 178, 83, 0.22);
+}
