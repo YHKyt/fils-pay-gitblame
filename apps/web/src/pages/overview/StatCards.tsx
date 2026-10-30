@@ -42,9 +42,11 @@ function StatCard({
 export function StatCards({
   volumes,
   payouts,
+  periodLabel,
 }: {
   volumes: VolumesResponse;
   payouts: PayoutTrendsResponse;
+  periodLabel: string;
 }) {
   const vPoints = volumes.points;
   const pPoints = payouts.points;
@@ -66,7 +68,7 @@ export function StatCards({
         label="Captured volume"
         value={totalGross}
         format={(n) => bhd(Math.round(n))}
-        sub={`Across ${days} ${days === 1 ? "day" : "days"}`}
+        sub={periodLabel}
         spark={grossSpark}
         idSuffix="gross"
         accent="gold"
@@ -75,7 +77,7 @@ export function StatCards({
         label="Transactions"
         value={totalCaptured}
         format={(n) => formatCount(Math.round(n))}
-        sub="Captured count"
+        sub={`Payments captured · ${periodLabel}`}
         spark={countSpark}
         idSuffix="count"
       />
@@ -83,7 +85,7 @@ export function StatCards({
         label="Voided"
         value={totalVoided}
         format={(n) => formatCount(Math.round(n))}
-        sub="Authorizations released"
+        sub={`Authorizations released · ${periodLabel}`}
         spark={voidSpark}
         idSuffix="void"
       />
@@ -91,7 +93,7 @@ export function StatCards({
         label="Net payout"
         value={totalNetPayout}
         format={(n) => bhd(Math.round(n))}
-        sub={`${pPoints.length} settled ${pPoints.length === 1 ? "batch" : "batches"}`}
+        sub={`${periodLabel} · ${pPoints.length} ${pPoints.length === 1 ? "batch" : "batches"}`}
         spark={payoutSpark}
         idSuffix="payout"
         accent="gold"

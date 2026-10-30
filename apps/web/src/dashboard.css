@@ -1571,3 +1571,201 @@ footer.dash-main {
     white-space: nowrap;
   }
 }
+
+/* ---- Polish pass: chart axes, range chips, reconciliation cards, refs --- */
+.dash-main {
+  max-width: 100rem;
+}
+.dash-range-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1rem 0 0.25rem;
+}
+.dash-chip {
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--fp-border);
+  background: var(--fp-surface);
+  color: var(--fp-text, inherit);
+  cursor: pointer;
+}
+.dash-chip:hover {
+  border-color: var(--fp-accent);
+}
+.dash-chip.is-active {
+  background: var(--fp-accent-soft);
+  border-color: var(--fp-accent);
+  color: var(--fp-heading);
+}
+.dash-range-note {
+  margin-left: auto;
+  font-size: 0.8rem;
+}
+.dash-chart-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+.dash-chart-title {
+  font-weight: 600;
+  color: var(--fp-heading);
+}
+.dash-chart-unit {
+  font-size: 0.78rem;
+  color: var(--fp-muted);
+}
+.dash-chart-frame {
+  display: grid;
+  grid-template-columns: 3.5rem minmax(0, 1fr);
+  grid-template-rows: 15rem auto;
+}
+.dash-chart-yaxis {
+  position: relative;
+  grid-row: 1;
+  grid-column: 1;
+}
+.dash-chart-yaxis span {
+  position: absolute;
+  right: 0.6rem;
+  transform: translateY(-50%);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--fp-muted);
+  white-space: nowrap;
+}
+.dash-chart-plot {
+  position: relative;
+  grid-row: 1;
+  grid-column: 2;
+  cursor: crosshair;
+}
+.dash-chart-plot .dash-chart {
+  width: 100%;
+  height: 100%;
+}
+.dash-chart-cursor {
+  stroke: var(--fp-muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.dash-chart-dot {
+  position: absolute;
+  width: 0.65rem;
+  height: 0.65rem;
+  margin: -0.325rem 0 0 -0.325rem;
+  border-radius: 50%;
+  background: var(--fp-gold);
+  border: 2px solid var(--fp-surface);
+  box-shadow: 0 0 0 1px var(--fp-gold-deep);
+  pointer-events: none;
+}
+.dash-chart-tip {
+  position: absolute;
+  top: 0;
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--fp-border);
+  border-radius: var(--fp-radius);
+  background: var(--fp-surface);
+  box-shadow: var(--fp-shadow);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+}
+.dash-chart-tip strong {
+  color: var(--fp-heading);
+}
+.dash-chart-tip span:nth-child(2) {
+  font-family: var(--fp-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.dash-chart-xaxis {
+  position: relative;
+  grid-row: 2;
+  grid-column: 2;
+  height: 1.6rem;
+}
+.dash-chart-xaxis span {
+  position: absolute;
+  top: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--fp-muted);
+  white-space: nowrap;
+}
+.dash-recon-period {
+  margin: 1rem 0 0.5rem;
+}
+.dash-recon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem;
+  margin: 0 0 1rem;
+}
+.dash-recon-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  padding: 1.1rem 1.2rem;
+  background: var(--fp-surface);
+  border: 1px solid var(--fp-border);
+  border-radius: var(--fp-radius-lg);
+  box-shadow: var(--fp-shadow-sm);
+}
+.dash-recon-card .dash-stat-label {
+  margin: 0;
+}
+.dash-recon-value {
+  font-family: var(--fp-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--fp-heading);
+}
+.dash-recon-ok {
+  border-color: var(--fp-success-bd);
+}
+.dash-recon-gap {
+  border-color: var(--fp-danger-bd);
+}
+.dash-recon-card .dash-badge {
+  margin-top: 0.35rem;
+}
+.dash-ref-main {
+  font-weight: 600;
+}
+.dash-ref-sub {
+  display: block;
+  font-family: var(--fp-mono);
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--fp-muted);
+}
+h1 .dash-ref-sub {
+  display: inline;
+  font-size: 0.9rem;
+  vertical-align: middle;
+}
+@media (max-width: 720px) {
+  .dash-chart-frame {
+    grid-template-columns: 2.6rem minmax(0, 1fr);
+    grid-template-rows: 11rem auto;
+  }
+  .dash-range-note {
+    margin-left: 0;
+    flex-basis: 100%;
+  }
+  .dash-recon-value {
+    font-size: 1.25rem;
+  }
+}
