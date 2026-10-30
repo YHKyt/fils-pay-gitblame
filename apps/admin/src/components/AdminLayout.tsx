@@ -11,7 +11,7 @@ import { ThemeToggle } from "./ThemeToggle.js";
  *  banner when a grant is live. */
 // YA: nav order per Huda's request (Credits first)
 export function AdminLayout() {
-  const { admin, signOut, impersonation } = useAdminAuth();
+  const { admin, signOut, impersonation, exitImpersonation } = useAdminAuth();
   const navigate = useNavigate();
 
   // signOut drops local state even when the API call fails (its finally),
@@ -28,6 +28,9 @@ export function AdminLayout() {
 
   return (
     <div className="admin-shell">
+      {/* Banner and header stick together, so the header never slides
+          under the banner. */}
+      <div className="admin-topstack">
       <ImpersonationBanner />
 
       <header className="admin-header">
@@ -44,10 +47,14 @@ export function AdminLayout() {
           </button>
         </div>
       </header>
+      </div>
 
       <div className="admin-body">
         <aside className="admin-sidebar">
-          <nav className="admin-nav">
+          <nav
+            className={impersonation ? "admin-nav is-paused" : "admin-nav"}
+            aria-disabled={impersonation ? true : undefined}
+          >
             <NavLink to="/merchants">Merchants</NavLink>
             <NavLink to="/credits">Credits</NavLink>
             <NavLink to="/settlement">Settlement ops</NavLink>
@@ -66,11 +73,22 @@ export function AdminLayout() {
           <main className="admin-main">
             <h1>Admin screens are paused</h1>
             <p>
-              An impersonation grant is active. Use <strong>Exit impersonation</strong> above to end it
-              and return to the admin console.
+              You are viewing {impersonation.merchantDisplayName ?? "a merchant"} as a merchant. End
+              that session to return to the admin console.
             </p>
             <p>
-              Merchant screens are at <code>{WEB_BASE_URL}</code> while the grant lasts.
+              <button
+                type="button"
+                className="admin-btn-primary"
+                onClick={() => {
+                  void exitImpersonation().catch(() => undefined);
+                }}
+              >
+                Exit view-as and return to admin
+              </button>{" "}
+              <a href={WEB_BASE_URL} target="_blank" rel="noreferrer">
+                Open merchant dashboard
+              </a>
             </p>
           </main>
         ) : (

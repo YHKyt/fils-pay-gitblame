@@ -1703,3 +1703,20 @@ body:has(.admin-centered) .admin-centered {
 .admin-table td code {
   white-space: nowrap;
 }
+
+/* Impersonation banner + header share one sticky stack. */
+.admin-topstack {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.admin-topstack > .admin-header,
+.admin-topstack > .impersonation-banner {
+  position: relative;
+  top: auto;
+}
+/* While a view-as session is live the admin screens are paused. */
+.admin-nav.is-paused {
+  pointer-events: none;
+  opacity: 0.45;
+}
