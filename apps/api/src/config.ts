@@ -134,11 +134,16 @@ export interface Config {
   trustProxy: string | false;
 }
 
+// Unset is a local developer run: development. Any other value that is not
+// one of the three is refused instead of read as development, which turned
+// on development defaults (OTP returned in the login response, non-Secure
+// cookies) on a box started with NODE_ENV=Production or prod.
 function parseNodeEnv(value: string | undefined): Config["nodeEnv"] {
+  if (value === undefined || value === "") return "development";
   if (value === "production" || value === "test" || value === "development") {
     return value;
   }
-  return "development";
+  throw new Error(`loadConfig: NODE_ENV must be production, development or test, got "${value}"`);
 }
 
 function parseIntEnv(value: string | undefined, fallback: number): number {
@@ -228,7 +233,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     otpTtlMinutes: parseIntEnv(env.OTP_TTL_MINUTES, 5),
     otpCodeLength: parseIntEnv(env.OTP_CODE_LENGTH, 6),
     otpMaxAttempts: parseIntEnv(env.OTP_MAX_ATTEMPTS, 5),
-    otpDevExpose: parseBoolEnv(env.OTP_DEV_EXPOSE, nodeEnv !== "production"),
+    // On by default only when NODE_ENV says development or test outright: an
+    // api started with NODE_ENV unset does not hand out OTPs unless asked.
+    otpDevExpose: parseBoolEnv(env.OTP_DEV_EXPOSE, env.NODE_ENV === "development" || env.NODE_ENV === "test"),
     loginMaxFailedAttempts: parseIntEnv(env.LOGIN_MAX_FAILED_ATTEMPTS, 10),
     loginLockoutMinutes: parseIntEnv(env.LOGIN_LOCKOUT_MINUTES, 15),
 

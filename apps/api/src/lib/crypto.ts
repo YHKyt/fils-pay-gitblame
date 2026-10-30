@@ -10,8 +10,16 @@ export function sha256Hex(input: string | Buffer): string {
   return createHash("sha256").update(input).digest("hex");
 }
 
+const HEX = /^(?:[0-9a-fA-F]{2})+$/;
+
 /** Constant-time comparison of two hex-encoded digests. */
 export function timingSafeEqualHex(a: string, b: string): boolean {
+  // Buffer.from(_, "hex") stops at the first non-hex character, so a valid
+  // digest followed by junk ("<digest>zz") decoded to the same bytes and
+  // matched. Both sides must be whole, even-length hex.
+  if (!HEX.test(a) || !HEX.test(b)) {
+    return false;
+  }
   const bufA = Buffer.from(a, "hex");
   const bufB = Buffer.from(b, "hex");
   if (bufA.length !== bufB.length) {
