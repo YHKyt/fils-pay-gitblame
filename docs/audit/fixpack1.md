@@ -101,3 +101,14 @@ regression test that fails on the old code and passes on the fix.
 - **Breaks:** Interrupted batches on redeploy; customers of the hosted demo get links they cannot open.
 - **Fix:** `stop_grace_period: 40s` on settlement; `CHECKOUT_BASE_URL` uses `:?` like the secrets, and `.env.example` now sets the local value so a local `cp ops/.env.example ops/.env` keeps working.
 - **Test:** The `docker compose config` runs above (no code path to unit test).
+
+## FX10 The e2e judge suite fails correct batches after a refund or carry-forward — LOW
+
+**Where:** `ops/e2e/judge-suite.mjs` (batch consistency check).
+**Evidence:** Running the old and new predicates over sample batch DTOs: a batch with a 40 000 fils refund (gross 100 000, fee 2 500, net 58 500) and a batch with a carried-in shortfall (net -29 250) are flagged by the old check and pass the new one; an overpaying batch (net 98 000 > gross - fee) is flagged by both.
+
+- **What:** The check required `net == gross - fee` (or `- refunds` when a refund field exists). The batch DTO has no refund or carry-in field (documented in b361d1a), so every batch that deducted a refund or carried in a shortfall failed.
+- **Why:** The suite encoded the pre-FP-300 invariant.
+- **Breaks:** Our own smoke run reports a failure for correct money, hiding real ones in the noise.
+- **Fix:** Exact check `gross - fee - refunds + carriedIn == net` when a DTO itemises both; otherwise the bound that always holds, `net <= gross - fee` (refund deductions are never negative, a carried-in balance is never positive), which still catches an overpaying batch.
+- **Test:** The sample-predicate run above (the suite needs a live stack).
