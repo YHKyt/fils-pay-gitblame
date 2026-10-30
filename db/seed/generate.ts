@@ -88,6 +88,51 @@ const HIGH_VOLUME_MAX_AMOUNT_FILS = 1_500_000; // 1,500.000 BD
  *  timestamps. Deliberately not `new Date()`. */
 const SEED_BASE_DATE = new Date("2026-09-01T12:00:00Z");
 
+/**
+ * Every fixture fee_schedules row (see the comments where they are inserted
+ * below). Kept in one list so the rows written to the table and the rates the
+ * seed charges its own captures and batches can never disagree: a real
+ * capture (capture.ts, getEffectiveMdrBps) and CloseBatch (EffectiveMdrBpsAt)
+ * both charge the newest row whose effective_from has arrived, falling back
+ * to merchants.mdr_bps.
+ */
+const FEE_SCHEDULE_FIXTURES: ReadonlyArray<{
+  merchantKey: string;
+  mdrBps: number;
+  effectiveFrom: Date;
+  /** Omitted: the row gets the column default, now(). */
+  createdAt?: Date;
+}> = [
+  { merchantKey: "beta-digital", mdrBps: 180, effectiveFrom: new Date("2026-01-01T00:00:00Z") },
+  // 2026-09-06T12:00:00Z, five days after SEED_BASE_DATE.
+  { merchantKey: "beta-digital", mdrBps: 165, effectiveFrom: new Date(SEED_BASE_DATE.getTime() + 5 * 86_400_000) },
+  {
+    merchantKey: "alpha-retail",
+    mdrBps: 225,
+    effectiveFrom: new Date("2026-08-01T00:00:00Z"),
+    createdAt: new Date("2026-08-01T00:00:00Z"),
+  },
+  {
+    merchantKey: "alpha-retail",
+    mdrBps: 245,
+    effectiveFrom: new Date("2026-03-01T00:00:00Z"),
+    createdAt: new Date("2026-08-15T00:00:00Z"),
+  },
+];
+
+/** The rate in force for a fixture merchant at `at`: the fixture schedule row
+ *  with the latest effective_from not after `at`, else the merchant's own
+ *  mdr_bps. No two fixture rows share an effective_from, so the created_at
+ *  tie-break the services apply never comes into play here. */
+function fixtureMdrBpsAt(merchantKey: string, fallbackMdrBps: number, at: Date): number {
+  let best: { mdrBps: number; effectiveFrom: Date } | undefined;
+  for (const row of FEE_SCHEDULE_FIXTURES) {
+    if (row.merchantKey !== merchantKey || row.effectiveFrom.getTime() > at.getTime()) continue;
+    if (!best || row.effectiveFrom.getTime() > best.effectiveFrom.getTime()) best = row;
+  }
+  return best ? best.mdrBps : fallbackMdrBps;
+}
+
 // Explicitly truncated tables. Every other table (merchant_business_profiles, kyc_documents, merchant_kyc_reviews,
 // sessions, otp_challenges, api_keys, payment_links, webhook_endpoints,
 // webhook_deliveries, transaction_events, idempotency_keys,
@@ -242,6 +287,7 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
           ],
         );
         merchantIdsByKey.set(fixture.key, merchantId);
+        const rateAt = (at: Date): number => fixtureMdrBpsAt(fixture.key, fixture.mdrBps, at);
 
         const bp = fixture.businessProfile;
         await client.query(
@@ -309,6 +355,7 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
             merchantId,
             merchantKey: fixture.key,
             mdrBps: fixture.mdrBps,
+            mdrBpsAt: rateAt,
             count: fixture.splitParentKey === undefined ? TRANSACTIONS_PER_MERCHANT : 0,
             rng,
             baseDate: SEED_BASE_DATE,
@@ -399,6 +446,7 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
             merchantId,
             merchantKey: fixture.key,
             mdrBps: fixture.mdrBps,
+            mdrBpsAt: rateAt,
           });
 
           for (const txn of multiCapture.transactions) {
@@ -591,7 +639,7 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
         const schemeLineParams: Array<{ transactionId: string; amountFils: Fils; lineSequence: number }> = [];
 
         for (const txn of settledTxns) {
-          const fee = applyRateFils(txn.capturedFils, fixture.mdrBps);
+          const fee = applyRateFils(txn.capturedFils, rateAt(txn.occurredAt));
           const net = subtractFils(txn.capturedFils, fee);
           grossFils = addFils(grossFils, txn.capturedFils);
           feeFils = addFils(feeFils, fee);
@@ -673,6 +721,7 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
         merchantId: alphaInserted.merchantId,
         merchantKey: "alpha-retail",
         mdrBps: alphaFixture.mdrBps,
+        mdrBpsAt: (at) => fixtureMdrBpsAt("alpha-retail", alphaFixture.mdrBps, at),
       });
 
       for (const txn of marchFixtures.transactions) {
@@ -758,19 +807,6 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
       // MERCHANT_FIXTURES mdr_bps exactly, so nothing any pre-cutover
       // transaction resolves to changes; 165 is the renegotiated rate that
       // takes over at the cutover instant.
-      const betaDigitalId = merchantIdsByKey.get("beta-digital");
-      if (!betaDigitalId) {
-        throw new Error("seed: beta-digital fixture is required for the fee_schedules fixture");
-      }
-      const feeScheduleCutover = shiftDate(SEED_BASE_DATE, 5); // 2026-09-06T12:00:00Z
-      await client.query(
-        `INSERT INTO fee_schedules (merchant_id, mdr_bps, effective_from) VALUES
-           ($1, 180, '2026-01-01T00:00:00Z'),
-           ($1, 165, $2)`,
-        [betaDigitalId, feeScheduleCutover.toISOString()],
-      );
-      feeScheduleCount += 2;
-
       // A second merchant carries fee_schedules rows whose insertion order
       // (created_at) doesn't match their effective order (effective_from) —
       // the ordinary result of a real-world data-entry sequence, not a
@@ -781,17 +817,20 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
       // backfilled a correction for the period it actually covered
       // (2026-03-01 onward) — entered 2026-08-15, after the August
       // renegotiation row already existed.
-      const alphaRetailId = merchantIdsByKey.get("alpha-retail");
-      if (!alphaRetailId) {
-        throw new Error("seed: alpha-retail fixture is required for the fee_schedules fixture");
+      // The rows themselves are FEE_SCHEDULE_FIXTURES, the same list the
+      // seeded captures and closed batches above are charged from.
+      for (const row of FEE_SCHEDULE_FIXTURES) {
+        const scheduleMerchantId = merchantIdsByKey.get(row.merchantKey);
+        if (!scheduleMerchantId) {
+          throw new Error(`seed: ${row.merchantKey} fixture is required for the fee_schedules fixture`);
+        }
+        await client.query(
+          `INSERT INTO fee_schedules (merchant_id, mdr_bps, effective_from, created_at)
+           VALUES ($1, $2, $3, COALESCE($4::timestamptz, now()))`,
+          [scheduleMerchantId, row.mdrBps, row.effectiveFrom.toISOString(), row.createdAt?.toISOString() ?? null],
+        );
+        feeScheduleCount += 1;
       }
-      await client.query(
-        `INSERT INTO fee_schedules (merchant_id, mdr_bps, effective_from, created_at) VALUES
-           ($1, 225, '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z'),
-           ($1, 245, '2026-03-01T00:00:00Z', '2026-08-15T00:00:00Z')`,
-        [alphaRetailId],
-      );
-      feeScheduleCount += 2;
 
       // Re-establish the single zero row TRUNCATE just removed.
       await client.query(`INSERT INTO platform_stats (id, total_processed_fils) VALUES (1, 0)`);
