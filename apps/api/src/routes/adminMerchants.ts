@@ -11,7 +11,7 @@ import { rotateApiKeyAsAdmin } from "../admin/apiKeys.js";
 import { startImpersonation } from "../admin/impersonation.js";
 import { withTransaction } from "../db/withTransaction.js";
 import { BadRequestError, NotFoundError, UnauthorizedError } from "../lib/errors.js";
-import { lockMerchantUnderReviewInTx, recordKycReviewInTx } from "../onboarding/review.js";
+import { lockMerchantReviewableInTx, recordKycReviewInTx } from "../onboarding/review.js";
 import { createWebhookDeliveryArchive, replayWebhookDeliveryArchive } from "../webhooks/archiveReplay.js";
 import {
   DEFAULT_REPLAY_STATUSES,
@@ -135,8 +135,10 @@ export async function adminMerchantRoutes(app: FastifyInstance): Promise<void> {
    * `finance`/`super_admin` only — approving a merchant is a money-adjacent
    * decision, so a `support` operator gets a 403 here.
    *
-   * Only an `under_review` merchant can be decided, as in bulk approve:
-   * any other status is 409 `merchant_not_under_review`.
+   * A merchant still awaiting a decision (`submitted` after signup, or
+   * `under_review` after documents are uploaded) can be decided; a merchant
+   * already in a final state is 409 `merchant_not_under_review`, so a repeat
+   * or concurrent decision cannot flip it.
    */
   app.post<{ Params: MerchantIdParams; Body: KycReviewBody }>(
     "/:id/kyc-reviews",
@@ -159,7 +161,7 @@ export async function adminMerchantRoutes(app: FastifyInstance): Promise<void> {
       // ran rolls back with it. The action and its record either both happen
       // or neither does.
       const result = await withTransaction(app.db, async (client) => {
-        await lockMerchantUnderReviewInTx(client, request.params.id);
+        await lockMerchantReviewableInTx(client, request.params.id);
         const reviewResult = await recordKycReviewInTx(client, {
           merchantId: request.params.id,
           outcome,

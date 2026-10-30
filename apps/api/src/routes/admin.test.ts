@@ -480,8 +480,8 @@ test("the OLD shared-secret KYC review route no longer exists at all", async () 
 test("KYC review via the new admin guard writes both reviewer columns and exactly one audit row", async () => {
   const finance = await signedInAdmin("finance", "kyc");
   const { merchantId } = await createMerchant("kyc");
-  // Only an under_review merchant can be decided (adminKycReviewStatus.test.ts).
-  await pool.query(`UPDATE merchants SET onboarding_status = 'under_review' WHERE id = $1`, [merchantId]);
+  // A freshly signed-up merchant is 'submitted', which a single review may
+  // decide (adminKycReviewStatus.test.ts).
 
   const res = await app.inject({
     method: "POST",
@@ -780,8 +780,8 @@ test("a forced audit-write failure rolls the WHOLE bulk approval back", async ()
 test("a forced audit-write failure rolls the WHOLE action back — the KYC review never happens", async () => {
   const finance = await signedInAdmin("finance", "auditfail");
   const { merchantId } = await createMerchant("auditfail");
-  // Only an under_review merchant can be decided (adminKycReviewStatus.test.ts).
-  await pool.query(`UPDATE merchants SET onboarding_status = 'under_review' WHERE id = $1`, [merchantId]);
+  // A freshly signed-up merchant is 'submitted', which a single review may
+  // decide (adminKycReviewStatus.test.ts).
 
   // Make the audit insert for this action fail, for real, at the database.
   // NOT VALID only skips re-checking pre-existing rows; new inserts are
@@ -808,7 +808,7 @@ test("a forced audit-write failure rolls the WHOLE action back — the KYC revie
     [merchantId],
   );
   assert.equal(merchant.rows[0]!.kyc_passed, false, "merchants UPDATE must have rolled back");
-  assert.equal(merchant.rows[0]!.onboarding_status, "under_review");
+  assert.equal(merchant.rows[0]!.onboarding_status, "submitted");
   const reviews = await pool.query(`SELECT 1 FROM merchant_kyc_reviews WHERE merchant_id = $1`, [merchantId]);
   assert.equal(reviews.rowCount, 0, "merchant_kyc_reviews INSERT must have rolled back");
   assert.equal((await auditRowsFor(finance.id, "kyc_review")).length, 0);

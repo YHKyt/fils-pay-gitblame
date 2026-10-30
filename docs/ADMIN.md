@@ -26,8 +26,10 @@ money change is logged.
 **Search** by name or paste a merchant id.
 
 **KYC review** — approve or reject after checking the uploaded documents.
-Approving moves the merchant to `approved` and marks KYC as passed. Only a
-merchant currently `under_review` can be reviewed; any other status is refused.
+Approving moves the merchant to `approved` and marks KYC as passed. A merchant
+still awaiting a decision (`submitted` after signup, or `under_review` once
+documents are uploaded) can be reviewed; a merchant already `approved` or
+`rejected` is refused, so a repeat click cannot flip a decided merchant.
 
 **Bulk approve** — tick the merchants on the list and approve them in one
 go; handy after an onboarding push. Only merchants currently `under_review`

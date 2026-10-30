@@ -32,9 +32,13 @@ export interface RecordKycReviewResult {
  * review and its audit record either both happen or neither does.
  *
  * It does not check the merchant's onboarding status. An admin decision may
- * only be taken on an `under_review` merchant: the single review calls
- * `lockMerchantUnderReviewInTx` first, bulk approve selects only
- * `under_review` rows. Fixtures (seed, tests) pre-approve without documents.
+ * be taken on a merchant that is still awaiting one — `submitted` (signed up,
+ * the documented post-signup state) or `under_review` (documents uploaded):
+ * the single review calls `lockMerchantReviewableInTx` first. A merchant in a
+ * final state (`approved`/`rejected`) is refused, so a second click or a
+ * racing second decision cannot flip an already-decided merchant. Bulk
+ * approve still selects only `under_review` rows. Fixtures (seed, tests)
+ * pre-approve without documents.
  */
 // YA: single-merchant review writes merchant_kyc_reviews. bulk should reuse this
 // MK: bulk writes the review trail too (kyc_bulk_approve audit row)
@@ -63,14 +67,20 @@ export async function recordKycReviewInTx(
   return { onboardingStatus: input.outcome, kycPassed };
 }
 
+/** Onboarding statuses a single KYC review may still decide: a merchant that
+ *  has signed up (`submitted`, the documented post-signup state) or uploaded
+ *  documents (`under_review`). A merchant already in a final state is not
+ *  re-decided. */
+const REVIEWABLE_STATUSES: readonly string[] = ["submitted", "under_review"];
+
 /**
- * Locks the merchant row and refuses unless it is `under_review` (documents
- * uploaded, no decision yet), the same rule bulk approve applies. Call it in
- * the review's transaction, before `recordKycReviewInTx`: a second decision
- * racing this one waits on the lock, then sees the decided status and gets
- * the 409.
+ * Locks the merchant row and refuses unless it is still awaiting a decision
+ * (`submitted` or `under_review`). Call it in the review's transaction, before
+ * `recordKycReviewInTx`: a second decision racing this one waits on the lock,
+ * then sees the final status and gets the 409, so an already-decided merchant
+ * can never be flipped.
  */
-export async function lockMerchantUnderReviewInTx(client: PoolClient, merchantId: string): Promise<void> {
+export async function lockMerchantReviewableInTx(client: PoolClient, merchantId: string): Promise<void> {
   const result = await client.query<{ onboarding_status: string }>(
     `SELECT onboarding_status FROM merchants WHERE id = $1 FOR UPDATE`,
     [merchantId],
@@ -79,10 +89,10 @@ export async function lockMerchantUnderReviewInTx(client: PoolClient, merchantId
   if (status === undefined) {
     throw new NotFoundError("merchant_not_found");
   }
-  if (status !== "under_review") {
+  if (!REVIEWABLE_STATUSES.includes(status)) {
     throw new ConflictError(
       "merchant_not_under_review",
-      `onboarding_status is '${status}'; only an under_review merchant can be approved or rejected`,
+      `onboarding_status is '${status}'; only a submitted or under_review merchant can be approved or rejected`,
     );
   }
 }
