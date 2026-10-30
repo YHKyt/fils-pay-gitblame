@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { listTransactions } from "../../api/transactions.js";
 import { describeError } from "../../api/client.js";
 import { Pagination } from "../../components/Pagination.js";
+import { SkeletonRows } from "../../components/SkeletonRows.js";
 import { bhd, dash, dateTime, dayStartIso } from "../../format.js";
 import { classNames, pluralize, truncateMiddle } from "../../utils/helpers.js";
 import type { TransactionDto, TransactionStatus } from "../../types.js";
@@ -156,6 +157,7 @@ export function TransactionListPage() {
               </td>
             </tr>
           ))}
+          {transactions.length === 0 && loading ? <SkeletonRows columns={6} /> : null}
           {transactions.length === 0 && !loading ? (
             <tr>
               <td colSpan={6}>No transactions match these filters.</td>

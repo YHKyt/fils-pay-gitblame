@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { listSettlementBatches } from "../../api/settlement.js";
 import { describeError } from "../../api/client.js";
 import { Pagination } from "../../components/Pagination.js";
+import { SkeletonRows } from "../../components/SkeletonRows.js";
 import { bhd, dateTime } from "../../format.js";
 import type { SettlementBatchDto, SettlementBatchStatus } from "../../types.js";
 
@@ -121,6 +122,7 @@ export function SettlementBatchListPage() {
               <td>{dateTime(batch.paidAt)}</td>
             </tr>
           ))}
+          {batches.length === 0 && loading ? <SkeletonRows columns={7} /> : null}
           {batches.length === 0 && !loading ? (
             <tr>
               <td colSpan={7}>No settlement batches match these filters.</td>

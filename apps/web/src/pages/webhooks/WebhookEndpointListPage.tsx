@@ -6,6 +6,7 @@ import {
   updateWebhookEndpoint,
 } from "../../api/webhooks.js";
 import { describeError } from "../../api/client.js";
+import { SkeletonRows } from "../../components/SkeletonRows.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { dateTime } from "../../format.js";
 import type { WebhookEndpointDto } from "../../types.js";
@@ -138,6 +139,7 @@ export function WebhookEndpointListPage() {
               </td>
             </tr>
           ))}
+          {endpoints.length === 0 && loading ? <SkeletonRows columns={5} /> : null}
           {endpoints.length === 0 && !loading && !error ? (
             <tr>
               <td colSpan={5}>No webhook endpoints registered.</td>

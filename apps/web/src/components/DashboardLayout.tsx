@@ -3,6 +3,7 @@ import { useDashboardAuth } from "../auth/DashboardAuthContext.js";
 import { RequireRole } from "../auth/RequireRole.js";
 import { dateTime } from "../format.js";
 import { Logo } from "./Logo.js";
+import { ThemeToggle } from "./ThemeToggle.js";
 import "../dashboard.css";
 
 /** Nav shell for every merchant dashboard screen. When an admin "views as
@@ -61,6 +62,7 @@ export function DashboardLayout() {
           <button type="button" className="dash-button" onClick={() => void handleSignOut()}>
             Log out
           </button>
+          <ThemeToggle />
         </div>
       </header>
 

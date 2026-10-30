@@ -5,6 +5,7 @@ import { describeError } from "../../api/client.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { Pagination } from "../../components/Pagination.js";
+import { SkeletonRows } from "../../components/SkeletonRows.js";
 import { bhd, dash, dateTime } from "../../format.js";
 import type { PaymentLinkDto, PaymentLinkStatus } from "../../types.js";
 import { paymentLinkDisplayStatus } from "../../utils/paymentLinkStatus.js";
@@ -122,6 +123,7 @@ export function PaymentLinkListPage() {
               </tr>
             );
           })}
+          {links.length === 0 && loading ? <SkeletonRows columns={7} /> : null}
           {links.length === 0 && !loading ? (
             <tr>
               <td colSpan={7}>No payment links match these filters.</td>

@@ -5,6 +5,8 @@ import { describeError } from "../../api/client.js";
 import { StalenessBadge } from "../../components/StalenessBadge.js";
 import { bhd, dash, dateTime } from "../../format.js";
 import { formatCount } from "../../utils/helpers.js";
+import { StatCards } from "./StatCards.js";
+import { VolumeChart } from "./VolumeChart.js";
 import type { PayoutTrendsResponse, TopLinksResponse, VolumesResponse } from "../../types.js";
 
 /** 60s: comfortably above the reporting worker's 15s worst-case lag, and
@@ -100,6 +102,22 @@ export function OverviewPage() {
       </form>
 
       {error ? <p className="dash-error">{error}</p> : null}
+
+      {/* Headline roll-ups + daily trend, derived from the same analytics the
+          tables below render — no extra fetch. */}
+      {volumes && payouts ? (
+        <>
+          <StatCards volumes={volumes} payouts={payouts} />
+          <VolumeChart points={volumes.points} />
+        </>
+      ) : loading ? (
+        <div className="dash-stats" aria-hidden="true">
+          <span className="dash-skeleton dash-skeleton-card" />
+          <span className="dash-skeleton dash-skeleton-card" />
+          <span className="dash-skeleton dash-skeleton-card" />
+          <span className="dash-skeleton dash-skeleton-card" />
+        </div>
+      ) : null}
 
       <h2>
         Captured volume{" "}

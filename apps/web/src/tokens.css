@@ -1,24 +1,51 @@
 /* FilsPay design tokens — the single source of brand colour, type, radius,
-   shadow and spacing for BOTH halves of this app (the merchant dashboard and
-   the public /pay/:token checkout). Defined on :root so every `dash-*` and
-   `checkout-*` rule reads the same values; a brand tweak happens here once.
+   shadow, motion and gradient for BOTH halves of this app (the merchant
+   dashboard and the public /pay/:token checkout). Defined on :root so every
+   `dash-*`, `checkout-*` and `fp-*` rule reads the same values; a brand tweak
+   happens here once.
 
-   Only `:root` custom properties and an `@media (prefers-color-scheme: dark)`
-   override live in this file — no element or class selectors — so importing it
-   globally cannot leak a style onto either page. */
+   Theming has two layers, so a real toggle and the OS preference both work:
+     • light is the :root default;
+     • dark is applied either by the OS (prefers-color-scheme) UNLESS the
+       viewer forced light with [data-theme="light"], or explicitly by the
+       toggle with [data-theme="dark"].
+   Only custom properties live here (plus a tiny grain data-URI) — no element
+   or class selectors — so importing it globally cannot leak a style onto
+   either page. */
 
 :root {
-  /* Brand palette */
+  color-scheme: light;
+
+  /* ---- Brand palette ------------------------------------------------- */
+  /* Deep ink navy base + a vivid teal→emerald accent story. This is the
+     FilsPay signature: ink surfaces, a luminous accent, nothing borrowed. */
   --fp-ink: #0b1f3a; /* primary navy — top bar chrome + the brand chip */
-  --fp-ink-700: #15325b; /* lifted navy for gradients/hover on dark surfaces */
+  --fp-ink-700: #0f2a4a; /* lifted navy for gradients/hover on dark surfaces */
+  --fp-ink-900: #081829; /* deepest navy for the aurora floor */
   --fp-heading: #0b1f3a; /* heading / amount / wordmark text on light surfaces */
-  --fp-accent: #0fb5a6; /* teal/emerald — primary actions, active nav */
+
+  --fp-accent: #0fb5a6; /* teal — primary actions, active nav */
+  --fp-accent-2: #15c39a; /* emerald — the second stop of the brand gradient */
   --fp-accent-hover: #0c9488;
   --fp-accent-soft: #e6f7f5; /* accent tint for subtle fills */
+  --fp-accent-rgb: 15, 181, 166; /* for rgba() glows */
+
+  /* The one brand gradient, reused for primary actions, highlights and the
+     logo mark so the teal→emerald reads as deliberate, not decorative. */
+  --fp-gradient: linear-gradient(135deg, #0fb5a6 0%, #15c39a 100%);
+  --fp-gradient-ink: linear-gradient(155deg, #0f2a4a 0%, #0b1f3a 55%, #081829 100%);
+  /* Aurora/mesh wash painted behind the ink chrome and the checkout page — a
+     signature glow built only from brand hues. */
+  --fp-aurora:
+    radial-gradient(60% 120% at 12% -10%, rgba(21, 195, 154, 0.35) 0%, rgba(21, 195, 154, 0) 60%),
+    radial-gradient(45% 100% at 98% 0%, rgba(15, 181, 166, 0.28) 0%, rgba(15, 181, 166, 0) 55%),
+    radial-gradient(90% 160% at 50% 120%, rgba(11, 31, 58, 0.18) 0%, rgba(11, 31, 58, 0) 70%);
 
   --fp-surface: #ffffff;
-  --fp-surface-2: #fbfcfe; /* zebra / inset surface */
-  --fp-bg: #f6f8fb; /* app background */
+  --fp-surface-2: #f7f9fc; /* zebra / inset surface */
+  --fp-surface-glass: rgba(255, 255, 255, 0.72); /* glassy overlay surface */
+  --fp-bg: #eef2f8; /* app background */
+  --fp-bg-2: #e4ebf5;
   --fp-border: #e4e9f0;
   --fp-border-strong: #d4dbe6;
 
@@ -26,7 +53,7 @@
   --fp-muted: #5b6b82;
   --fp-faint: #8a97a8;
 
-  /* Status colours (text + soft background for pills/badges) */
+  /* Status colours (text + soft background + border for pills/badges) */
   --fp-success: #16a34a;
   --fp-success-bg: #e8f6ee;
   --fp-success-bd: #b7e2c6;
@@ -43,34 +70,134 @@
   --fp-neutral-bg: #eef1f6;
   --fp-neutral-bd: #d7deea;
 
-  /* Type */
-  --fp-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --fp-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  /* ---- Type ---------------------------------------------------------- */
+  /* Inter is bundled (see main.tsx); the stack keeps system fonts as the
+     fallback for the instant before woff2 decode. A tuned monospace carries
+     amounts and ids so digits line up. */
+  --fp-font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --fp-mono: "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 
-  /* Shape */
-  --fp-radius-sm: 6px;
-  --fp-radius: 10px;
-  --fp-radius-lg: 14px;
+  /* Expressive display scale — big, tight-tracked headings. */
+  --fp-tracking-tight: -0.02em;
+  --fp-tracking-tighter: -0.03em;
+  --fp-tracking-wide: 0.04em;
+
+  /* ---- Shape --------------------------------------------------------- */
+  --fp-radius-sm: 8px;
+  --fp-radius: 12px;
+  --fp-radius-lg: 16px;
+  --fp-radius-xl: 22px;
+
+  /* Layered, soft elevation + a faint teal-tinted ambient shadow. */
   --fp-shadow-sm: 0 1px 2px rgba(11, 31, 58, 0.06);
-  --fp-shadow: 0 1px 3px rgba(11, 31, 58, 0.08), 0 1px 2px rgba(11, 31, 58, 0.04);
-  --fp-shadow-lg: 0 10px 30px rgba(11, 31, 58, 0.12);
-  --fp-ring: 0 0 0 3px rgba(15, 181, 166, 0.35); /* focus ring */
+  --fp-shadow: 0 1px 2px rgba(11, 31, 58, 0.06), 0 4px 12px rgba(11, 31, 58, 0.06);
+  --fp-shadow-lg: 0 2px 6px rgba(11, 31, 58, 0.08), 0 18px 40px rgba(11, 31, 58, 0.14);
+  --fp-shadow-glow: 0 8px 24px rgba(var(--fp-accent-rgb), 0.35); /* accent lift */
+  --fp-ring: 0 0 0 3px rgba(var(--fp-accent-rgb), 0.35); /* focus ring */
+
+  /* ---- Motion -------------------------------------------------------- */
+  --fp-ease: cubic-bezier(0.22, 1, 0.36, 1); /* expressive ease-out */
+  --fp-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* gentle overshoot */
+  --fp-dur-fast: 0.14s;
+  --fp-dur: 0.24s;
+  --fp-dur-slow: 0.5s;
+
+  /* A whisper of film grain, lifted over the aurora so gradients never band.
+     Inline SVG turbulence — no external asset, works offline. */
+  --fp-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");
 }
 
+/* ---- Dark theme ------------------------------------------------------ */
+/* A real, intentional dark theme: deep navy-black surfaces, a brighter accent
+   for contrast, grain-lit ink chrome — not an inverted grey. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --fp-ink: #060f1d;
+  --fp-ink-700: #0e2947;
+  --fp-ink-900: #030a15;
+  --fp-heading: #f1f6fc;
+
+  --fp-accent: #2dd4bf;
+  --fp-accent-2: #34d399;
+  --fp-accent-hover: #5eead4;
+  --fp-accent-soft: #10342f;
+  --fp-accent-rgb: 45, 212, 191;
+
+  --fp-gradient: linear-gradient(135deg, #2dd4bf 0%, #34d399 100%);
+  --fp-gradient-ink: linear-gradient(155deg, #0e2947 0%, #081829 55%, #030a15 100%);
+  --fp-aurora:
+    radial-gradient(60% 120% at 12% -10%, rgba(52, 211, 153, 0.22) 0%, rgba(52, 211, 153, 0) 60%),
+    radial-gradient(45% 100% at 98% 0%, rgba(45, 212, 191, 0.2) 0%, rgba(45, 212, 191, 0) 55%),
+    radial-gradient(90% 160% at 50% 120%, rgba(45, 212, 191, 0.12) 0%, rgba(45, 212, 191, 0) 70%);
+
+  --fp-surface: #0f1b2d;
+  --fp-surface-2: #13233a;
+  --fp-surface-glass: rgba(16, 28, 46, 0.66);
+  --fp-bg: #070e1a;
+  --fp-bg-2: #0a1424;
+  --fp-border: #1e2f45;
+  --fp-border-strong: #2a3d57;
+
+  --fp-text: #e7edf5;
+  --fp-muted: #9fb0c6;
+  --fp-faint: #7889a0;
+
+  --fp-success: #4ade80;
+  --fp-success-bg: #10281b;
+  --fp-success-bd: #1f4d33;
+  --fp-danger: #f87171;
+  --fp-danger-bg: #2a1414;
+  --fp-danger-bd: #4d2323;
+  --fp-warning: #fbbf24;
+  --fp-warning-bg: #2a2110;
+  --fp-warning-bd: #4d3d1a;
+  --fp-info: #60a5fa;
+  --fp-info-bg: #12213d;
+  --fp-info-bd: #243a5e;
+  --fp-neutral: #94a3b8;
+  --fp-neutral-bg: #1b2a40;
+  --fp-neutral-bd: #2c3f59;
+
+  --fp-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --fp-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 16px rgba(0, 0, 0, 0.45);
+  --fp-shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.5), 0 24px 48px rgba(0, 0, 0, 0.6);
+  --fp-shadow-glow: 0 8px 28px rgba(var(--fp-accent-rgb), 0.4);
+  --fp-ring: 0 0 0 3px rgba(var(--fp-accent-rgb), 0.45);
+}
+
+/* Same dark palette when the OS asks for dark and the viewer hasn't forced
+   light. Duplicated rather than @media-nested so the toggle above always
+   wins specificity-for-specificity. */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --fp-ink: #0a1726; /* deep navy chrome */
-    --fp-ink-700: #16304f;
-    --fp-heading: #f1f6fc; /* headings read light on dark surfaces */
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --fp-ink: #060f1d;
+    --fp-ink-700: #0e2947;
+    --fp-ink-900: #030a15;
+    --fp-heading: #f1f6fc;
+
     --fp-accent: #2dd4bf;
+    --fp-accent-2: #34d399;
     --fp-accent-hover: #5eead4;
     --fp-accent-soft: #10342f;
+    --fp-accent-rgb: 45, 212, 191;
 
-    --fp-surface: #111c2e;
-    --fp-surface-2: #16233a;
-    --fp-bg: #0b1522;
-    --fp-border: #223247;
-    --fp-border-strong: #2c3f59;
+    --fp-gradient: linear-gradient(135deg, #2dd4bf 0%, #34d399 100%);
+    --fp-gradient-ink: linear-gradient(155deg, #0e2947 0%, #081829 55%, #030a15 100%);
+    --fp-aurora:
+      radial-gradient(60% 120% at 12% -10%, rgba(52, 211, 153, 0.22) 0%, rgba(52, 211, 153, 0) 60%),
+      radial-gradient(45% 100% at 98% 0%, rgba(45, 212, 191, 0.2) 0%, rgba(45, 212, 191, 0) 55%),
+      radial-gradient(90% 160% at 50% 120%, rgba(45, 212, 191, 0.12) 0%, rgba(45, 212, 191, 0) 70%);
+
+    --fp-surface: #0f1b2d;
+    --fp-surface-2: #13233a;
+    --fp-surface-glass: rgba(16, 28, 46, 0.66);
+    --fp-bg: #070e1a;
+    --fp-bg-2: #0a1424;
+    --fp-border: #1e2f45;
+    --fp-border-strong: #2a3d57;
 
     --fp-text: #e7edf5;
     --fp-muted: #9fb0c6;
@@ -93,8 +220,9 @@
     --fp-neutral-bd: #2c3f59;
 
     --fp-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --fp-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
-    --fp-shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.55);
-    --fp-ring: 0 0 0 3px rgba(45, 212, 191, 0.4);
+    --fp-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 16px rgba(0, 0, 0, 0.45);
+    --fp-shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.5), 0 24px 48px rgba(0, 0, 0, 0.6);
+    --fp-shadow-glow: 0 8px 28px rgba(var(--fp-accent-rgb), 0.4);
+    --fp-ring: 0 0 0 3px rgba(var(--fp-accent-rgb), 0.45);
   }
 }
