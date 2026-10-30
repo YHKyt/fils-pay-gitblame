@@ -77,3 +77,30 @@ pays 113,000, `merchant_payable` and the cache end at 0.
   - Before (old `batch.go`): the first two fail with the lines quoted above
     (backdated: "day 2 net payout = 0, want 7000", "merchant_payable = 7000,
     want 0"). After: all pass.
+
+## Checked, not changed
+
+- **Two roundings for a discounted fee** (ADR-0001 item 4, "one rounding").
+  `ComputeSettlementFee` (Go) and `capture.ts` round the discount and then the
+  MDR, each half-to-even. A single rounding of `amount x (10000 - discount) x
+  mdr / 10^8` differs by 1 fil on about 1% of amounts (50 bps discount at
+  250 bps: 2,500 of 1..200,000 fils, first at 60 fils: 2 vs 1). Capture and
+  settlement agree with each other, and the booked fee is what settles, so
+  this is a pricing-policy question for finance, not a ledger break.
+- **Reconciliation and backdated credits.** With AD1 a credit is settled by the
+  batch that claims it. A credit backdated into an earlier, already closed day
+  shows as +gap on that day and -gap on the claiming day; a range covering
+  both explains to zero. Same-day credits now explain.
+- **Migration numbers 0054-0056** are reused although ADR-0005 reserves them.
+  `db/migrate.ts` tracks applied files by full filename, so a database that
+  ran an abandoned 0054 still applies `0054_views.sql`. Renaming applied
+  migrations would be the riskier change.
+- **`FEATURE_ASYNC_CLOSE`** (ARCHITECTURE "Operations") is not read anywhere.
+  Documentation only.
+- **Dead float helpers** against ADR-0001: `apps/api/src/fees/estimate.ts`
+  (float rates, `Math.round`), `apps/api/src/lib/decimal.ts` (truncates extra
+  decimals instead of rejecting), `EstimateMonthlyPayout` (float32). None has
+  a caller, so nothing produces a wrong figure today.
+- **Batch detail progress bar** (`apps/web/src/pages/settlement/SettlementBatchDetailPage.tsx:84`)
+  converts `grossFils / 10000` through `toFixed(2)` / `parseFloat`. It only
+  sets a bar width (full at 1,000 BD); no amount is shown from it.
