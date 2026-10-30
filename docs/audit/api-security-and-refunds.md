@@ -260,6 +260,26 @@ Smallest fix each, one commit each, with a regression test confirmed to fail bef
 ## S8. CSRF / CORS review — no change needed
 No CORS plugin is registered, so cross-origin scripts cannot read responses. Session cookies are `SameSite=Lax`, so cross-site POST, PUT and DELETE requests carry no cookie. No GET route mutates state (checked every `app.get` handler). JSON bodies are only parsed for `application/json`, which a cross-site form cannot send without a preflight. The residual risk is a hostile *same-site* origin (a sibling subdomain): if one is ever hosted, add an `Origin` check on cookie-authenticated writes.
 
+## S9. The authorize idempotency hash stored the card, CVV included (PCI) — High
+**Where:** `apps/api/src/payments/authorize.ts`. Both `POST /v1/transactions` and the public `POST /v1/payment-links/:token/pay` authorize through it. Fixed in `0c34a1e`.
+- **What:** `idempotency_keys.request_hash` was `sha256(canonicalJson({ amountFils, card, reference }))`: the whole card, PAN and CVV included, with no key. `acquirerIdempotencyKey` is derived from it.
+- **Breaks:** PCI DSS forbids storing the CVV after authorization in any form, even hashed. The amount and reference are on the transactions row. With them and the PAN, the CVV is one of 1,000 sha256 guesses. With a known BIN, the expiry and the Luhn digit, the PAN is a search small enough to run. Anyone who could read the table could recover card data: a backup, a replica, or SQL injection.
+- **Fix:** the hash carries `HMAC-SHA256(key, { pan, expiryMonth, expiryYear })` in place of the card. The key is HKDF-derived from `WEBHOOK_SECRET_ENCRYPTION_KEY` (required in every environment) under its own label. Every instance of a deployment derives the same key, so a retry still hashes, and keys the acquirer, the same. The CVV is in neither the hash nor the fingerprint.
+  - The same key with the same request still replays.
+  - Another amount, PAN, expiry or reference is still 422 `idempotency_key_reused`.
+  - A retry that differs only in the CVV now replays instead of conflicting. The checkout rotates its key on any card change, so it is not affected.
+  - The other `hashRequest` callers hash no card data: capture, refund, and admin credits and balance adjustments.
+- **Test:** `apps/api/src/routes/authorizeCardHash.test.ts`, 5 tests:
+  - The stored hash matches no unkeyed sha256 of JSON carrying the card, and a 000–999 CVV search finds nothing.
+  - Two authorizations that differ only in the CVV store the same hash, and another PAN or expiry changes it.
+  - A second app with a different server secret stores a different hash.
+  - Replay and the four conflicts still hold, with one acquirer call.
+  - The payment-link pay path stores a card-free hash too.
+  - Before: all 5 fail. The errors were `request_hash is an unkeyed sha256 of JSON carrying the card`, a hash that changed with the CVV, the same hash under both secrets, and `422 !== 201` on the CVV-only retry. After: pass.
+- **Open:**
+  - Rows written before the fix still hold the old hash. They can never match a new request, so overwriting `request_hash` on existing `transactions.authorize` rows would lose nothing. That is a production data change, so it is left to the owner.
+  - A same-key retry that spans the deploy gets 422 instead of a replay. Rotating `WEBHOOK_SECRET_ENCRYPTION_KEY` has the same effect.
+
 ---
 
 ## Round 2 (board items B1–B6)

@@ -82,4 +82,9 @@ regression test that fails on the pre-fix code and passes on the fix.
 - **Fee avoidance by splitting captures (pricing decision).** The fee is rounded half-to-even per capture event (`capture.ts`, as `ARCHITECTURE.md` specifies). At 250 bps a 20-fils capture carries a 0-fils fee (`applyRateFils(20, 250) = 0`, against 250 for 10,000), so 500 partial captures of 20 fils on a 10,000-fils authorization book 0 fils of MDR instead of 250. Charging the fee on the cumulative captured amount would close this gap, but it changes the fee model that settlement and refund fee reversal rely on. This needs a finance decision, so it is not changed here.
 - **No upper bound on `amountFils`.** Any safe integer is accepted (9,007,199,254,740,991 fils was authorized). Nothing documents a per-transaction limit, so this is left as a policy question.
 - **`currency` in the authorize body is ignored.** A body with `"currency":"USD"` is authorized in BHD. The platform is BHD-only (`CHECK (currency = 'BHD')`), and `amountFils` names the unit, so this is noted only.
-- **`limit=0` on the list returns one row** (it is clamped to 1) instead of a 400 or the default.
+- **Fixed in `1195b44`: `limit=0` on the list returned one row** (it was clamped to 1) instead of a 400 or the default.
+  - Since B6b (`eaca6e2`), the route already answered 400 `invalid_request` for a negative or non-numeric limit, so zero now gets the same 400. The parser is `parseOptionalPositiveInt`, renamed from `parseOptionalNonNegativeInt`.
+  - An empty `limit=` still means the default page, and a value above 100 is still capped.
+  - The lenient lists keep their WF5 behaviour: payment links, deliveries, settlement batches and admin lists use the default page for a non-numeric limit, and still clamp 0 to 1.
+  - Test: `apps/api/src/routes/transactionsListLimit.test.ts`. On the old code, `limit=0` gave `400 !== 200`.
+- **Card data in the authorize idempotency hash (PCI).** Fixed in `0c34a1e`; see `api-security-and-refunds.md` S9.
