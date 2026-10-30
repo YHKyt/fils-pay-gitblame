@@ -271,10 +271,25 @@ export async function processRefund(
     }
     if (acquirerResult.outcome !== "approved") {
       // Release the step-1 reservation.
-      await client.query(`UPDATE transactions SET refunded_fils = refunded_fils - $2 WHERE id = $1`, [
-        prepared.transactionId,
-        prepared.requestedAmount,
-      ]);
+      const released = await client.query<{ status: string; amount_fils: string; captured_fils: string; refunded_fils: string }>(
+        `UPDATE transactions SET refunded_fils = refunded_fils - $2 WHERE id = $1
+         RETURNING status, amount_fils, captured_fils, refunded_fils`,
+        [prepared.transactionId, prepared.requestedAmount],
+      );
+      // While the reservation was held, something that derives the status
+      // from refunded_fils (the admin status recompute) may have moved the
+      // row to a refunded status on the strength of this refund. Undo that:
+      // the status may only go back down to what the remaining refunded_fils
+      // supports, never up (other refunds may still be in flight).
+      const row = released.rows[0]!;
+      const supported = nextStatusAfterRefund({
+        amountFils: toFils(Number(row.amount_fils)),
+        capturedFils: toFils(Number(row.captured_fils)),
+        refundedTotalFils: toFils(Number(row.refunded_fils)),
+      });
+      if (refundRank(supported) < refundRank(row.status)) {
+        await client.query(`UPDATE transactions SET status = $2 WHERE id = $1`, [prepared.transactionId, supported]);
+      }
     }
     if (acquirerResult.outcome === "declined") {
       const body = { error: "refund_declined" };
@@ -499,6 +514,25 @@ async function takeOverStaleAttempt(client: PoolClient, row: IdempotencyKeyRow):
   );
   const updated = result.rows[0];
   return updated ? { ...row, attemptCount: updated.attempt_count, responseBody: updated.response_body } : null;
+}
+
+/**
+ * How far along the refund side a status is. Statuses outside the refund
+ * lifecycle (chargeback, voided, authorized) rank highest, so they are never
+ * replaced by a derived one.
+ */
+function refundRank(status: string): number {
+  switch (status) {
+    case "captured":
+    case "partially_captured":
+      return 0;
+    case "partially_refunded":
+      return 1;
+    case "refunded":
+      return 2;
+    default:
+      return Number.MAX_SAFE_INTEGER;
+  }
 }
 
 /**
