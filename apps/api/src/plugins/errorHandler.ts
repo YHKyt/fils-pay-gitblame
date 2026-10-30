@@ -7,6 +7,40 @@ import { formatIsoDate } from "../lib/dateFormat.js";
  * should throw an `AppError` subclass; this is the single place that turns
  * one into `{ "error": "code", "message"?: "string" }`.
  */
+// Fastify refuses an over-limit body from its Content-Length before reading
+// it. Answering at once and closing the socket made a client still writing
+// the upload fail with EPIPE/ECONNRESET instead of reading the 413. Read and
+// discard the rest first, up to DRAIN_MAX_BYTES or DRAIN_MAX_MS; past either
+// the socket is closed as before.
+const DRAIN_MAX_BYTES = 64 * 1024 * 1024;
+const DRAIN_MAX_MS = 10_000;
+
+function drainThen(request: FastifyRequest, respond: () => void): void {
+  const raw = request.raw;
+  if (raw.complete || raw.destroyed) {
+    respond();
+    return;
+  }
+  let drained = 0;
+  let done = false;
+  const finish = (): void => {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    raw.removeListener("data", onData);
+    respond();
+  };
+  const onData = (chunk: Buffer): void => {
+    drained += chunk.length;
+    if (drained > DRAIN_MAX_BYTES) finish();
+  };
+  const timer = setTimeout(finish, DRAIN_MAX_MS);
+  raw.on("data", onData);
+  raw.once("end", finish);
+  raw.once("error", finish);
+  raw.resume();
+}
+
 // am: 500s log the full err incl. pg detail, might contain card ref? fine its server-side
 export function errorHandler(
   err: FastifyError | Error,
@@ -34,7 +68,7 @@ export function errorHandler(
   // A JSON body over Fastify's bodyLimit (1 MiB), e.g. a large pasted
   // adjustments CSV: the client sent too much, the server did not crash.
   if (fastifyErr.code === "FST_ERR_CTP_BODY_TOO_LARGE") {
-    reply.code(413).send({ error: "payload_too_large", message: fastifyErr.message });
+    drainThen(request, () => reply.code(413).send({ error: "payload_too_large", message: fastifyErr.message }));
     return;
   }
 
