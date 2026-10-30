@@ -12,6 +12,7 @@ import { attemptFor, isDefinitiveFailure, type IdempotentAttempt } from "../../u
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { StatusPill } from "../../components/StatusPill.js";
+import { CountUp } from "../../components/CountUp.js";
 import type { AdminMerchantDetail, CreditReasonCode, RotatedApiKey } from "../../types.js";
 
 function bhd(fils: number): string {
@@ -241,7 +242,24 @@ export function MerchantDetailPage() {
   }
 
   if (!detail) {
-    return <p>Loading merchant...</p>;
+    return (
+      <section aria-busy="true" aria-label="Loading merchant">
+        <div className="admin-skeleton admin-skel-line w-40" style={{ height: "1.6rem" }} />
+        <div className="admin-skeleton admin-skel-line w-60" />
+        <div className="admin-stat-grid">
+          <div className="admin-skeleton admin-skel-card" />
+          <div className="admin-skeleton admin-skel-card" />
+          <div className="admin-skeleton admin-skel-card" />
+          <div className="admin-skeleton admin-skel-card" />
+        </div>
+        <div className="admin-card">
+          <div className="admin-skeleton admin-skel-line w-80" />
+          <div className="admin-skeleton admin-skel-line w-60" />
+          <div className="admin-skeleton admin-skel-line w-80" />
+          <div className="admin-skeleton admin-skel-line w-40" />
+        </div>
+      </section>
+    );
   }
 
   const { merchant } = detail;
@@ -263,6 +281,50 @@ export function MerchantDetailPage() {
 
       {actionError ? <p className="admin-error">{actionError}</p> : null}
       {notice ? <p className="admin-notice">{notice}</p> : null}
+
+      {/* At-a-glance summary of figures already shown below — presentation
+          only, same values, read straight from `detail`. */}
+      <div className="admin-stat-grid">
+        <div className="admin-stat">
+          <p className="admin-stat-label">Cached payable</p>
+          <div className="admin-stat-value">
+            {detail.balance ? (
+              <CountUp value={detail.balance.cachedPayableFils} format={bhd} />
+            ) : (
+              <span className="admin-muted">—</span>
+            )}
+          </div>
+          <p className="admin-stat-sub">
+            {detail.balance ? `Updated ${dateTime(detail.balance.updatedAt)}` : "No cached balance row yet"}
+          </p>
+        </div>
+        <div className="admin-stat">
+          <p className="admin-stat-label">Effective MDR</p>
+          <div className="admin-stat-value">
+            {(merchant.mdrBps / 100).toFixed(2)}
+            <span className="admin-stat-unit">%</span>
+          </div>
+          <p className="admin-stat-sub">{merchant.mdrBps} bps</p>
+        </div>
+        <div className="admin-stat">
+          <p className="admin-stat-label">Account</p>
+          <div className="admin-stat-value" style={{ fontSize: "1.1rem" }}>
+            <StatusPill value={merchant.status} />
+          </div>
+          <p className="admin-stat-sub">
+            <StatusPill value={merchant.testMode ? "test" : "live"} />
+          </p>
+        </div>
+        <div className="admin-stat">
+          <p className="admin-stat-label">Onboarding</p>
+          <div className="admin-stat-value" style={{ fontSize: "1.1rem" }}>
+            <StatusPill value={merchant.onboardingStatus} />
+          </div>
+          <p className="admin-stat-sub">
+            KYC <StatusPill value={merchant.kycPassed ? "passed" : "not passed"} />
+          </p>
+        </div>
+      </div>
 
       <h2>Profile</h2>
       <dl className="admin-dl">
@@ -320,7 +382,11 @@ export function MerchantDetailPage() {
       <h2>Balance</h2>
       {detail.balance ? (
         <p>
-          Cached payable: <strong>{bhd(detail.balance.cachedPayableFils)}</strong> (updated{" "}
+          Cached payable:{" "}
+          <strong>
+            <CountUp value={detail.balance.cachedPayableFils} format={bhd} />
+          </strong>{" "}
+          (updated{" "}
           {dateTime(detail.balance.updatedAt)}). The ledger remains authoritative;
           this figure is a cache, rebuildable from Settlement ops.
         </p>

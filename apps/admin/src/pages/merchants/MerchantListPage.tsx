@@ -227,6 +227,25 @@ export function MerchantListPage() {
               <td className="admin-num">{date(merchant.createdAt)}</td>
             </tr>
           ))}
+          {merchants.length === 0 && loading
+            ? Array.from({ length: 6 }).map((_, i) => (
+                <tr key={`skeleton-${i}`} className="is-skeleton" aria-hidden="true">
+                  <td>
+                    <div className="admin-skeleton" style={{ width: "1rem", height: "1rem" }} />
+                  </td>
+                  <td>
+                    <div className="admin-skeleton admin-skel-line w-80" />
+                    <div className="admin-skeleton admin-skel-line w-60" />
+                  </td>
+                  <td><div className="admin-skeleton admin-skel-line w-60" /></td>
+                  <td><div className="admin-skeleton admin-skel-line w-60" /></td>
+                  <td><div className="admin-skeleton admin-skel-line w-60" /></td>
+                  <td className="admin-num"><div className="admin-skeleton admin-skel-line w-80" /></td>
+                  <td><div className="admin-skeleton admin-skel-line w-40" /></td>
+                  <td className="admin-num"><div className="admin-skeleton admin-skel-line w-80" /></td>
+                </tr>
+              ))
+            : null}
           {merchants.length === 0 && !loading ? (
             <tr>
               <td colSpan={8}>
@@ -237,7 +256,7 @@ export function MerchantListPage() {
         </tbody>
       </table>
 
-      {loading ? <p className="admin-loading">Loading...</p> : null}
+      {loading && merchants.length > 0 ? <p className="admin-loading">Loading...</p> : null}
 
       {nextCursor ? (
         <button type="button" disabled={loading} onClick={() => void load(nextCursor)}>
