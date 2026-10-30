@@ -49,3 +49,23 @@ test("the commit-time group balance check (ledger_entries_balance) looks the gro
   assert.match(text, /Index Cond: \(entry_group_id = /, text);
   assert.doesNotMatch(text, /Seq Scan on ledger_entries/, text);
 });
+
+test("a refund reads the transaction's charged fee from the ledger by index", async () => {
+  // Same lookup as payments/processRefund.ts, which runs it under the
+  // transaction's row lock.
+  const source = await import("node:fs/promises").then((fs) =>
+    fs.readFile(new URL("../payments/processRefund.ts", import.meta.url), "utf8"),
+  );
+  assert.match(source, /FROM ledger_entries\s+WHERE transaction_id = \$1\s+AND account_id = 'platform_fee_revenue'/);
+
+  const text = await planOf(
+    `SELECT COALESCE(SUM(CASE WHEN direction = 'credit' THEN amount_fils ELSE -amount_fils END), 0)
+       FROM ledger_entries
+      WHERE transaction_id = $1
+        AND account_id = 'platform_fee_revenue'
+        AND description NOT LIKE 'refund:%'`,
+    ["00000000-0000-0000-0000-000000000000"],
+  );
+  assert.match(text, /Index Cond: \(transaction_id = /, text);
+  assert.doesNotMatch(text, /Seq Scan on ledger_entries/, text);
+});

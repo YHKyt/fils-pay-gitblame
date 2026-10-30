@@ -15,3 +15,9 @@
 -- (about 1.5 s for 1.5 million rows).
 
 CREATE INDEX idx_ledger_entries_entry_group ON ledger_entries (entry_group_id);
+
+-- transaction_id: every refund reads the fee the transaction was charged
+-- from its platform_fee_revenue legs (payments/processRefund.ts) while it
+-- holds the transaction's row lock. Without an index that is a full ledger
+-- scan per refund (about 90-100 ms at 1.5 million rows, 0.2 ms with it).
+CREATE INDEX idx_ledger_entries_transaction ON ledger_entries (transaction_id);
