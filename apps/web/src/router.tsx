@@ -17,6 +17,7 @@ import { SettlementBatchListPage } from "./pages/settlement/SettlementBatchListP
 import { SettlementBatchDetailPage } from "./pages/settlement/SettlementBatchDetailPage.js";
 import { ReconciliationPage } from "./pages/settlement/ReconciliationPage.js";
 import { OverviewPage } from "./pages/overview/OverviewPage.js";
+import { NotFoundPage } from "./pages/NotFoundPage.js";
 
 // MK: /refunds route removed until FP-212
 export const router = createBrowserRouter([
@@ -101,4 +102,9 @@ export const router = createBrowserRouter([
       },
     ],
   },
+
+  // Any unmatched address — a mistyped /dashboard path or a stray URL — lands
+  // here rather than on React Router's bare default error screen. It sits
+  // outside the auth provider above, so a bad URL triggers no session call.
+  { path: "*", element: <NotFoundPage /> },
 ]);
