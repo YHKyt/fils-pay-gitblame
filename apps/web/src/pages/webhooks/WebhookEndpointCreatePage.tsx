@@ -116,7 +116,7 @@ export function WebhookEndpointCreatePage() {
             onChange={(e) => setUrl(e.target.value)}
           />
         </label>
-        <button type="submit" className="dash-button" disabled={submitting}>
+        <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
           {submitting ? "Creating..." : "Create endpoint"}
         </button>
       </form>

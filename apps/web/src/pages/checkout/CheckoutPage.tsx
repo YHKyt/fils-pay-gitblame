@@ -6,7 +6,58 @@ import { ApiError } from "../../api/client.js";
 import { bahrainDateTime } from "../../format.js";
 import type { PaymentLinkPublicDto, SimulatedCardInput } from "../../types.js";
 import { endsCheckoutAttempt, isOutcomeUnknown, resolveLostPayment } from "../../utils/checkoutRecovery.js";
+import { Logo } from "../../components/Logo.js";
 import "./CheckoutPage.css";
+
+/** A small inline lock glyph — a trust cue for the hosted payment page. No
+ *  external asset (the box is offline). */
+function LockIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      focusable="false"
+      style={{ verticalAlign: "-1px" }}
+    >
+      <rect x="4" y="10" width="16" height="11" rx="2.5" fill="currentColor" opacity="0.18" />
+      <rect x="4" y="10" width="16" height="11" rx="2.5" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M8 10V7.5a4 4 0 0 1 8 0V10" stroke="currentColor" strokeWidth="1.6" fill="none" />
+      <circle cx="12" cy="15" r="1.6" fill="currentColor" />
+    </svg>
+  );
+}
+
+/** The chrome shared by every checkout state: brand header, a single content
+ *  card, and a FilsPay trust footer. Presentation only — each state renders
+ *  its own content inside. `tone` tints the card header strip for success /
+ *  error / neutral states. */
+function CheckoutShell({
+  children,
+  tone = "neutral",
+}: {
+  children: React.ReactNode;
+  tone?: "neutral" | "success" | "error" | "info";
+}) {
+  return (
+    <div className="checkout-root">
+      <div className={`checkout-page checkout-tone-${tone}`}>
+        <header className="checkout-header">
+          <Logo tone="ink" size={24} />
+          <span className="checkout-secure">
+            <LockIcon /> Secure checkout
+          </span>
+        </header>
+        <div className="checkout-card">{children}</div>
+        <footer className="checkout-footer">
+          <LockIcon size={12} /> Payments secured by <strong>FilsPay</strong>
+        </footer>
+      </div>
+    </div>
+  );
+}
 
 type LoadState =
   | { kind: "loading" }
@@ -184,18 +235,18 @@ export function CheckoutPage() {
 
   if (loadState.kind === "loading") {
     return (
-      <main className="checkout-page">
-        <p>Loading...</p>
-      </main>
+      <CheckoutShell>
+        <p className="checkout-loading">Loading payment details…</p>
+      </CheckoutShell>
     );
   }
 
   if (loadState.kind === "not_found") {
     return (
-      <main className="checkout-page">
+      <CheckoutShell tone="error">
         <h1>Payment link not found</h1>
-        <p>This payment link does not exist.</p>
-      </main>
+        <p className="checkout-message">This payment link does not exist.</p>
+      </CheckoutShell>
     );
   }
 
@@ -203,14 +254,19 @@ export function CheckoutPage() {
 
   if (payState.kind === "success") {
     return (
-      <main className="checkout-page">
-        <h1>Payment successful</h1>
-        <p>Thank you — your payment has been received.</p>
-        <dl>
+      <CheckoutShell tone="success">
+        <div className="checkout-result">
+          <span className="checkout-result-icon checkout-result-icon-success" aria-hidden="true">
+            ✓
+          </span>
+          <h1>Payment successful</h1>
+          <p className="checkout-message">Thank you — your payment has been received.</p>
+        </div>
+        <dl className="checkout-receipt">
           <dt>Merchant</dt>
           <dd>{link.merchantDisplayName}</dd>
           <dt>Amount</dt>
-          <dd>{formatBhd(toFils(payState.receipt.amountFils))} BHD</dd>
+          <dd className="checkout-receipt-amount">{formatBhd(toFils(payState.receipt.amountFils))} BHD</dd>
           {link.reference ? (
             <>
               <dt>Reference</dt>
@@ -220,7 +276,9 @@ export function CheckoutPage() {
           {payState.receipt.transactionId ? (
             <>
               <dt>Transaction ID</dt>
-              <dd>{payState.receipt.transactionId}</dd>
+              <dd>
+                <code>{payState.receipt.transactionId}</code>
+              </dd>
             </>
           ) : null}
           {payState.receipt.paidAt ? (
@@ -230,49 +288,56 @@ export function CheckoutPage() {
             </>
           ) : null}
         </dl>
-      </main>
+      </CheckoutShell>
     );
   }
 
   if (payState.kind === "terminal") {
     return (
-      <main className="checkout-page">
+      <CheckoutShell tone="error">
         <h1>Unable to pay</h1>
-        <p>{payState.message}</p>
-      </main>
+        <p className="checkout-message">{payState.message}</p>
+      </CheckoutShell>
     );
   }
 
   if (link.status === "paid") {
     return (
-      <main className="checkout-page">
-        <h1>Already paid</h1>
-        <p>This invoice has already been paid.</p>
-      </main>
+      <CheckoutShell tone="success">
+        <div className="checkout-result">
+          <span className="checkout-result-icon checkout-result-icon-success" aria-hidden="true">
+            ✓
+          </span>
+          <h1>Already paid</h1>
+          <p className="checkout-message">This invoice has already been paid.</p>
+        </div>
+      </CheckoutShell>
     );
   }
   if (link.status === "expired") {
     return (
-      <main className="checkout-page">
+      <CheckoutShell tone="error">
         <h1>Link expired</h1>
-        <p>This payment link has expired.</p>
-      </main>
+        <p className="checkout-message">This payment link has expired.</p>
+      </CheckoutShell>
     );
   }
   if (link.status === "canceled") {
     return (
-      <main className="checkout-page">
+      <CheckoutShell tone="error">
         <h1>No longer available</h1>
-        <p>This payment link is no longer available.</p>
-      </main>
+        <p className="checkout-message">This payment link is no longer available.</p>
+      </CheckoutShell>
     );
   }
   if (link.status === "processing") {
     return (
-      <main className="checkout-page">
+      <CheckoutShell tone="info">
         <h1>Payment processing</h1>
-        <p>A payment is being processed for this link. This page updates automatically.</p>
-      </main>
+        <p className="checkout-loading">
+          A payment is being processed for this link. This page updates automatically.
+        </p>
+      </CheckoutShell>
     );
   }
 
@@ -281,13 +346,19 @@ export function CheckoutPage() {
   const submitting = payState.kind === "submitting" || payState.kind === "verifying";
 
   return (
-    <main className="checkout-page">
-      <h1>{link.merchantDisplayName}</h1>
-      <p className="checkout-amount">{amount} BHD</p>
-      {link.description ? <p className="checkout-description">{link.description}</p> : null}
-      {link.reference ? <p className="checkout-reference">Reference: {link.reference}</p> : null}
+    <CheckoutShell>
+      <div className="checkout-summary">
+        <p className="checkout-merchant">{link.merchantDisplayName}</p>
+        <p className="checkout-amount">{amount} BHD</p>
+        {link.description ? <p className="checkout-description">{link.description}</p> : null}
+        {link.reference ? <p className="checkout-reference">Reference: {link.reference}</p> : null}
+      </div>
 
-      {payState.kind === "declined" ? <p className="checkout-error">{payState.message}</p> : null}
+      {payState.kind === "declined" ? (
+        <p className="checkout-error" role="alert">
+          {payState.message}
+        </p>
+      ) : null}
 
       <form onSubmit={handleSubmit} className="checkout-form">
         <label>
@@ -357,6 +428,6 @@ export function CheckoutPage() {
         <code>0002</code> always declines (do not honor); ending <code>0119</code> always declines
         (insufficient funds); ending <code>0069</code> always errors.
       </p>
-    </main>
+    </CheckoutShell>
   );
 }

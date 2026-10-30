@@ -134,8 +134,8 @@ export function TransactionListPage() {
             <th>Occurred</th>
             <th>Reference</th>
             <th>Status</th>
-            <th>Authorized</th>
-            <th>Captured</th>
+            <th className="dash-num">Authorized</th>
+            <th className="dash-num">Captured</th>
             <th>Acquirer reference</th>
           </tr>
         </thead>
@@ -149,8 +149,8 @@ export function TransactionListPage() {
               <td>
                 <span className={classNames("dash-status", `dash-status-${txn.status}`)}>{txn.status}</span>
               </td>
-              <td>{bhd(txn.amountFils)}</td>
-              <td>{bhd(txn.capturedFils)}</td>
+              <td className="dash-num">{bhd(txn.amountFils)}</td>
+              <td className="dash-num">{bhd(txn.capturedFils)}</td>
               <td>
                 <code>{truncateMiddle(txn.acquirerReference, 20)}</code>
               </td>
@@ -164,7 +164,7 @@ export function TransactionListPage() {
         </tbody>
       </table>
 
-      {loading ? <p>Loading...</p> : null}
+      {loading ? <p className="dash-loading">Loading…</p> : null}
 
       <Pagination nextCursor={nextCursor} loading={loading} onLoadMore={() => void load(nextCursor)} />
     </section>

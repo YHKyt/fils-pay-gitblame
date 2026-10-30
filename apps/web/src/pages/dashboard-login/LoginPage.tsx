@@ -9,6 +9,7 @@ import {
 } from "../../auth/DashboardAuthContext.js";
 import type { DashboardLoginResponse } from "../../types.js";
 import { bahrainTime } from "../../format.js";
+import { Logo } from "../../components/Logo.js";
 import "../../dashboard.css";
 
 type Step = { kind: "credentials" } | { kind: "otp"; challenge: DashboardLoginResponse };
@@ -122,8 +123,11 @@ export function LoginPage() {
 
   return (
     <main className="dash-centered">
-      <h1>FilsPay dashboard</h1>
-      <p className="dash-muted">Merchant sign-in.</p>
+      <div className="dash-login-logo">
+        <Logo tone="ink" size={30} />
+      </div>
+      <h1>Merchant dashboard</h1>
+      <p className="dash-muted">Sign in to your FilsPay account.</p>
 
       {error ? <p className="dash-error">{error}</p> : null}
       {notice ? <p className="dash-notice">{notice}</p> : null}
@@ -166,7 +170,7 @@ export function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
             />
           </label>
-          <button type="submit" className="dash-button" disabled={submitting}>
+          <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
             {submitting ? "Signing in..." : "Continue"}
           </button>
         </form>
@@ -192,7 +196,7 @@ export function LoginPage() {
               onChange={(e) => setCode(e.target.value)}
             />
           </label>
-          <button type="submit" className="dash-button" disabled={submitting}>
+          <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
             {submitting ? "Verifying..." : "Verify"}
           </button>
           <button

@@ -238,7 +238,7 @@ export function WebhookEndpointDetailPage() {
         </tbody>
       </table>
 
-      {loading ? <p>Loading...</p> : null}
+      {loading ? <p className="dash-loading">Loading…</p> : null}
 
       <Pagination
         nextCursor={nextCursor}

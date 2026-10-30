@@ -2,6 +2,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useDashboardAuth } from "../auth/DashboardAuthContext.js";
 import { RequireRole } from "../auth/RequireRole.js";
 import { dateTime } from "../format.js";
+import { Logo } from "./Logo.js";
 import "../dashboard.css";
 
 /** Nav shell for every merchant dashboard screen. When an admin "views as
@@ -31,7 +32,9 @@ export function DashboardLayout() {
         </div>
       ) : null}
       <header className="dash-header">
-        <div className="dash-brand">FilsPay</div>
+        <div className="dash-brand">
+          <Logo tone="light" />
+        </div>
         <nav className="dash-nav">
           <NavLink to="/dashboard/transactions">Transactions</NavLink>
           <NavLink to="/dashboard/payment-links">Payment links</NavLink>

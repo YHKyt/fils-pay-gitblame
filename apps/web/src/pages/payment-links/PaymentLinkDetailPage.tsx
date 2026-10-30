@@ -75,7 +75,7 @@ export function PaymentLinkDetailPage() {
     }
   }
 
-  if (state.kind === "loading") return <p>Loading...</p>;
+  if (state.kind === "loading") return <p className="dash-loading">Loading…</p>;
   if (state.kind === "error") {
     return (
       <section>
@@ -158,7 +158,7 @@ export function PaymentLinkDetailPage() {
         <RequireRole allow={["owner", "finance"]}>
           <button
             type="button"
-            className="dash-button"
+            className="dash-button dash-button-danger"
             disabled={submitting}
             onClick={() => void handleCancel()}
           >
