@@ -8,7 +8,7 @@ import { bhdDisplay, dash, dateTime, humanDate, statusLabel } from "../../format
 import { usePageTitle } from "../../hooks/usePageTitle.js";
 import { formatCount } from "../../utils/helpers.js";
 import { StatCards } from "./StatCards.js";
-import { VolumeChart } from "./VolumeChart.js";
+import { VolumeChart, zeroFill } from "./VolumeChart.js";
 import type { PayoutTrendsResponse, TopLinksResponse, VolumesResponse } from "../../types.js";
 
 /** A time-of-day greeting in Asia/Bahrain, where this dashboard lives. */
@@ -43,8 +43,11 @@ export function OverviewPage() {
   const { me } = useDashboardAuth();
   // Left blank, the server applies its own "last 30 Asia/Bahrain days"
   // default — the client does not compute a competing one.
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  // Default window: last 90 Bahrain days, so recent history shows rather
+  // than a near-empty month. Both bounds are explicit so the chart can
+  // zero-fill exactly the window the API was asked for.
+  const [from, setFrom] = useState(() => presetRange(90).from);
+  const [to, setTo] = useState(() => presetRange(90).to);
   const [topLinksLimit, setTopLinksLimit] = useState(10);
 
   const [volumes, setVolumes] = useState<VolumesResponse | null>(null);
@@ -176,7 +179,7 @@ export function OverviewPage() {
       {volumes && payouts ? (
         <>
           <StatCards volumes={volumes} payouts={payouts} periodLabel={periodLabel} />
-          <VolumeChart points={volumes.points} />
+          <VolumeChart points={zeroFill(volumes.points, from, to || presetRange(1).to)} />
         </>
       ) : loading ? (
         <div className="dash-stats" aria-hidden="true">

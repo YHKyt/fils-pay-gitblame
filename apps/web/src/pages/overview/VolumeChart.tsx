@@ -34,6 +34,25 @@ function axisBhd(fils: number): string {
  * they stay readable at any width; hovering (or tapping) a day shows its
  * exact amount and payment count.
  */
+/** Every Bahrain day from `from` to `toExclusive` (YYYY-MM-DD), with days
+ *  the API returned no row for filled as zero, so the line spans the whole
+ *  window. Presentation only: no value is changed, only gaps shown as 0. */
+export function zeroFill(points: VolumePointDto[], from: string, toExclusive: string): VolumePointDto[] {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(toExclusive)) return points;
+  const byDate = new Map(points.map((p) => [p.date, p]));
+  const out: VolumePointDto[] = [];
+  const start = Date.parse(`${from}T00:00:00Z`);
+  const end = Date.parse(`${toExclusive}T00:00:00Z`);
+  if (!(end > start) || end - start > 400 * 86_400_000) return points;
+  for (let t = start; t < end; t += 86_400_000) {
+    const date = new Date(t).toISOString().slice(0, 10);
+    out.push(byDate.get(date) ?? { date, capturedCount: 0, capturedGrossFils: 0, voidedCount: 0 });
+  }
+  // Keep any point the API returned outside the window (never drop data).
+  for (const p of points) if (!out.some((o) => o.date === p.date)) out.push(p);
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export function VolumeChart({ points }: { points: VolumePointDto[] }) {
   const [active, setActive] = useState<number | null>(null);
   const width = 960;
@@ -135,6 +154,18 @@ export function VolumeChart({ points }: { points: VolumePointDto[] }) {
               vectorEffect="non-scaling-stroke"
               style={{ ["--dash-len" as string]: "3000" }}
             />
+            {n === 1 ? (
+              <line
+                className="dash-chart-line"
+                x1={x(0)}
+                x2={x(0)}
+                y1={height}
+                y2={y(points[0]!.capturedGrossFils)}
+                stroke="var(--fp-gold)"
+                strokeWidth={14}
+                vectorEffect="non-scaling-stroke"
+              />
+            ) : null}
             {active !== null ? (
               <line
                 className="dash-chart-cursor"
