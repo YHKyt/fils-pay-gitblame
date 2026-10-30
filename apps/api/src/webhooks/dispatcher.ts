@@ -93,13 +93,20 @@ async function createMissingDeliveries(pool: Pool): Promise<number> {
               we.id AS endpoint_id
          FROM outbox_events oe
          JOIN webhook_endpoints we
-           ON we.merchant_id = (oe.payload->>'merchantId')::uuid
+           -- Compared as text, not cast: one outbox row whose merchantId is
+           -- not a uuid ("" or a typo) made ::uuid raise, failing this query
+           -- on every pass and stopping webhook creation for every merchant.
+           ON we.merchant_id::text = oe.payload->>'merchantId'
           AND we.status = 'active'
           AND oe.created_at >= we.created_at
         WHERE oe.event_type = ANY($1::text[])
           -- settlement.paid is enqueued for every paid batch (reporting needs
           -- it); a batch with nothing to pay out is not a payout to announce.
-          AND (oe.event_type <> 'settlement.paid' OR (oe.payload->>'netPayoutFils')::bigint > 0)
+          -- CASE so a non-numeric value is skipped rather than raising.
+          AND (oe.event_type <> 'settlement.paid'
+               OR CASE WHEN jsonb_typeof(oe.payload->'netPayoutFils') = 'number'
+                       THEN (oe.payload->>'netPayoutFils')::numeric > 0
+                       ELSE false END)
           AND NOT EXISTS (
             SELECT 1 FROM webhook_deliveries wd
              WHERE wd.outbox_event_id = oe.id AND wd.endpoint_id = we.id
