@@ -253,3 +253,39 @@ test("WF6: business profile PATCH rejects invalid values with 400 and leaves the
   ]);
   assert.deepEqual(row.rows[0], { legal_name: "Legal Co", business_type: "llc", country: "BH", city: "Muharraq" });
 });
+
+test("WF7: payment-link create rejects non-string reference, description and expiresAt", async () => {
+  const { merchantId, auth } = await approvedMerchant("link-types");
+  const expiresAt = new Date(Date.now() + 86_400_000).toISOString();
+  for (const [payload, error] of [
+    [{ amountFils: 5000, expiresAt, reference: ["order-1"] }, "invalid_request"],
+    [{ amountFils: 5000, expiresAt, description: { text: "x" } }, "invalid_request"],
+    [{ amountFils: 5000, expiresAt: [expiresAt] }, "invalid_expiry"],
+  ] as const) {
+    const res = await app.inject({ method: "POST", url: `/v1/merchants/${merchantId}/payment-links`, headers: auth, payload });
+    assert.equal(res.statusCode, 400, `${JSON.stringify(payload)} -> ${res.body}`);
+    assert.equal(res.json().error, error);
+  }
+  const rows = await pool.query(`SELECT 1 FROM payment_links WHERE merchant_id = $1`, [merchantId]);
+  assert.equal(rows.rowCount, 0);
+  const ok = await app.inject({
+    method: "POST",
+    url: `/v1/merchants/${merchantId}/payment-links`,
+    headers: auth,
+    payload: { amountFils: 5000, expiresAt, reference: "order-1", description: null },
+  });
+  assert.equal(ok.statusCode, 201, ok.body);
+});
+
+test("WF8: API key issue rejects a non-string label", async () => {
+  const { merchantId, cookie } = await approvedMerchant("key-label");
+  for (const label of [["a", "b"], { x: 1 }, 7]) {
+    const res = await app.inject({ method: "POST", url: `/v1/merchants/${merchantId}/api-keys`, headers: cookie, payload: { label } });
+    assert.equal(res.statusCode, 400, `${JSON.stringify(label)} -> ${res.body}`);
+    assert.equal(res.json().error, "invalid_request");
+  }
+  const keys = await pool.query<{ label: string | null }>(`SELECT label FROM api_keys WHERE merchant_id = $1`, [merchantId]);
+  assert.deepEqual(keys.rows.map((r) => r.label), ["key-label"]);
+  const ok = await app.inject({ method: "POST", url: `/v1/merchants/${merchantId}/api-keys`, headers: cookie, payload: { label: "ci" } });
+  assert.equal(ok.statusCode, 201, ok.body);
+});

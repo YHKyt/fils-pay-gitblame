@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { requireRole, requireSession } from "../auth/middleware.js";
 import { issueApiKey, listApiKeys, revokeApiKey } from "../apiKeys/issue.js";
-import { ForbiddenError, NotFoundError } from "../lib/errors.js";
+import { BadRequestError, ForbiddenError, NotFoundError } from "../lib/errors.js";
 
 interface MerchantIdParams {
   merchantId: string;
@@ -36,6 +36,11 @@ export async function apiKeyRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: [requireSession, requireRole("owner")] },
     async (request, reply) => {
       assertOwnMerchant(request);
+      // An array or object label was stored as a Postgres literal / JSON text.
+      const label: unknown = request.body?.label;
+      if (label !== undefined && label !== null && typeof label !== "string") {
+        throw new BadRequestError("invalid_request", "label must be a string");
+      }
       const issued = await issueApiKey(app.db, app.config, {
         merchantId: request.params.merchantId,
         createdBy: request.auth!.merchantUserId,
