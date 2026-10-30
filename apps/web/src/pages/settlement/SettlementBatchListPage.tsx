@@ -98,9 +98,9 @@ export function SettlementBatchListPage() {
           <tr>
             <th>Batch date</th>
             <th>Status</th>
-            <th>Gross</th>
-            <th>Fee</th>
-            <th>Net payout</th>
+            <th className="dash-num">Gross</th>
+            <th className="dash-num">Fee</th>
+            <th className="dash-num">Net payout</th>
             <th>Closed</th>
             <th>Paid</th>
           </tr>
@@ -114,9 +114,9 @@ export function SettlementBatchListPage() {
               <td>
                 <span className={`dash-status dash-status-${batch.status}`}>{batch.status}</span>
               </td>
-              <td>{bhd(batch.grossFils)}</td>
-              <td>{bhd(batch.feeFils)}</td>
-              <td>{bhd(batch.netPayoutFils)}</td>
+              <td className="dash-num">{bhd(batch.grossFils)}</td>
+              <td className="dash-num">{bhd(batch.feeFils)}</td>
+              <td className="dash-num">{bhd(batch.netPayoutFils)}</td>
               <td>{dateTime(batch.closedAt)}</td>
               <td>{dateTime(batch.paidAt)}</td>
             </tr>
@@ -129,7 +129,7 @@ export function SettlementBatchListPage() {
         </tbody>
       </table>
 
-      {loading ? <p>Loading...</p> : null}
+      {loading ? <p className="dash-loading">Loading…</p> : null}
 
       <Pagination nextCursor={nextCursor} loading={loading} onLoadMore={() => void load(nextCursor)} />
     </section>

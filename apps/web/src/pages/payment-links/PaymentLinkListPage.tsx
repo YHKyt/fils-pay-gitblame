@@ -96,7 +96,7 @@ export function PaymentLinkListPage() {
           <tr>
             <th>Reference</th>
             <th>Description</th>
-            <th>Amount</th>
+            <th className="dash-num">Amount</th>
             <th>Status</th>
             <th>Expires</th>
             <th>Paid</th>
@@ -112,7 +112,7 @@ export function PaymentLinkListPage() {
                   <Link to={`/dashboard/payment-links/${link.id}`}>{dash(link.reference)}</Link>
                 </td>
                 <td>{dash(link.description)}</td>
-                <td>{bhd(link.amountFils)}</td>
+                <td className="dash-num">{bhd(link.amountFils)}</td>
                 <td>
                   <span className={`dash-status dash-status-${displayStatus}`}>{displayStatus}</span>
                 </td>
@@ -130,7 +130,7 @@ export function PaymentLinkListPage() {
         </tbody>
       </table>
 
-      {loading ? <p>Loading...</p> : null}
+      {loading ? <p className="dash-loading">Loading…</p> : null}
 
       <Pagination nextCursor={nextCursor} loading={loading} onLoadMore={() => void load(nextCursor)} />
     </section>

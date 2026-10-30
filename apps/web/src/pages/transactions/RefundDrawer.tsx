@@ -109,7 +109,7 @@ export function RefundDrawer({ txn, onRefunded }: RefundDrawerProps) {
               Captured: {bhd(txn.capturedFils)} · Already refunded: {bhd(txn.refundedFils)} · Refundable:{" "}
               {bhd(remainingFils)}
             </p>
-            <button type="submit" className="dash-button" disabled={submitting}>
+            <button type="submit" className="dash-button dash-button-danger" disabled={submitting}>
               {submitting ? "Refunding..." : "Refund"}
             </button>
             <button type="button" className="dash-button" disabled={submitting} onClick={() => setOpen(false)}>
@@ -117,7 +117,7 @@ export function RefundDrawer({ txn, onRefunded }: RefundDrawerProps) {
             </button>
           </form>
         ) : (
-          <button type="button" className="dash-button" onClick={() => setOpen(true)}>
+          <button type="button" className="dash-button dash-button-danger" onClick={() => setOpen(true)}>
             Refund
           </button>
         )}

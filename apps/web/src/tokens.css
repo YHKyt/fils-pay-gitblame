@@ -1,0 +1,100 @@
+/* FilsPay design tokens — the single source of brand colour, type, radius,
+   shadow and spacing for BOTH halves of this app (the merchant dashboard and
+   the public /pay/:token checkout). Defined on :root so every `dash-*` and
+   `checkout-*` rule reads the same values; a brand tweak happens here once.
+
+   Only `:root` custom properties and an `@media (prefers-color-scheme: dark)`
+   override live in this file — no element or class selectors — so importing it
+   globally cannot leak a style onto either page. */
+
+:root {
+  /* Brand palette */
+  --fp-ink: #0b1f3a; /* primary navy — top bar chrome + the brand chip */
+  --fp-ink-700: #15325b; /* lifted navy for gradients/hover on dark surfaces */
+  --fp-heading: #0b1f3a; /* heading / amount / wordmark text on light surfaces */
+  --fp-accent: #0fb5a6; /* teal/emerald — primary actions, active nav */
+  --fp-accent-hover: #0c9488;
+  --fp-accent-soft: #e6f7f5; /* accent tint for subtle fills */
+
+  --fp-surface: #ffffff;
+  --fp-surface-2: #fbfcfe; /* zebra / inset surface */
+  --fp-bg: #f6f8fb; /* app background */
+  --fp-border: #e4e9f0;
+  --fp-border-strong: #d4dbe6;
+
+  --fp-text: #0f172a;
+  --fp-muted: #5b6b82;
+  --fp-faint: #8a97a8;
+
+  /* Status colours (text + soft background for pills/badges) */
+  --fp-success: #16a34a;
+  --fp-success-bg: #e8f6ee;
+  --fp-success-bd: #b7e2c6;
+  --fp-danger: #dc2626;
+  --fp-danger-bg: #fdecec;
+  --fp-danger-bd: #f3c2c2;
+  --fp-warning: #b45309; /* AA-readable amber on light bg */
+  --fp-warning-bg: #fdf0dc;
+  --fp-warning-bd: #f0d5a6;
+  --fp-info: #2563eb;
+  --fp-info-bg: #e8effd;
+  --fp-info-bd: #c3d5fa;
+  --fp-neutral: #475569;
+  --fp-neutral-bg: #eef1f6;
+  --fp-neutral-bd: #d7deea;
+
+  /* Type */
+  --fp-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --fp-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Shape */
+  --fp-radius-sm: 6px;
+  --fp-radius: 10px;
+  --fp-radius-lg: 14px;
+  --fp-shadow-sm: 0 1px 2px rgba(11, 31, 58, 0.06);
+  --fp-shadow: 0 1px 3px rgba(11, 31, 58, 0.08), 0 1px 2px rgba(11, 31, 58, 0.04);
+  --fp-shadow-lg: 0 10px 30px rgba(11, 31, 58, 0.12);
+  --fp-ring: 0 0 0 3px rgba(15, 181, 166, 0.35); /* focus ring */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fp-ink: #0a1726; /* deep navy chrome */
+    --fp-ink-700: #16304f;
+    --fp-heading: #f1f6fc; /* headings read light on dark surfaces */
+    --fp-accent: #2dd4bf;
+    --fp-accent-hover: #5eead4;
+    --fp-accent-soft: #10342f;
+
+    --fp-surface: #111c2e;
+    --fp-surface-2: #16233a;
+    --fp-bg: #0b1522;
+    --fp-border: #223247;
+    --fp-border-strong: #2c3f59;
+
+    --fp-text: #e7edf5;
+    --fp-muted: #9fb0c6;
+    --fp-faint: #7889a0;
+
+    --fp-success: #4ade80;
+    --fp-success-bg: #10281b;
+    --fp-success-bd: #1f4d33;
+    --fp-danger: #f87171;
+    --fp-danger-bg: #2a1414;
+    --fp-danger-bd: #4d2323;
+    --fp-warning: #fbbf24;
+    --fp-warning-bg: #2a2110;
+    --fp-warning-bd: #4d3d1a;
+    --fp-info: #60a5fa;
+    --fp-info-bg: #12213d;
+    --fp-info-bd: #243a5e;
+    --fp-neutral: #94a3b8;
+    --fp-neutral-bg: #1b2a40;
+    --fp-neutral-bd: #2c3f59;
+
+    --fp-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --fp-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    --fp-shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.55);
+    --fp-ring: 0 0 0 3px rgba(45, 212, 191, 0.4);
+  }
+}

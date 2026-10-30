@@ -129,7 +129,7 @@ export function WebhookEndpointListPage() {
                 </button>{" "}
                 <button
                   type="button"
-                  className="dash-button"
+                  className="dash-button dash-button-danger"
                   disabled={busyId === endpoint.id}
                   onClick={() => void handleDelete(endpoint)}
                 >
@@ -146,7 +146,7 @@ export function WebhookEndpointListPage() {
         </tbody>
       </table>
 
-      {loading ? <p>Loading...</p> : null}
+      {loading ? <p className="dash-loading">Loading…</p> : null}
     </section>
   );
 }

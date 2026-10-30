@@ -1,49 +1,97 @@
-/* One shared stylesheet for the whole /dashboard/* subtree — the same "real
-   but small" minimalism apps/admin/src/admin.css ships with, sized for the
-   dashboard's page count rather than a .css file per page.
+/* One shared stylesheet for the whole /dashboard/* subtree.
 
-   Every selector is namespaced `dash-*`. Nothing here styles a bare element
-   (no `body`, no `button`), because Vite bundles all imported CSS into one
-   stylesheet for the whole app — a global rule here would reach the
-   /pay/:token checkout page too, which has its own look and must keep it. */
+   Every selector is namespaced `dash-*` or scoped under `.dash-shell` /
+   `.dash-centered`. Nothing here styles a bare element at the top level,
+   because Vite bundles all imported CSS into one stylesheet for the whole
+   app — a global bare-element rule would reach the /pay/:token checkout page
+   too, which has its own look (CheckoutPage.css) and must keep it. Bare
+   elements (h1, table, p …) are therefore only ever styled when nested inside
+   a dashboard container class.
 
-/* am: dont add bare element selectors here, they leak into checkout (see top) */
+   Colours, type, radius and shadow come from tokens.css (the shared brand
+   system), so the dashboard and the checkout page read one palette. */
+
+/* am: dont add bare element selectors at top level here, they leak into checkout */
 .dash-shell {
   min-height: 100vh;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--fp-font);
   font-size: 15px;
-  color: #1a1a1a;
-  background: #fafafa;
+  line-height: 1.5;
+  color: var(--fp-text);
+  background: var(--fp-bg);
+  -webkit-font-smoothing: antialiased;
 }
 
+/* ---- Top bar -------------------------------------------------------- */
 .dash-header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 1.5rem;
-  padding: 0.75rem 1.5rem;
-  background: #fff;
-  border-bottom: 1px solid #ddd;
+  gap: 1rem 1.5rem;
+  padding: 0.7rem 1.5rem;
+  background: linear-gradient(180deg, var(--fp-ink-700) 0%, var(--fp-ink) 100%);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.25);
+  box-shadow: var(--fp-shadow);
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 
 .dash-brand {
   font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Brand lockup (Logo.tsx) — used here and on the checkout header. */
+.fp-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+.fp-logo-mark {
+  display: block;
+  flex: none;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+}
+.fp-logo-word {
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: -0.01em;
+}
+.fp-logo-word-accent {
+  color: var(--fp-accent);
 }
 
 .dash-nav {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: 0.25rem;
 }
 
 .dash-nav a {
-  color: #1a1a1a;
+  color: rgba(255, 255, 255, 0.78);
   text-decoration: none;
+  font-weight: 500;
+  font-size: 0.92rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: var(--fp-radius-sm);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.dash-nav a:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .dash-nav a.active {
-  font-weight: 700;
-  text-decoration: underline;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(15, 181, 166, 0.22);
+  box-shadow: inset 0 -2px 0 var(--fp-accent);
+  text-decoration: none;
 }
 
 .dash-identity {
@@ -51,169 +99,400 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.9rem;
 }
 
 .dash-role-chip {
-  padding: 0.1rem 0.4rem;
-  border: 1px solid #999;
-  border-radius: 3px;
-  font-size: 0.8em;
+  padding: 0.08rem 0.45rem;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #fff;
 }
 
+.dash-identity .dash-muted {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* The log-out button sits on the dark bar — override the default surface. */
+.dash-header .dash-button {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.3);
+}
+.dash-header .dash-button:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* ---- Main layout & typography -------------------------------------- */
 .dash-main {
   max-width: 76rem;
   margin: 0 auto;
-  padding: 1.5rem;
+  padding: 1.75rem 1.5rem;
 }
 
+.dash-shell h1,
+.dash-centered h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin: 0 0 1rem;
+  color: var(--fp-heading);
+}
+.dash-shell h2 {
+  font-size: 1.1rem;
+  font-weight: 650;
+  margin: 1.75rem 0 0.6rem;
+  color: var(--fp-heading);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.dash-shell section > p,
+.dash-centered > p {
+  margin: 0.5rem 0;
+}
+.dash-shell a {
+  color: var(--fp-accent-hover);
+}
+.dash-shell code,
+.dash-centered code {
+  font-family: var(--fp-mono);
+  font-size: 0.86em;
+}
+
+footer.dash-main {
+  color: var(--fp-faint);
+  font-size: 0.82rem;
+  padding-top: 0.5rem;
+  padding-bottom: 2rem;
+}
+
+/* The login / centered card. */
 .dash-centered {
   max-width: 26rem;
-  margin: 4rem auto;
-  padding: 1.5rem;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: #1a1a1a;
+  margin: 3.5rem auto;
+  padding: 2rem;
+  font-family: var(--fp-font);
+  color: var(--fp-text);
+  background: var(--fp-surface);
+  border: 1px solid var(--fp-border);
+  border-radius: var(--fp-radius-lg);
+  box-shadow: var(--fp-shadow-lg);
+}
+.dash-centered h1 {
+  margin-bottom: 0.25rem;
+}
+.dash-login-logo {
+  margin-bottom: 1.25rem;
 }
 
+/* ---- Forms --------------------------------------------------------- */
 .dash-form {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.9rem;
   margin: 1rem 0;
   max-width: 40rem;
 }
 
+/* Inline forms (capture/refund/filters/overview) read as a toolbar card. */
 .dash-form-inline {
   flex-direction: row;
   flex-wrap: wrap;
   align-items: flex-end;
   max-width: none;
+  gap: 0.75rem 1rem;
+  padding: 1rem 1.1rem;
+  background: var(--fp-surface);
+  border: 1px solid var(--fp-border);
+  border-radius: var(--fp-radius);
+  box-shadow: var(--fp-shadow-sm);
 }
 
 .dash-form label {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  font-weight: 550;
+  color: var(--fp-text);
 }
 
 .dash-form input,
 .dash-form select {
-  padding: 0.4rem;
+  padding: 0.5rem 0.6rem;
   font: inherit;
-  border: 1px solid #bbb;
-  border-radius: 3px;
+  color: var(--fp-text);
+  background: var(--fp-surface);
+  border: 1px solid var(--fp-border-strong);
+  border-radius: var(--fp-radius-sm);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.dash-form input:focus,
+.dash-form select:focus,
+.dash-filters input:focus,
+.dash-filters select:focus {
+  outline: none;
+  border-color: var(--fp-accent);
+  box-shadow: var(--fp-ring);
 }
 
+/* ---- Buttons ------------------------------------------------------- */
 .dash-button,
 .dash-button-link {
-  display: inline-block;
-  padding: 0.4rem 0.8rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.9rem;
   font: inherit;
+  font-weight: 600;
+  font-size: 0.9rem;
+  line-height: 1.2;
   cursor: pointer;
-  border: 1px solid #888;
-  border-radius: 3px;
-  background: #fff;
-  color: #1a1a1a;
+  border: 1px solid var(--fp-border-strong);
+  border-radius: var(--fp-radius-sm);
+  background: var(--fp-surface);
+  color: var(--fp-text);
   text-decoration: none;
+  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease,
+    transform 0.02s ease;
 }
-
+.dash-button:hover,
+.dash-button-link:hover {
+  background: var(--fp-surface-2);
+  border-color: var(--fp-accent);
+}
+.dash-button:active {
+  transform: translateY(1px);
+}
+.dash-button:focus-visible,
+.dash-button-link:focus-visible {
+  outline: none;
+  box-shadow: var(--fp-ring);
+}
 .dash-button:disabled {
   cursor: default;
-  opacity: 0.6;
+  opacity: 0.55;
 }
 
+/* Filled accent CTA — "New payment link", "New endpoint", and primary
+   submit buttons that opt in with .dash-button-primary. */
+.dash-button-link,
+.dash-button-primary {
+  background: var(--fp-accent);
+  border-color: var(--fp-accent);
+  color: #fff;
+}
+.dash-button-link:hover,
+.dash-button-primary:hover {
+  background: var(--fp-accent-hover);
+  border-color: var(--fp-accent-hover);
+}
+.dash-button-primary:disabled {
+  background: var(--fp-accent);
+  border-color: var(--fp-accent);
+}
+
+/* Destructive actions (void, refund, cancel, delete). */
+.dash-button-danger {
+  color: var(--fp-danger);
+  border-color: var(--fp-danger-bd);
+  background: var(--fp-surface);
+}
+.dash-button-danger:hover {
+  background: var(--fp-danger-bg);
+  border-color: var(--fp-danger);
+}
+
+/* ---- Filter bars --------------------------------------------------- */
 .dash-filters {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: 0.75rem;
-  border: 1px solid #ddd;
-  padding: 0.5rem 0.75rem;
+  gap: 0.6rem 1.1rem;
+  border: 1px solid var(--fp-border);
+  background: var(--fp-surface);
+  border-radius: var(--fp-radius);
+  box-shadow: var(--fp-shadow-sm);
+  padding: 0.8rem 1.1rem;
   margin: 1rem 0;
 }
-
+.dash-filters legend {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fp-muted);
+  padding: 0 0.3rem;
+}
 .dash-filters label {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.35rem;
+  font-size: 0.88rem;
 }
-
 .dash-filters input[type="date"],
-.dash-filters input[type="search"] {
-  padding: 0.3rem;
+.dash-filters input[type="search"],
+.dash-filters input[type="number"] {
+  padding: 0.4rem 0.5rem;
   font: inherit;
-  border: 1px solid #bbb;
-  border-radius: 3px;
+  color: var(--fp-text);
+  background: var(--fp-surface);
+  border: 1px solid var(--fp-border-strong);
+  border-radius: var(--fp-radius-sm);
+}
+.dash-filters input[type="search"] {
+  min-width: 18rem;
+}
+.dash-filters input[type="checkbox"] {
+  accent-color: var(--fp-accent);
+  width: 1rem;
+  height: 1rem;
 }
 
-/* FH: table re-layout on every poll = the overview memory leak? */
+/* ---- Tables -------------------------------------------------------- */
 .dash-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   margin: 1rem 0;
-  background: #fff;
+  background: var(--fp-surface);
+  border: 1px solid var(--fp-border);
+  border-radius: var(--fp-radius);
+  overflow: hidden;
+  box-shadow: var(--fp-shadow-sm);
+  font-size: 0.9rem;
 }
 
 .dash-table th,
 .dash-table td {
-  border: 1px solid #e0e0e0;
-  padding: 0.4rem 0.6rem;
+  padding: 0.6rem 0.8rem;
   text-align: left;
   vertical-align: top;
+  border-bottom: 1px solid var(--fp-border);
+}
+.dash-table thead th {
+  background: var(--fp-surface-2);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fp-muted);
+  border-bottom: 1px solid var(--fp-border-strong);
+  position: sticky;
+  top: 0;
+}
+.dash-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.dash-table tbody tr:nth-child(even) {
+  background: var(--fp-surface-2);
+}
+.dash-table tbody tr:hover {
+  background: var(--fp-accent-soft);
+}
+.dash-table a {
+  color: var(--fp-accent-hover);
+  font-weight: 550;
+  text-decoration: none;
+}
+.dash-table a:hover {
+  text-decoration: underline;
+}
+
+/* Money / count cells: right-aligned, tabular monospace so digits line up. */
+.dash-num,
+.dash-table th.dash-num {
+  text-align: right;
+  font-family: var(--fp-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dash-table th.dash-num {
+  font-family: var(--fp-font);
 }
 
 .dash-dl {
   display: grid;
-  grid-template-columns: 16rem 1fr;
-  gap: 0.25rem 1rem;
+  grid-template-columns: 15rem 1fr;
+  gap: 0.1rem 1rem;
   margin: 1rem 0;
+  background: var(--fp-surface);
+  border: 1px solid var(--fp-border);
+  border-radius: var(--fp-radius);
+  box-shadow: var(--fp-shadow-sm);
+  padding: 1rem 1.2rem;
 }
-
 .dash-dl dt {
   font-weight: 600;
+  color: var(--fp-muted);
+  padding: 0.3rem 0;
+  font-size: 0.9rem;
 }
-
 .dash-dl dd {
   margin: 0;
+  padding: 0.3rem 0;
 }
 
 .dash-muted {
-  color: #666;
+  color: var(--fp-muted);
 }
 
 .dash-hint {
-  margin: -0.4rem 0 0;
-  font-size: 0.85em;
+  margin: -0.5rem 0 0;
+  font-size: 0.82rem;
+  color: var(--fp-muted);
 }
 
+/* ---- Messages ------------------------------------------------------ */
 .dash-error {
-  padding: 0.6rem 0.8rem;
-  border: 1px solid #b00020;
-  background: #fdeaea;
-  color: #7a0016;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--fp-danger-bd);
+  border-left: 4px solid var(--fp-danger);
+  background: var(--fp-danger-bg);
+  color: var(--fp-danger);
+  border-radius: var(--fp-radius-sm);
   margin: 1rem 0;
+  font-size: 0.9rem;
 }
 
 .dash-notice {
-  padding: 0.6rem 0.8rem;
-  border: 1px solid #2a6f2a;
-  background: #eef7ee;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--fp-success-bd);
+  border-left: 4px solid var(--fp-success);
+  background: var(--fp-success-bg);
+  color: var(--fp-success);
+  border-radius: var(--fp-radius-sm);
   margin: 1rem 0;
+  font-size: 0.9rem;
 }
 
 .dash-confirm {
-  padding: 0.8rem;
-  border: 2px solid #b06000;
-  background: #fff6e8;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--fp-warning-bd);
+  border-left: 4px solid var(--fp-warning);
+  background: var(--fp-warning-bg);
+  border-radius: var(--fp-radius);
   margin: 1rem 0;
   max-width: 44rem;
+}
+.dash-confirm h2 {
+  margin-top: 0;
 }
 
 .dash-secret {
   display: inline-block;
-  padding: 0.3rem 0.5rem;
-  border: 1px solid #b06000;
-  background: #fff;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--fp-warning-bd);
+  border-radius: var(--fp-radius-sm);
+  background: var(--fp-surface);
+  font-family: var(--fp-mono);
   user-select: all;
   word-break: break-all;
 }
@@ -233,27 +512,69 @@
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-all;
-  font-size: 0.85em;
+  font-size: 0.82rem;
+  font-family: var(--fp-mono);
+  background: var(--fp-surface-2);
+  border: 1px solid var(--fp-border);
+  border-radius: var(--fp-radius-sm);
+  padding: 0.5rem 0.6rem;
 }
 
-/* Status labels: plain coloured text, no icon set. */
+/* ---- Loading ------------------------------------------------------- */
+.dash-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--fp-muted);
+  font-size: 0.9rem;
+  margin: 1rem 0;
+}
+.dash-loading::before {
+  content: "";
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid var(--fp-border-strong);
+  border-top-color: var(--fp-accent);
+  border-radius: 50%;
+  animation: dash-spin 0.7s linear infinite;
+}
+@keyframes dash-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Status pills --------------------------------------------------- */
 .dash-status {
-  font-weight: 600;
+  display: inline-block;
+  padding: 0.12rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 650;
+  line-height: 1.5;
+  text-transform: capitalize;
+  border: 1px solid transparent;
+  white-space: nowrap;
 }
 
 .dash-status-captured,
 .dash-status-paid,
 .dash-status-succeeded,
 .dash-status-active {
-  color: #1f6f2a;
+  color: var(--fp-success);
+  background: var(--fp-success-bg);
+  border-color: var(--fp-success-bd);
 }
 
 .dash-status-authorized,
 .dash-status-partially_captured,
 .dash-status-pending,
 .dash-status-reserved,
+.dash-status-processing,
 .dash-status-open {
-  color: #8a5a00;
+  color: var(--fp-warning);
+  background: var(--fp-warning-bg);
+  border-color: var(--fp-warning-bd);
 }
 
 .dash-status-voided,
@@ -263,57 +584,110 @@
 .dash-status-exhausted,
 .dash-status-failed,
 .dash-status-chargeback {
-  color: #7a0016;
+  color: var(--fp-danger);
+  background: var(--fp-danger-bg);
+  border-color: var(--fp-danger-bd);
 }
 
 .dash-status-refunded,
+.dash-status-partially_refunded,
 .dash-status-closed {
-  color: #34495e;
+  color: var(--fp-info);
+  background: var(--fp-info-bg);
+  border-color: var(--fp-info-bd);
 }
 
+/* ---- Badges (staleness / reconciliation) --------------------------- */
 .dash-badge {
   display: inline-block;
-  padding: 0.1rem 0.45rem;
-  border-radius: 3px;
-  font-size: 0.8em;
+  padding: 0.14rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
   font-weight: 600;
   vertical-align: middle;
+  border: 1px solid transparent;
 }
 
 .dash-badge-live,
 .dash-badge-ok {
-  border: 1px solid #2a6f2a;
-  background: #eef7ee;
-  color: #1f6f2a;
+  border-color: var(--fp-success-bd);
+  background: var(--fp-success-bg);
+  color: var(--fp-success);
 }
 
 .dash-badge-stale {
-  border: 1px solid #b06000;
-  background: #fff6e8;
-  color: #8a5a00;
+  border-color: var(--fp-warning-bd);
+  background: var(--fp-warning-bg);
+  color: var(--fp-warning);
 }
 
 .dash-badge-gap {
-  border: 1px solid #b06000;
-  background: #fff2d9;
-  color: #7a4a00;
+  border-color: var(--fp-danger-bd);
+  background: var(--fp-danger-bg);
+  color: var(--fp-danger);
 }
 
+/* ---- Overview volume bars ------------------------------------------ */
 .dash-bar-cell {
   width: 12rem;
+  vertical-align: middle;
 }
 
 .dash-bar {
   display: block;
-  height: 0.7rem;
-  min-width: 1px;
-  background: #4a7ebb;
+  height: 0.6rem;
+  min-width: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--fp-accent) 0%, var(--fp-accent-hover) 100%);
 }
 
-/* Admin "view as merchant" - must be impossible to miss. */
+/* Settlement progress bar (markup carries inline width from the component). */
+.dash-progress-bar {
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 0.25rem 0 1rem;
+}
+
+/* ---- Impersonation banner — must be impossible to miss. ------------- */
 .dash-impersonation-banner {
   padding: 0.75rem 1.5rem;
-  background: #7a0016;
+  background: var(--fp-danger);
   color: #fff;
-  border-bottom: 4px solid #ffcc00;
+  border-bottom: 4px solid var(--fp-warning);
+}
+
+/* ---- Responsive ---------------------------------------------------- */
+@media (max-width: 720px) {
+  .dash-header {
+    padding: 0.7rem 1rem;
+  }
+  .dash-identity {
+    width: 100%;
+    margin-left: 0;
+    flex-wrap: wrap;
+  }
+  .dash-main {
+    padding: 1.25rem 1rem;
+  }
+  .dash-dl {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .dash-dl dt {
+    padding-bottom: 0;
+  }
+  .dash-dl dd {
+    padding-top: 0.1rem;
+    margin-bottom: 0.4rem;
+  }
+  .dash-filters input[type="search"] {
+    min-width: 0;
+    width: 100%;
+  }
+  /* Let wide tables scroll rather than break the layout. */
+  .dash-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
 }

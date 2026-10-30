@@ -139,7 +139,7 @@ export function ReconciliationPage() {
         </>
       ) : null}
 
-      {loading && !report ? <p>Loading...</p> : null}
+      {loading && !report ? <p className="dash-loading">Loading…</p> : null}
     </section>
   );
 }
