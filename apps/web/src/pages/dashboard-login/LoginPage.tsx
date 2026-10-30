@@ -122,12 +122,17 @@ export function LoginPage() {
   }
 
   return (
+    <div className="dash-login-bg">
     <main className="dash-centered">
       <div className="dash-login-logo">
-        <Logo tone="ink" size={30} />
+        <Logo tone="ink" size={34} />
       </div>
-      <h1>Merchant dashboard</h1>
-      <p className="dash-muted">Sign in to your FilsPay account.</p>
+      <h1>{step.kind === "otp" ? "Check your code" : "Merchant dashboard"}</h1>
+      <p className="dash-muted dash-login-tagline">
+        {step.kind === "otp"
+          ? "A one-time code keeps your account secure."
+          : "The pearl of Gulf payments. Sign in to your FilsPay account."}
+      </p>
 
       {error ? <p className="dash-error">{error}</p> : null}
       {notice ? <p className="dash-notice">{notice}</p> : null}
@@ -199,19 +204,26 @@ export function LoginPage() {
           <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
             {submitting ? "Verifying..." : "Verify"}
           </button>
-          <button
-            type="button"
-            className="dash-button"
-            disabled={submitting}
-            onClick={() => void handleResend()}
-          >
-            Resend code
-          </button>
-          <button type="button" className="dash-button" onClick={() => backToCredentials(null)}>
-            Start over
+          {/* Resend keeps the viewer from re-entering their password just to
+              get a fresh code. The API owns the cadence rule (`resendOtp`),
+              so this button simply asks for a new challenge. */}
+          <div className="dash-resend-row">
+            <span className="dash-muted">Didn't get the code?</span>
+            <button
+              type="button"
+              className="dash-resend"
+              disabled={submitting}
+              onClick={() => void handleResend()}
+            >
+              Resend code
+            </button>
+          </div>
+          <button type="button" className="dash-button dash-button-ghost" onClick={() => backToCredentials(null)}>
+            Use a different account
           </button>
         </form>
       )}
     </main>
+    </div>
   );
 }

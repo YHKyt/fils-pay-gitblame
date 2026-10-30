@@ -4,7 +4,7 @@ import { listSettlementBatches } from "../../api/settlement.js";
 import { describeError } from "../../api/client.js";
 import { Pagination } from "../../components/Pagination.js";
 import { SkeletonRows } from "../../components/SkeletonRows.js";
-import { bhd, dateTime } from "../../format.js";
+import { bhd, dateTime, statusLabel } from "../../format.js";
 import type { SettlementBatchDto, SettlementBatchStatus } from "../../types.js";
 
 const STATUSES: SettlementBatchStatus[] = ["open", "closed", "paid"];
@@ -113,7 +113,7 @@ export function SettlementBatchListPage() {
                 <Link to={`/dashboard/settlement/${batch.id}`}>{batch.batchDate}</Link>
               </td>
               <td>
-                <span className={`dash-status dash-status-${batch.status}`}>{batch.status}</span>
+                <span className={`dash-status dash-status-${batch.status}`}>{statusLabel(batch.status)}</span>
               </td>
               <td className="dash-num">{bhd(batch.grossFils)}</td>
               <td className="dash-num">{bhd(batch.feeFils)}</td>

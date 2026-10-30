@@ -3,11 +3,22 @@ import { Link } from "react-router-dom";
 import { getPayoutTrends, getTopLinks, getVolumes } from "../../api/analytics.js";
 import { describeError } from "../../api/client.js";
 import { StalenessBadge } from "../../components/StalenessBadge.js";
-import { bhd, dash, dateTime } from "../../format.js";
+import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
+import { bhd, dash, dateTime, statusLabel } from "../../format.js";
 import { formatCount } from "../../utils/helpers.js";
 import { StatCards } from "./StatCards.js";
 import { VolumeChart } from "./VolumeChart.js";
 import type { PayoutTrendsResponse, TopLinksResponse, VolumesResponse } from "../../types.js";
+
+/** A time-of-day greeting in Asia/Bahrain, where this dashboard lives. */
+function greeting(): string {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Bahrain", hour: "2-digit", hour12: false }).format(new Date()),
+  );
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
 
 /** 60s: comfortably above the reporting worker's 15s worst-case lag, and
  *  more than often enough for a dashboard. Poll, not push —
@@ -16,6 +27,7 @@ import type { PayoutTrendsResponse, TopLinksResponse, VolumesResponse } from "..
 const POLL_MS = 60_000;
 
 export function OverviewPage() {
+  const { me } = useDashboardAuth();
   // Left blank, the server applies its own "last 30 Asia/Bahrain days"
   // default — the client does not compute a competing one.
   const [from, setFrom] = useState("");
@@ -69,7 +81,14 @@ export function OverviewPage() {
 
   return (
     <section>
-      <h1>Overview</h1>
+      <div className="dash-hero">
+        <p className="dash-hero-eyebrow">Overview</p>
+        <h1 className="dash-hero-title">
+          {greeting()}
+          {me ? <>, <span className="dash-hero-name">{me.merchant.displayName}</span></> : null}
+        </h1>
+        <p className="dash-hero-sub">Here is how your payments are moving, in Asia/Bahrain time.</p>
+      </div>
 
       <form
         className="dash-form dash-form-inline"
@@ -180,7 +199,7 @@ export function OverviewPage() {
                 <Link to={`/dashboard/settlement/${point.settlementBatchId}`}>{point.batchDate}</Link>
               </td>
               <td>
-                <span className={`dash-status dash-status-${point.status}`}>{point.status}</span>
+                <span className={`dash-status dash-status-${point.status}`}>{statusLabel(point.status)}</span>
               </td>
               <td className="dash-num">{bhd(point.grossFils)}</td>
               <td className="dash-num">{bhd(point.feeFils)}</td>

@@ -110,10 +110,36 @@ body {
   background: linear-gradient(90deg, var(--fp-info), var(--fp-accent));
 }
 
+/* A pearlescent sheen sweeping the card's gold keyline — the nacre shimmer. */
+.checkout-card::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: var(--fp-sheen);
+  background-size: 220% 100%;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .checkout-card::after {
+    animation: checkout-sheen 1.5s var(--fp-ease) 0.55s 1 both;
+  }
+}
+@keyframes checkout-sheen {
+  from {
+    background-position: 170% 0;
+  }
+  to {
+    background-position: -70% 0;
+  }
+}
+
 .checkout-card h1 {
-  font-size: 1.4rem;
-  font-weight: 700;
+  font-family: var(--fp-display);
+  font-size: 1.6rem;
+  font-weight: 600;
   letter-spacing: var(--fp-tracking-tight);
+  font-optical-sizing: auto;
   margin: 0 0 0.5rem;
   color: var(--fp-heading);
 }
@@ -135,9 +161,11 @@ body {
   color: var(--fp-muted);
   margin: 0 0 0.3rem;
 }
-/* The hero: a big, tight-tracked amount that reveals on mount. */
+/* The hero: a big, tight-tracked amount that reveals on mount. Mono digits so
+   they line up; the "BHD" unit set smaller in gold. */
 .checkout-amount {
-  font-size: 2.6rem;
+  font-family: var(--fp-mono);
+  font-size: 2.9rem;
   font-weight: 700;
   letter-spacing: var(--fp-tracking-tighter);
   color: var(--fp-heading);
@@ -145,6 +173,15 @@ body {
   font-feature-settings: "tnum" 1;
   margin: 0;
   line-height: 1.05;
+}
+.checkout-amount-unit {
+  font-family: var(--fp-font);
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: var(--fp-tracking-wide);
+  color: var(--fp-accent-hover);
+  margin-left: 0.4rem;
+  vertical-align: 0.1em;
 }
 .checkout-description,
 .checkout-reference {
@@ -297,13 +334,14 @@ body {
   height: 100%;
 }
 .checkout-check-ring {
-  fill: var(--fp-success-bg);
-  stroke: var(--fp-success);
+  fill: var(--fp-accent-soft);
+  stroke: var(--fp-gold);
   stroke-width: 3;
+  filter: drop-shadow(0 3px 10px rgba(var(--fp-accent-rgb), 0.45));
 }
 .checkout-check-tick {
   fill: none;
-  stroke: var(--fp-success);
+  stroke: var(--fp-gold);
   stroke-width: 4.5;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -394,7 +432,7 @@ body {
   }
   .checkout-check-pulse {
     fill: none;
-    stroke: var(--fp-success);
+    stroke: var(--fp-gold);
     stroke-width: 2;
     transform-box: fill-box;
     transform-origin: center;

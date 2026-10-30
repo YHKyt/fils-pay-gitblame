@@ -4,7 +4,7 @@ import { cancelPaymentLink, getMerchantPaymentLink } from "../../api/paymentLink
 import { ApiError, describeError } from "../../api/client.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
-import { bhd, dash, dateTime } from "../../format.js";
+import { bhd, dash, dateTime, statusLabel } from "../../format.js";
 import type { PaymentLinkDto } from "../../types.js";
 import { canCancelPaymentLink, paymentLinkDisplayStatus } from "../../utils/paymentLinkStatus.js";
 
@@ -115,7 +115,7 @@ export function PaymentLinkDetailPage() {
         <dd>{link.currency}</dd>
         <dt>Status</dt>
         <dd>
-          <span className={`dash-status dash-status-${displayStatus}`}>{displayStatus}</span>
+          <span className={`dash-status dash-status-${displayStatus}`}>{statusLabel(displayStatus)}</span>
         </dd>
         <dt>Reference</dt>
         <dd>{dash(link.reference)}</dd>

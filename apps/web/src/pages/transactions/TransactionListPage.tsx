@@ -4,7 +4,7 @@ import { listTransactions } from "../../api/transactions.js";
 import { describeError } from "../../api/client.js";
 import { Pagination } from "../../components/Pagination.js";
 import { SkeletonRows } from "../../components/SkeletonRows.js";
-import { bhd, dash, dateTime, dayStartIso } from "../../format.js";
+import { bhd, dash, dateTime, dayStartIso, statusLabel } from "../../format.js";
 import { classNames, pluralize, truncateMiddle } from "../../utils/helpers.js";
 import type { TransactionDto, TransactionStatus } from "../../types.js";
 
@@ -148,7 +148,7 @@ export function TransactionListPage() {
               </td>
               <td>{dash(txn.reference)}</td>
               <td>
-                <span className={classNames("dash-status", `dash-status-${txn.status}`)}>{txn.status}</span>
+                <span className={classNames("dash-status", `dash-status-${txn.status}`)}>{statusLabel(txn.status)}</span>
               </td>
               <td className="dash-num">{bhd(txn.amountFils)}</td>
               <td className="dash-num">{bhd(txn.capturedFils)}</td>

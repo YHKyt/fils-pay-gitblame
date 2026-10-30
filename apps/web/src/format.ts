@@ -13,6 +13,14 @@ export function bhd(amountFils: number): string {
   return `${formatBhd(toFils(amountFils, { allowNegative: true }))} BHD`;
 }
 
+/** A machine status (`partially_refunded`) as a readable label
+ *  (`Partially refunded`). Presentation only — the raw value still drives the
+ *  status pill's CSS class, so colours and logic are unchanged. */
+export function statusLabel(status: string): string {
+  const spaced = status.replace(/_/g, " ").trim();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 /** `—` for a null/absent value, so an empty table cell is visibly empty
  *  rather than ambiguously blank. */
 export function dash(value: string | number | null | undefined): string {

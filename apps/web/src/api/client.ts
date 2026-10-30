@@ -83,16 +83,61 @@ export async function requestNoContent(path: string, init?: RequestInit): Promis
   await request<unknown>(path, init);
 }
 
+/**
+ * Presentation-only map from the API's machine error codes to a clear human
+ * sentence. This changes only what the banner reads — never a status check,
+ * a retry decision or a request — so no behaviour depends on it. Any code not
+ * listed falls back to the server's own `message`, then to a humanised form
+ * of the code, so a new code is never shown as a raw token.
+ */
+const ERROR_SENTENCES: Record<string, string> = {
+  invalid_credentials: "That merchant ID, email or password did not match. Please check them and try again.",
+  invalid_code: "That code was not correct. Check the latest code and try again.",
+  code_expired: "That code has expired. Request a new one to continue.",
+  otp_expired: "That code has expired. Request a new one to continue.",
+  resend_too_soon: "A code was just sent. Please wait a few seconds before requesting another.",
+  too_many_attempts: "Too many attempts. For your security, please sign in again.",
+  too_many_requests: "You're going a little fast. Please wait a moment and try again.",
+  rate_limited: "You're going a little fast. Please wait a moment and try again.",
+  account_locked: "This account is temporarily locked after several failed attempts. Please try again later.",
+  session_expired: "Your session has expired. Please sign in again.",
+  unauthorized: "Your session has expired. Please sign in again.",
+  payment_link_already_paid: "This payment link has already been paid.",
+  payment_link_canceled: "This payment link has been cancelled and can no longer be used.",
+  payment_link_expired: "This payment link has expired.",
+  link_expired: "This payment link has expired.",
+  validation_error: "Some of the details entered weren't valid. Please review and try again.",
+  payload_too_large: "That file or request was too large.",
+  not_found: "We couldn't find what you were looking for.",
+  conflict: "That action conflicts with the current state. Please refresh and try again.",
+  unknown_error: "Something went wrong. Please try again.",
+};
+
+/** Turns a snake_case code into a readable fallback sentence. */
+function humaniseCode(code: string): string {
+  const words = code.replace(/_/g, " ").trim();
+  if (!words) return "Something went wrong. Please try again.";
+  return words.charAt(0).toUpperCase() + words.slice(1) + ".";
+}
+
 /** Human-readable text for anything thrown by `request` — used by every
  *  dashboard page's error banner so a failure (including a server-side
  *  `403` from a role gate) is always shown, never silently swallowed. */
 export function describeError(err: unknown): string {
   if (err instanceof ApiError) {
+    const mapped = ERROR_SENTENCES[err.code];
+    if (mapped) return mapped;
     if (err.statusCode === 403) {
-      return `Not permitted (${err.code}) — ask an owner or finance user on your account.`;
+      return "You don't have permission to do that. Ask an owner or finance user on your account.";
     }
-    return err.body.message ?? err.code;
+    // Prefer a server message only when it reads like a sentence, not a code.
+    if (err.body.message && /\s/.test(err.body.message)) return err.body.message;
+    return humaniseCode(err.code);
   }
-  if (err instanceof Error) return err.message;
-  return "Something went wrong.";
+  if (err instanceof Error) {
+    // A fetch abort (our own request timeout) surfaces here.
+    if (err.name === "AbortError") return "That took too long. Please check your connection and try again.";
+    return "Something went wrong. Please try again.";
+  }
+  return "Something went wrong. Please try again.";
 }

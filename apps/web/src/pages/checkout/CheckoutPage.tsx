@@ -364,7 +364,10 @@ export function CheckoutPage() {
     <CheckoutShell>
       <div className="checkout-summary">
         <p className="checkout-merchant">{link.merchantDisplayName}</p>
-        <p className="checkout-amount">{amount} BHD</p>
+        <p className="checkout-amount">
+          {amount}
+          <span className="checkout-amount-unit">BHD</span>
+        </p>
         {link.description ? <p className="checkout-description">{link.description}</p> : null}
         {link.reference ? <p className="checkout-reference">Reference: {link.reference}</p> : null}
       </div>

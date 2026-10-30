@@ -8,7 +8,7 @@ import {
 } from "../../api/transactions.js";
 import { ApiError, describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
-import { bhd, dash, dateTime } from "../../format.js";
+import { bhd, dash, dateTime, statusLabel } from "../../format.js";
 import type { TransactionDto, TransactionEventDto } from "../../types.js";
 import { attemptFor, isDefinitiveFailure, type IdempotentAttempt } from "../../utils/idempotencyIntent.js";
 import { RefundDrawer } from "./RefundDrawer.js";
@@ -147,15 +147,25 @@ export function TransactionDetailPage() {
 
   return (
     <section>
-      <h1>Transaction</h1>
-      <p className="dash-muted">
-        <code>{txn.id}</code>
-      </p>
+      <div className="dash-page-head">
+        <div>
+          <p className="dash-eyebrow">
+            <Link to="/dashboard/transactions">Transactions</Link> / Detail
+          </p>
+          <h1>Transaction</h1>
+          <p className="dash-muted dash-id-line">
+            <code>{txn.id}</code>
+          </p>
+        </div>
+        <span className={`dash-status dash-status-${txn.status}`}>{statusLabel(txn.status)}</span>
+      </div>
 
-      <dl className="dash-dl">
+      <div className="dash-split">
+        <div className="dash-split-main">
+      <dl className="dash-dl dash-dl-stack">
         <dt>Status</dt>
         <dd>
-          <span className={`dash-status dash-status-${txn.status}`}>{txn.status}</span>
+          <span className={`dash-status dash-status-${txn.status}`}>{statusLabel(txn.status)}</span>
         </dd>
         <dt>Authorized amount</dt>
         <dd>{bhd(txn.amountFils)}</dd>
@@ -232,7 +242,9 @@ export function TransactionDetailPage() {
       </RequireRole>
 
       <RefundDrawer txn={txn} onRefunded={load} />
+        </div>
 
+        <div className="dash-split-side">
       <h2>Event timeline</h2>
       <table className="dash-table">
         <thead>
@@ -269,9 +281,8 @@ export function TransactionDetailPage() {
         </tbody>
       </table>
 
-      <p>
-        <Link to="/dashboard/transactions">Back to transactions</Link>
-      </p>
+        </div>
+      </div>
     </section>
   );
 }

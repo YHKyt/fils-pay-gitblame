@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getSettlementBatch, getSettlementBatchTransactions } from "../../api/settlement.js";
 import { ApiError, describeError } from "../../api/client.js";
-import { bhd, dash, dateTime } from "../../format.js";
+import { bhd, dash, dateTime, statusLabel } from "../../format.js";
 import type { SettlementBatchDetailDto, SettlementBatchTransactionDto } from "../../types.js";
 
 type LoadState =
@@ -98,7 +98,7 @@ export function SettlementBatchDetailPage() {
       <dl className="dash-dl">
         <dt>Status</dt>
         <dd>
-          <span className={`dash-status dash-status-${batch.status}`}>{batch.status}</span>
+          <span className={`dash-status dash-status-${batch.status}`}>{statusLabel(batch.status)}</span>
         </dd>
         <dt>Gross</dt>
         <dd>{bhd(batch.grossFils)}</dd>
@@ -150,7 +150,7 @@ export function SettlementBatchDetailPage() {
               </td>
               <td>{dash(line.reference)}</td>
               <td>
-                <span className={`dash-status dash-status-${line.status}`}>{line.status}</span>
+                <span className={`dash-status dash-status-${line.status}`}>{statusLabel(line.status)}</span>
               </td>
               <td className="dash-num">{bhd(line.authorizedFils)}</td>
               <td className="dash-num">{bhd(line.capturedFils)}</td>

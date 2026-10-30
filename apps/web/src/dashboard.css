@@ -91,26 +91,32 @@
   transform-box: fill-box;
   transform-origin: center;
 }
+/* One sheen sweep across the coin on first load — purposeful, not a loop. */
 @media (prefers-reduced-motion: no-preference) {
   .fp-logo-mark .fp-logo-shine {
-    animation: fp-logo-shine 5.5s var(--fp-ease) infinite;
+    animation: fp-logo-shine 1.6s var(--fp-ease) 0.35s 1 both;
   }
   @keyframes fp-logo-shine {
-    0%,
-    100% {
-      transform: translate(-1px, -1px) scale(0.8);
-      opacity: 0.18;
+    0% {
+      transform: translate(-2px, -2px) scale(0.75);
+      opacity: 0.1;
     }
-    45% {
+    50% {
       transform: translate(7px, 7px) scale(1.15);
       opacity: 0.4;
+    }
+    100% {
+      transform: translate(2px, 2px) scale(0.9);
+      opacity: 0.22;
     }
   }
 }
 .fp-logo-word {
-  font-weight: 700;
-  font-size: 1.12rem;
+  font-family: var(--fp-display);
+  font-weight: 600;
+  font-size: 1.3rem;
   letter-spacing: var(--fp-tracking-tight);
+  font-optical-sizing: auto;
 }
 .fp-logo-word-accent {
   background: var(--fp-gradient);
@@ -237,9 +243,9 @@
 
 /* ---- Main layout & typography -------------------------------------- */
 .dash-main {
-  max-width: 78rem;
+  max-width: 90rem;
   margin: 0 auto;
-  padding: 2rem 1.5rem;
+  padding: 1.5rem 2rem 2.5rem;
 }
 /* Each page fades and lifts in on mount (see reduced-motion reset below). */
 .dash-main > section {
@@ -248,23 +254,39 @@
 
 .dash-shell h1,
 .dash-centered h1 {
-  font-size: 1.9rem;
-  font-weight: 700;
-  letter-spacing: var(--fp-tracking-tighter);
+  font-family: var(--fp-display);
+  font-size: 2.3rem;
+  font-weight: 600;
+  letter-spacing: var(--fp-tracking-tight);
+  font-optical-sizing: auto;
   margin: 0 0 1.1rem;
   color: var(--fp-heading);
-  line-height: 1.15;
+  line-height: 1.08;
 }
 .dash-shell h2 {
-  font-size: 1.15rem;
-  font-weight: 650;
+  font-family: var(--fp-display);
+  font-size: 1.35rem;
+  font-weight: 600;
   letter-spacing: var(--fp-tracking-tight);
-  margin: 2rem 0 0.7rem;
+  font-optical-sizing: auto;
+  margin: 2.4rem 0 0.7rem;
+  padding-bottom: 0.55rem;
   color: var(--fp-heading);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
+  position: relative;
+}
+/* Signature gold hairline rule beneath each section heading. */
+.dash-shell h2::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--fp-hairline);
 }
 .dash-shell section > p,
 .dash-centered > p {
@@ -279,6 +301,112 @@
   font-size: 0.86em;
 }
 
+/* ---- Consistent page header + two-column detail layout -------------- */
+.dash-page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 0 0 1.25rem;
+}
+.dash-page-head h1 {
+  margin: 0 0 0.25rem;
+}
+.dash-eyebrow {
+  margin: 0 0 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--fp-tracking-widest);
+  color: var(--fp-accent-hover);
+}
+.dash-eyebrow a {
+  color: inherit;
+  text-decoration: none;
+}
+.dash-eyebrow a:hover {
+  text-decoration: underline;
+}
+.dash-id-line {
+  margin: 0;
+  font-size: 0.82rem;
+}
+.dash-id-line code {
+  word-break: break-all;
+}
+
+/* Detail pages: a summary rail beside the timeline/table. Collapses to one
+   column below 60rem. */
+.dash-split {
+  display: grid;
+  grid-template-columns: minmax(0, 23rem) minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+.dash-split-main > :first-child,
+.dash-split-side > :first-child {
+  margin-top: 0;
+}
+@media (max-width: 960px) {
+  .dash-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* A description list stacked label-over-value, for the narrow summary rail. */
+.dash-dl-stack {
+  display: block;
+  padding: 1.1rem 1.2rem;
+}
+.dash-dl-stack dt {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--fp-tracking-wide);
+  color: var(--fp-faint);
+  padding: 0;
+  margin-top: 0.85rem;
+}
+.dash-dl-stack dt:first-of-type {
+  margin-top: 0;
+}
+.dash-dl-stack dd {
+  padding: 0.1rem 0 0;
+  font-size: 0.95rem;
+  word-break: break-word;
+}
+.dash-dl-stack dd code {
+  word-break: break-all;
+}
+
+/* ---- Page hero (overview greeting) --------------------------------- */
+.dash-hero {
+  margin: 0 0 1.5rem;
+}
+.dash-hero-eyebrow {
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--fp-tracking-widest);
+  color: var(--fp-accent-hover);
+}
+.dash-hero-title {
+  margin: 0 0 0.3rem !important;
+}
+.dash-hero-name {
+  background: var(--fp-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.dash-hero-sub {
+  margin: 0;
+  color: var(--fp-muted);
+  font-size: 1rem;
+}
+
 footer.dash-main {
   color: var(--fp-faint);
   font-size: 0.82rem;
@@ -288,9 +416,9 @@ footer.dash-main {
 
 /* The login / centered card. */
 .dash-centered {
-  max-width: 27rem;
+  max-width: 28rem;
   margin: 3.5rem auto;
-  padding: 2.25rem;
+  padding: 2.5rem 2.25rem 2.25rem;
   font-family: var(--fp-font);
   color: var(--fp-text);
   background: var(--fp-surface);
@@ -301,19 +429,125 @@ footer.dash-main {
   overflow: hidden;
   animation: dash-section-in var(--fp-dur-slow) var(--fp-ease) both;
 }
-/* A slim brand gradient keyline across the top of the login card. */
+/* A gold keyline across the top of the login card, with a pearlescent sheen
+   sweeping across it on load — the nacre shimmer of the brand. */
 .dash-centered::before {
   content: "";
   position: absolute;
   inset: 0 0 auto 0;
   height: 4px;
   background: var(--fp-gradient);
+  z-index: 1;
+}
+.dash-centered::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: var(--fp-sheen);
+  background-size: 220% 100%;
+  z-index: 2;
+  pointer-events: none;
+}
+/* A single pearlescent sheen across the card keyline on load — once. */
+@media (prefers-reduced-motion: no-preference) {
+  .dash-centered::after {
+    animation: dash-sheen 1.5s var(--fp-ease) 0.45s 1 both;
+  }
+}
+@keyframes dash-sheen {
+  from {
+    background-position: 170% 0;
+  }
+  to {
+    background-position: -70% 0;
+  }
 }
 .dash-centered h1 {
   margin-bottom: 0.25rem;
 }
 .dash-login-logo {
-  margin-bottom: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+.dash-login-tagline {
+  margin: 0.15rem 0 0.4rem;
+  font-size: 0.95rem;
+}
+/* The "Resend code" affordance — deliberately visible so no one re-enters a
+   password to get a fresh code. A gold text button with an underline grow. */
+.dash-resend-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.1rem;
+  font-size: 0.9rem;
+}
+.dash-resend {
+  position: relative;
+  padding: 0.1rem 0;
+  font: inherit;
+  font-weight: 700;
+  color: var(--fp-accent-hover);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.dash-resend::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--fp-gradient);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform var(--fp-dur) var(--fp-ease);
+}
+.dash-resend:hover:not(:disabled)::after,
+.dash-resend:focus-visible::after {
+  transform: scaleX(1);
+}
+.dash-resend:focus-visible {
+  outline: none;
+}
+.dash-resend:disabled {
+  color: var(--fp-faint);
+  cursor: default;
+}
+/* A quiet tertiary button (e.g. "Use a different account"). */
+.dash-button-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--fp-muted);
+  box-shadow: none;
+}
+.dash-button-ghost:hover {
+  background: var(--fp-surface-2);
+  border-color: var(--fp-border);
+  color: var(--fp-text);
+}
+/* On the login screen the whole page sits on the petrol aurora, so the card
+   reads as a pearl floating on the Gulf. */
+.dash-login-bg {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  position: relative;
+  isolation: isolate;
+  background: var(--fp-bg);
+  background-image: radial-gradient(120% 70% at 50% -10%, var(--fp-bg-2) 0%, var(--fp-bg) 55%);
+}
+.dash-login-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--fp-aurora);
+  opacity: 0.55;
+  pointer-events: none;
 }
 
 /* ---- Forms --------------------------------------------------------- */
@@ -843,6 +1077,29 @@ footer.dash-main {
   background: radial-gradient(closest-side, rgba(var(--fp-accent-rgb), 0.16), transparent);
   pointer-events: none;
 }
+/* A slim accent keyline down the left edge marks each card's story: brass for
+   money, Gulf-mint for counts. */
+.dash-stat::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.9rem;
+  bottom: 0.9rem;
+  width: 3px;
+  border-radius: 999px;
+}
+.dash-stat-gold::before {
+  background: var(--fp-gradient);
+}
+.dash-stat-teal {
+  --fp-spark-color: var(--fp-teal);
+}
+.dash-stat-teal::before {
+  background: linear-gradient(180deg, var(--fp-teal), var(--fp-teal-ink));
+}
+.dash-stat-teal::after {
+  background: radial-gradient(closest-side, rgba(var(--fp-teal-rgb), 0.16), transparent);
+}
 .dash-stat-label {
   display: block;
   font-size: 0.78rem;
@@ -856,11 +1113,22 @@ footer.dash-main {
   display: block;
   font-family: var(--fp-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 1.75rem;
+  font-size: 1.8rem;
   font-weight: 700;
   letter-spacing: var(--fp-tracking-tight);
   color: var(--fp-heading);
   line-height: 1.1;
+}
+/* The headline figure on each stat card is struck in brass — the signature
+   "key number in gold" of the identity. */
+.dash-stat-gold .dash-stat-value {
+  background: var(--fp-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.dash-stat-gold .dash-stat-unit {
+  color: var(--fp-accent-hover);
 }
 .dash-stat-unit {
   font-size: 0.95rem;
@@ -887,6 +1155,7 @@ footer.dash-main {
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
+  filter: drop-shadow(0 1px 4px rgba(var(--fp-accent-rgb), 0.3));
 }
 .dash-spark-area {
   stroke: none;
@@ -916,10 +1185,11 @@ footer.dash-main {
 }
 .dash-chart-line {
   fill: none;
-  stroke: var(--fp-accent);
+  /* stroke comes from the inline gold→teal gradient in VolumeChart. */
   stroke-width: 2.5;
   stroke-linecap: round;
   stroke-linejoin: round;
+  filter: drop-shadow(0 2px 7px rgba(var(--fp-accent-rgb), 0.35));
 }
 .dash-chart-axis {
   fill: var(--fp-faint);
