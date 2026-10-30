@@ -5,7 +5,6 @@ package ledger
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -87,7 +86,8 @@ func RebuildAllBalances(ctx context.Context, db *pgxpool.Pool) (map[uuid.UUID]Re
 	}
 	rows.Close()
 
-	// TODO: lock merchant_balances rows first, a concurrent CloseBatch increment gets clobbered -- YA
+	// rebuildInTx locks each merchant's row before reading its ledger, so a
+	// concurrent cache move is never clobbered.
 	diffs := make(map[uuid.UUID]RebuildDiff, len(merchantIDs))
 
 	for _, merchantID := range merchantIDs {
@@ -129,13 +129,26 @@ func RebuildOneBalance(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UU
 
 // rebuildInTx overwrites one merchant's cached balance with its
 // merchant_payable ledger balance inside tx and returns the before/after.
+//
+// It locks the merchant's row before it reads the ledger. A capture, refund
+// or payout that has moved the ledger and the cache but not committed yet
+// holds that lock, so waiting for it here means the ledger read includes it,
+// and one that starts later waits for this rebuild and then adds its move on
+// top. Reading first let the write below wait for that same lock and then
+// replace the in-flight move with the older figure. The INSERT gives a
+// merchant without a row one to lock.
 func rebuildInTx(ctx context.Context, tx pgx.Tx, merchantID uuid.UUID) (RebuildDiff, error) {
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO merchant_balances (merchant_id) VALUES ($1) ON CONFLICT (merchant_id) DO NOTHING
+	`, merchantID); err != nil {
+		return RebuildDiff{}, fmt.Errorf("create balance row for %s: %w", merchantID, err)
+	}
 	var cachedBefore int64
 	err := tx.QueryRow(ctx, `
-		SELECT COALESCE(cached_payable_fils, 0) FROM merchant_balances WHERE merchant_id = $1
+		SELECT cached_payable_fils FROM merchant_balances WHERE merchant_id = $1 FOR UPDATE
 	`, merchantID).Scan(&cachedBefore)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return RebuildDiff{}, fmt.Errorf("read cached balance for %s: %w", merchantID, err)
+	if err != nil {
+		return RebuildDiff{}, fmt.Errorf("lock cached balance for %s: %w", merchantID, err)
 	}
 
 	var rebuilt int64
