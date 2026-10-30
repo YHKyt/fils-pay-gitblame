@@ -57,14 +57,18 @@ func ChildShares(netPayout money.Fils, children []ChildWeight) []money.Fils {
 	for _, c := range children {
 		sumW += c.WeightBps
 	}
-	target := money.BankersRoundDiv(net*sumW, 10000) // == net when sumW == 10000
+	// net*w overflows int64 once net passes about 9.22e14 fils. Split net
+	// into whole ten-thousands (q) and the rest (r): net*w/10000 is then
+	// q*w + r*w/10000, where q*w <= net for w <= 10000 and r*w < 1e8.
+	q, r := net/10000, net%10000
+	target := q*sumW + money.BankersRoundDiv(r*sumW, 10000) // == net when sumW == 10000
 
 	rems := make([]int64, len(children))
 	var allocated int64
 	for i, c := range children {
-		product := net * c.WeightBps
-		out[i] = money.Fils(product / 10000)
-		rems[i] = product % 10000
+		part := r * c.WeightBps
+		out[i] = money.Fils(q*c.WeightBps + part/10000)
+		rems[i] = part % 10000
 		allocated += int64(out[i])
 	}
 
