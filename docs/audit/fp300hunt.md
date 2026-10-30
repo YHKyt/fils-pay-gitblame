@@ -100,6 +100,19 @@ retry with the same key hit 409 `request_in_progress` forever.
   describes for "an unexpected infrastructure fault caught before rethrowing".
 - **Test:** `apps/api/src/payments/processRefundConcurrency.test.ts` — "an
   acquirer that throws releases the reservation and leaves the key retriable".
+- **Open risk (the retry is not safe):** a thrown call is not the same as an
+  `error` outcome. A timeout says nothing about whether the acquirer refunded,
+  yet the fix releases the reservation and re-opens the key as if it did not.
+  The retry then calls the acquirer with a new idempotency key
+  (`${claimId}:${attemptCount}`, and `claimIdempotencyKey` increments
+  `attempt_count` on `retry_after_failure`), and the simulator deduplicates
+  only on that key. If the first call did refund, the retry refunds the
+  customer a second time while the ledger records one refund. The released
+  reservation also lets a refund under a different key take the same amount.
+  This follows from the code and was not reproduced with a test. The safe fix
+  is to keep the acquirer key stable across retries of one claim (or keep the
+  reservation and leave the key for reconciliation on a throw). `agent/fixpack1`
+  was meant to address this; it is not on `fix/money-parsing` at `d68585e`.
 
 ## F5. Reconciliation ignores unbatched refunds, so every period with a refund reports a gap — High
 
