@@ -112,3 +112,14 @@ regression test that fails on the old code and passes on the fix.
 - **Breaks:** Our own smoke run reports a failure for correct money, hiding real ones in the noise.
 - **Fix:** Exact check `gross - fee - refunds + carriedIn == net` when a DTO itemises both; otherwise the bound that always holds, `net <= gross - fee` (refund deductions are never negative, a carried-in balance is never positive), which still catches an overpaying batch.
 - **Test:** The sample-predicate run above (the suite needs a live stack).
+
+## FX11 CSV export: a leading line feed and a semicolon slip past formula escaping — LOW
+
+**Where:** `apps/api/src/transactions/exportCsv.ts` (`csvEscape`).
+**Evidence:** `exportCsvInjection.test.ts` "a leading line feed is neutralised and a semicolon forces quoting": old code writes `"\n=cmd|..."` without the `'` prefix and `a;=HYPERLINK(1)` unquoted.
+
+- **What:** The formula guard prefixed cells starting with `= + - @ \t \r` but not `\n`, and only `, " \n \r` forced quoting.
+- **Why:** Importers that strip leading whitespace treat `\n=...` as a formula, the same reason `\t` and `\r` were already covered. Spreadsheets in locales whose list separator is `;` (common in Europe and the Gulf) split an unquoted `a;=HYPERLINK(1)` into two cells, the second a live formula.
+- **Breaks:** A merchant's export can run an attacker-supplied formula (the reference comes from the API caller or checkout data).
+- **Fix:** Add `\n` to the prefix class and `;` to the quoting class. Two characters.
+- **Test:** New test above; the existing injection test still passes.
