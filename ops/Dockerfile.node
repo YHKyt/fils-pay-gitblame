@@ -1,7 +1,9 @@
 # Image for apps/api, apps/reporting and the one-off migrate/seed jobs.
 # Sized for the hosted demo box (0.5 vCPU / 2 GB RAM / 2 GB disk): slim base,
 # npm cache dropped in the same layer, runs as the unprivileged `node` user.
-FROM node:20-slim
+# node:22, not node:20: argon2's prebuilt binary segfaults on node 20 during
+# `npm ci`, which then falls back to node-gyp and fails (no python in -slim).
+FROM node:22-slim
 
 WORKDIR /app
 ENV NODE_ENV=production \
@@ -25,6 +27,10 @@ COPY packages ./packages
 COPY apps/api ./apps/api
 COPY apps/reporting ./apps/reporting
 COPY db ./db
+
+# KYC uploads (KYC_UPLOAD_DIR=./data/kyc) are written by the unprivileged
+# `node` user; compose mounts a volume here, which inherits this ownership.
+RUN mkdir -p /app/data/kyc && chown -R node:node /app/data
 
 USER node
 EXPOSE 3000

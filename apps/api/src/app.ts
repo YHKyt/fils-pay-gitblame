@@ -49,6 +49,7 @@ export function buildApp(config: Config, pool: Pool, options: BuildAppOptions = 
       serializers: { req: requestLogSerializer },
       ...(options.logStream ? { stream: options.logStream } : {}),
     },
+    trustProxy: config.trustProxy,
   });
 
   app.decorate("db", pool);

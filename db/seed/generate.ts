@@ -207,8 +207,11 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
   try {
     await client.query("BEGIN");
     try {
-      // AM: only touches the fixture tables listed in TABLES_TO_RESET, so it's
-      // safe to run against a shared/staging database. (see RUNBOOK)
+      // Not limited to fixture rows: TRUNCATE ... CASCADE empties these
+      // tables and every table that references them (sessions, api_keys,
+      // refunds, webhook endpoints, ...), whoever wrote the rows. The CLI
+      // (index.ts) refuses to get here on a populated database unless
+      // SEED_RESET=1.
       await client.query(`TRUNCATE TABLE ${TABLES_TO_RESET.join(", ")} RESTART IDENTITY CASCADE`);
 
       // Admin staff fixtures. Ids come from the database's own

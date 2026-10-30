@@ -119,6 +119,15 @@ export interface Config {
   /** Defaults to true: an unsigned callback is unauthenticated. Only set
    *  ACQUIRER_CALLBACK_REQUIRE_SIGNATURE=false against an unsigned sandbox. */
   acquirerCallbackRequireSignature: boolean;
+
+  /** Which peers may set X-Forwarded-For (Fastify `trustProxy`): a
+   *  comma-separated list of addresses, CIDRs or proxy-addr names such as
+   *  `loopback,linklocal,uniquelocal`. Unset = trust nobody, so
+   *  `request.ip` is the socket peer. Behind the compose nginx it must name
+   *  the proxy, or every session records nginx's address. Never `true`:
+   *  the api port is also published directly, and any client could then
+   *  claim any address. */
+  trustProxy: string | false;
 }
 
 function parseNodeEnv(value: string | undefined): Config["nodeEnv"] {
@@ -263,5 +272,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
     acquirerCallbackSigningSecret,
     acquirerCallbackRequireSignature: nodeEnv === "production" ? true : parseBoolEnv(env.ACQUIRER_CALLBACK_REQUIRE_SIGNATURE, true),
+    trustProxy: env.TRUST_PROXY ? env.TRUST_PROXY : false,
   };
 }

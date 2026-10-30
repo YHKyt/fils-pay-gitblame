@@ -27,9 +27,12 @@ docker inspect <container> --format '{{.State.OOMKilled}}'
 If it's OOM, find the request that was in flight when it died (the access
 log line that never got a response) before raising the limit.
 
-The most common cause so far has been sharp's in-process image cache when
-support pages through KYC thumbnails. Set `SHARP_CACHE=0` on the API
-container and restart.
+Nothing reads a `SHARP_CACHE` variable, so setting one changes nothing.
+KYC thumbnails are generated once, at upload (`onboarding/kycThumbnail.ts`,
+320 px, source images capped at 40 MP before decode), and served from
+storage afterwards, so paging through them in the console does not run
+sharp at all. sharp's in-process cache can only be changed in code
+(`sharp.cache(false)`).
 
 ## Settlement didn't run for a day
 
@@ -129,12 +132,18 @@ second run is a no-op.
 ## Resetting a non-production environment
 
 ```bash
-npm run migrate && npm run seed
+npm run migrate && SEED_RESET=1 npm run seed
 ```
 
-The seed truncates and regenerates the fixture tables it owns and
-self-checks the result. It prints `REAL FAIL` lines if anything doesn't
-come out as expected — don't ignore them. It won't touch other tables, so
-it's safe against a shared staging database.
+The seed is destructive: it TRUNCATEs merchants, ledger entries and admin
+users with CASCADE, which also empties every table that references them
+(sessions, API keys, refunds, webhook endpoints and more), whoever wrote
+the rows. It is not safe against a shared database. Without `SEED_RESET=1`
+it only seeds an empty database; on one that already has merchants, ledger
+entries or admin users it prints `seed: skipped` and exits 0. It
+self-checks the result and prints `REAL FAIL` lines if anything doesn't
+come out as expected — don't ignore them.
+
+With compose: `SEED_RESET=1 docker compose -f ops/docker-compose.yml run --rm seed`.
 
 > **AM (Sept):** check DATABASE_URL before seeding. staging-2 got reset this way
