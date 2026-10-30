@@ -37,8 +37,11 @@ export async function sendTestWebhookEvent(
   transport: WebhookTransport,
   input: { merchantId: string; endpointId: string },
 ): Promise<TestSendResult> {
+  // deleted_at IS NULL: a deleted endpoint is never sent to (webhooks/cancel.ts),
+  // the same predicate list/get/update use.
   const result = await pool.query<EndpointSecretRow>(
-    `SELECT url, secret_ciphertext, status FROM webhook_endpoints WHERE id = $1 AND merchant_id = $2`,
+    `SELECT url, secret_ciphertext, status FROM webhook_endpoints
+      WHERE id = $1 AND merchant_id = $2 AND deleted_at IS NULL`,
     [input.endpointId, input.merchantId],
   );
   const row = result.rows[0];

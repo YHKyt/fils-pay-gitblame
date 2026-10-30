@@ -115,3 +115,48 @@ test("WF2: a live reservation (payment in flight) still cannot be canceled", asy
   assert.equal(cancel.statusCode, 409, cancel.body);
   assert.equal(cancel.json().error, "not_cancelable");
 });
+
+async function withReceiver<T>(fn: (url: string, hits: string[]) => Promise<T>): Promise<T> {
+  const http = await import("node:http");
+  const hits: string[] = [];
+  const server = http.createServer((req, res) => {
+    hits.push(req.url ?? "");
+    req.resume();
+    req.on("end", () => {
+      res.writeHead(200);
+      res.end("ok");
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as { port: number }).port;
+  try {
+    return await fn(`http://127.0.0.1:${port}`, hits);
+  } finally {
+    server.close();
+  }
+}
+
+test("WF3: test-send refuses a deleted webhook endpoint and sends nothing", async () => {
+  const { merchantId, auth } = await approvedMerchant("wh-deleted");
+  await withReceiver(async (base, hits) => {
+    const created = await app.inject({
+      method: "POST",
+      url: `/v1/merchants/${merchantId}/webhook-endpoints`,
+      headers: auth,
+      payload: { url: `${base}/hook` },
+    });
+    assert.equal(created.statusCode, 201, created.body);
+    const { id } = created.json<{ id: string }>();
+    const del = await app.inject({ method: "DELETE", url: `/v1/merchants/${merchantId}/webhook-endpoints/${id}`, headers: auth });
+    assert.equal(del.statusCode, 204);
+
+    const sent = await app.inject({
+      method: "POST",
+      url: `/v1/merchants/${merchantId}/webhook-endpoints/${id}/test`,
+      headers: auth,
+    });
+    assert.equal(sent.statusCode, 404, sent.body);
+    assert.equal(sent.json().error, "webhook_endpoint_not_found");
+    assert.deepEqual(hits, []);
+  });
+});
