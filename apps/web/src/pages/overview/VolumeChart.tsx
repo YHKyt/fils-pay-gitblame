@@ -147,13 +147,10 @@ export function VolumeChart({ points }: { points: VolumePointDto[] }) {
               />
             ))}
             <path className="dash-chart-area" d={area} fill="url(#fp-chart-fill)" />
-            <path
-              className="dash-chart-line dash-draw"
-              d={line}
-              stroke="url(#fp-chart-stroke)"
-              vectorEffect="non-scaling-stroke"
-              style={{ ["--dash-len" as string]: "3000" }}
-            />
+            {/* No draw-in dash animation: with a non-scaling stroke the
+                on-screen path length exceeds any fixed dash length, which
+                cut the line short on wide screens. */}
+            <path className="dash-chart-line" d={line} stroke="url(#fp-chart-stroke)" vectorEffect="non-scaling-stroke" />
             {n === 1 ? (
               <line
                 className="dash-chart-line"
