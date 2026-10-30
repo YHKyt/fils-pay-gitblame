@@ -39,6 +39,13 @@ export function humanDate(date: string | null | undefined): string {
   return `${Number(match[3])} ${MONTHS[Number(match[2]) - 1] ?? match[2]} ${match[1]}`;
 }
 
+/** An instant as `31 Aug 2026, 00:30` in Asia/Bahrain time. */
+export function humanDateTime(iso: string | null | undefined): string {
+  const part = bahrainParts(iso);
+  if (!part) return "—";
+  return `${humanDate(`${part.year}-${part.month}-${part.day}`)}, ${part.hour}:${part.minute}`;
+}
+
 /** First 8 characters of a UUID, upper-cased, for a human-scale reference
  *  (`#3F2A91C0`). The full id stays available as secondary text. */
 export function shortId(id: string): string {

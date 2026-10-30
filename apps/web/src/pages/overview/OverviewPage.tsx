@@ -4,7 +4,7 @@ import { getPayoutTrends, getTopLinks, getVolumes } from "../../api/analytics.js
 import { describeError } from "../../api/client.js";
 import { StalenessBadge } from "../../components/StalenessBadge.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
-import { bhdDisplay, dash, dateTime, humanDate, statusLabel } from "../../format.js";
+import { bhdDisplay, dash, humanDate, humanDateTime, statusLabel } from "../../format.js";
 import { usePageTitle } from "../../hooks/usePageTitle.js";
 import { formatCount } from "../../utils/helpers.js";
 import { StatCards } from "./StatCards.js";
@@ -37,6 +37,26 @@ function bahrainDay(offsetDays: number): string {
 function presetRange(days: number): { from: string; to: string } {
   return { from: bahrainDay(-(days - 1)), to: bahrainDay(1) };
 }
+/** "All activity": the last 12 months are fetched, then the chart is
+ *  trimmed to the first..last day that has activity. */
+const ALL_DAYS = 365;
+
+function nextDay(date: string): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+}
+
+/** Overview tables show 10 rows until the merchant asks for the rest. */
+const TABLE_PREVIEW_ROWS = 10;
+function ShowAllToggle({ total, expanded, onToggle }: { total: number; expanded: boolean; onToggle: () => void }) {
+  if (total <= TABLE_PREVIEW_ROWS) return null;
+  return (
+    <p className="dash-showall">
+      <button type="button" className="dash-button" onClick={onToggle} aria-expanded={expanded}>
+        {expanded ? "Show fewer" : `Show all (${total})`}
+      </button>
+    </p>
+  );
+}
 
 export function OverviewPage() {
   usePageTitle("Overview");
@@ -46,8 +66,10 @@ export function OverviewPage() {
   // Default window: last 90 Bahrain days, so recent history shows rather
   // than a near-empty month. Both bounds are explicit so the chart can
   // zero-fill exactly the window the API was asked for.
-  const [from, setFrom] = useState(() => presetRange(90).from);
-  const [to, setTo] = useState(() => presetRange(90).to);
+  const [from, setFrom] = useState(() => presetRange(ALL_DAYS).from);
+  const [to, setTo] = useState(() => presetRange(ALL_DAYS).to);
+  const [showAllVolume, setShowAllVolume] = useState(false);
+  const [showAllPayouts, setShowAllPayouts] = useState(false);
   const [topLinksLimit, setTopLinksLimit] = useState(10);
 
   const [volumes, setVolumes] = useState<VolumesResponse | null>(null);
@@ -97,9 +119,12 @@ export function OverviewPage() {
     const r = presetRange(d);
     return r.from === from && r.to === to;
   });
+  const allActivity = from === presetRange(ALL_DAYS).from && to === presetRange(ALL_DAYS).to;
   const firstDay = volumes?.points[0]?.date;
   const lastDay = volumes?.points[volumes.points.length - 1]?.date;
-  const periodLabel = activePreset
+  const periodLabel = allActivity
+    ? "All activity"
+    : activePreset
     ? `Last ${activePreset} days`
     : !from && !to
       ? "Last 30 days"
@@ -121,8 +146,20 @@ export function OverviewPage() {
       </div>
 
       <div className="dash-range-chips" role="group" aria-label="Date range">
+        <button
+          type="button"
+          className={`dash-chip${allActivity ? " is-active" : ""}`}
+          aria-pressed={allActivity}
+          onClick={() => {
+            const r = presetRange(ALL_DAYS);
+            setFrom(r.from);
+            setTo(r.to);
+          }}
+        >
+          All activity
+        </button>
         {PRESETS.map((d) => {
-          const selected = activePreset === d || (d === 30 && !from && !to);
+          const selected = activePreset === d;
           return (
             <button
               key={d}
@@ -179,7 +216,13 @@ export function OverviewPage() {
       {volumes && payouts ? (
         <>
           <StatCards volumes={volumes} payouts={payouts} periodLabel={periodLabel} />
-          <VolumeChart points={zeroFill(volumes.points, from, to || presetRange(1).to)} />
+          <VolumeChart
+            points={
+              allActivity && firstDay && lastDay
+                ? zeroFill(volumes.points, firstDay, nextDay(lastDay))
+                : zeroFill(volumes.points, from, to || presetRange(1).to)
+            }
+          />
         </>
       ) : loading ? (
         <div className="dash-stats" aria-hidden="true">
@@ -205,9 +248,9 @@ export function OverviewPage() {
           </tr>
         </thead>
         <tbody>
-          {volumes?.points.map((point) => (
+          {volumes?.points.slice(0, showAllVolume ? undefined : TABLE_PREVIEW_ROWS).map((point) => (
             <tr key={point.date}>
-              <td>{point.date}</td>
+              <td>{humanDate(point.date)}</td>
               <td className="dash-num">{formatCount(point.capturedCount)}</td>
               <td className="dash-num">{bhdDisplay(point.capturedGrossFils)}</td>
               <td className="dash-num">{formatCount(point.voidedCount)}</td>
@@ -228,6 +271,13 @@ export function OverviewPage() {
           ) : null}
         </tbody>
       </table></div>
+      {volumes ? (
+        <ShowAllToggle
+          total={volumes.points.length}
+          expanded={showAllVolume}
+          onToggle={() => setShowAllVolume((v) => !v)}
+        />
+      ) : null}
 
       <h2>
         Payout trends{" "}
@@ -245,10 +295,10 @@ export function OverviewPage() {
           </tr>
         </thead>
         <tbody>
-          {payouts?.points.map((point) => (
+          {payouts?.points.slice(0, showAllPayouts ? undefined : TABLE_PREVIEW_ROWS).map((point) => (
             <tr key={point.settlementBatchId}>
               <td>
-                <Link to={`/dashboard/settlement/${point.settlementBatchId}`}>{point.batchDate}</Link>
+                <Link to={`/dashboard/settlement/${point.settlementBatchId}`}>{humanDate(point.batchDate)}</Link>
               </td>
               <td>
                 <span className={`dash-status dash-status-${point.status}`}>{statusLabel(point.status)}</span>
@@ -256,7 +306,7 @@ export function OverviewPage() {
               <td className="dash-num">{bhdDisplay(point.grossFils)}</td>
               <td className="dash-num">{bhdDisplay(point.feeFils)}</td>
               <td className="dash-num">{bhdDisplay(point.netPayoutFils)}</td>
-              <td>{dateTime(point.paidAt)}</td>
+              <td>{humanDateTime(point.paidAt)}</td>
             </tr>
           ))}
           {payouts && payouts.points.length === 0 ? (
@@ -266,6 +316,13 @@ export function OverviewPage() {
           ) : null}
         </tbody>
       </table></div>
+      {payouts ? (
+        <ShowAllToggle
+          total={payouts.points.length}
+          expanded={showAllPayouts}
+          onToggle={() => setShowAllPayouts((v) => !v)}
+        />
+      ) : null}
 
       <h2>
         Top paid links{" "}
@@ -292,7 +349,7 @@ export function OverviewPage() {
               </td>
               <td>{dash(link.description)}</td>
               <td className="dash-num">{bhdDisplay(link.amountFils)}</td>
-              <td>{dateTime(link.paidAt)}</td>
+              <td>{humanDateTime(link.paidAt)}</td>
             </tr>
           ))}
           {topLinks && topLinks.links.length === 0 ? (
