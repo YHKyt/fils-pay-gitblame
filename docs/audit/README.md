@@ -14,7 +14,7 @@ ratings such as "Medium-High"; they are listed as written).
 
 | File | IDs | What it covers | Findings |
 |---|---|---|---|
-| [BRIEFING.md](BRIEFING.md) | — | Team briefing for the case review and the judges: scoreboard, case-file coverage map, top findings, FP-300 demo, judge Q&A. Its scoreboard is recounted over every write-up in this table (182). | summary only |
+| [BRIEFING.md](BRIEFING.md) | — | Team briefing for the case review and the judges: scoreboard, case-file coverage map, top findings, FP-300 demo, judge Q&A. Its scoreboard is recounted over every write-up in this table (185). | summary only |
 | [money-and-settlement.md](money-and-settlement.md) | M1–M17 | Money parsing, payouts, splits, balance rebuild, MDR, daily close, counters, fee display, scheme residue, March sweep, sandbox merchants, reporting wedge, hold janitor, refunded-status recompute, fresh-database boot | 17 (3 Critical, 8 High, 5 Medium, 1 Low) |
 | [api-security-and-refunds.md](api-security-and-refunds.md) | S1–S9, R1–R7, W1–W4, H1, P1–P2, T1 | Auth and OTP, impersonation, FP-300 refunds (built as R1), webhooks, payment links, hosting, test isolation | 22 fixed (6 Critical, 11 High, 4 Medium, 1 Low) + the FP-300 feature (R1); S8 is a review with no change |
 | ↳ same file, "Sweep findings" | A1–A9 (admin plane), M1–M13 (merchant plane) | Table-form sweep of the admin and merchant surfaces | 9 + 13 |
@@ -44,11 +44,12 @@ ratings such as "Medium-High"; they are listed as written).
 | [judgeprep.md](judgeprep.md) | JP1–JP5 | Black-box suite against a fresh stack | 2 (1 High, 1 Medium); JP3 is SD5, JP5 is the zero-net item in eventsbus, JP4 is reported only |
 | [perfload.md](perfload.md) | PL1–PL3 | Performance under the hosted budget: ledger scans on every write and refund, reporting backlog drain | 3 (1 High, 2 Medium) + reported-only items |
 | [seeddemo.md](seeddemo.md) | SD1–SD5 | Seed realism: fee schedules, one batch per business day, voids on the timeline, raw keys in logs, test-mode merchant | 5 (2 High, 3 Medium) |
+| [hunt-a.md](hunt-a.md) | HA1–HA3 | Payments, links, refunds and auth hunt: suspended merchant's links still charged, declined refund after a recompute, voided stuck link payment | 3 (1 High, 2 Medium) + suspected items |
 | [HANDOFF-cloud-session.md](HANDOFF-cloud-session.md) | — | Handoff notes of the cloud session: merged branches, open items | reference, not counted |
 | [mystery-timeline.md](mystery-timeline.md) | rows 1–24 | The vanished developer: timeline, the three transmissions, and the 24 clues that point to real bugs, each with its fix status | mystery deliverable |
 | [ai-config-traps.md](ai-config-traps.md) | claim rows | Claim-by-claim check of the planted `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, the ONBOARDING canary and AI-citing code comments | reference, no fixes of its own |
 
-Fixed findings across the write-ups: 17 + 22 + 9 + 13 + 20 + 5 + 5 + 2 + 3 + 5 + 4 + 2 + 2 + 5 + 2 + 2 + 5 + 8 + 3 + 7 + 3 + 4 + 3 + 4 + 1 + 5 + 11 + 2 + 3 + 5 = **182** (15 Critical, 69 High, 63 Medium, 35 Low; in-between ratings count at the higher level), plus the FP-300 feature.
+Fixed findings across the write-ups: 17 + 22 + 9 + 13 + 20 + 5 + 5 + 2 + 3 + 5 + 4 + 2 + 2 + 5 + 2 + 2 + 5 + 8 + 3 + 7 + 3 + 4 + 3 + 4 + 1 + 5 + 11 + 2 + 3 + 5 + 3 = **185** (15 Critical, 70 High, 65 Medium, 35 Low; in-between ratings count at the higher level), plus the FP-300 feature.
 
 Counted once: a bug that two write-ups describe is one finding (judgeprep JP3 = seeddemo SD5, JP5 = eventsbus zero-net payout item, the sqlhunt out-of-order consumer item = RP1, the settleguards one-merchant item = settlerun). Not counted: R1 (feature), S8 (review, no change), items still open or decided against (adminmoney daily cap, apihygiene refund error shape, concfuzz residual, opsfix O7, and the reported-only lists), and "fixed in" notes that carry no severity of their own.
 

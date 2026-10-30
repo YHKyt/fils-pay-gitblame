@@ -67,7 +67,8 @@ Counted from every write-up in `docs/audit/`, using the per-file numbers in the 
 | Judge preparation (`judgeprep.md`, JP1-JP2) | 0 | 1 | 1 | 0 | 2 |
 | Performance under load (`perfload.md`, PL1-PL3) | 0 | 1 | 2 | 0 | 3 |
 | Seed realism (`seeddemo.md`, SD1-SD5) | 0 | 2 | 3 | 0 | 5 |
-| **Total** | **15** | **69** | **63** | **35** | **182** |
+| Bug hunt A (`hunt-a.md`, HA1-HA3) | 0 | 1 | 2 | 0 | 3 |
+| **Total** | **15** | **70** | **65** | **35** | **185** |
 
 Duplicates are counted once: JP3 is SD5, JP5 is the zero-net payout item in `eventsbus.md`, the out-of-order consumer item in `sqlhunt.md` is RP1, and the one-merchant-stops-the-run item in `settleguards.md` is `settlerun.md`. Not counted: R1 (the feature), S8 (a review with no change), items with no severity or still open (see the README), and unrated "fixed in" notes inside reported-only sections.
 
