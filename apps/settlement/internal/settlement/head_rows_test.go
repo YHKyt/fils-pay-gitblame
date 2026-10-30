@@ -19,7 +19,8 @@ import (
 // headCapture writes one full capture the way captureTransaction
 // (apps/api/src/payments/capture.ts) does: the transaction row, the
 // 'capture: gross' and 'capture: MDR fee' leg pairs in one entry group, and
-// the 'captured' event carrying metadata.feeFils and discountBps. The fee is
+// the 'captured' event carrying metadata.feeFils and discountBps, and the
+// matching merchant_balances move. The fee is
 // the MDR on the amount net of the negotiated discount, each step rounded
 // half-even. Ledger legs and the event share one timestamp, as now() does
 // inside the capture transaction.
@@ -72,6 +73,8 @@ func headCapture(t *testing.T, pool *pgxpool.Pool, merchantID uuid.UUID, mdrBps,
 	if err != nil {
 		t.Fatalf("headCapture: insert event: %v", err)
 	}
+	// capture.ts moves merchant_balances with its merchant_payable legs.
+	moveCache(t, pool, merchantID, int64(amountFils)-int64(feeFils))
 	return txnID, feeFils
 }
 
@@ -159,6 +162,8 @@ func headRefund(t *testing.T, pool *pgxpool.Pool, merchantID, txnID uuid.UUID, a
 	if err != nil {
 		t.Fatalf("headRefund: insert event: %v", err)
 	}
+	// processRefund.ts moves merchant_balances with its merchant_payable legs.
+	moveCache(t, pool, merchantID, int64(feeReversedFils)-int64(amountFils))
 	return refundID, feeReversedFils
 }
 

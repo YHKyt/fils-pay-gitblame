@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// TestMain lets a test run the real CLI: runCLI re-executes this test binary
+// TestMain lets a test run the real CLI: runRebuildCLI re-executes this test binary
 // with SETTLEMENT_CLI_ARGS set, and it then behaves as `settlement <args>`.
 func TestMain(m *testing.M) {
 	if args, ok := os.LookupEnv("SETTLEMENT_CLI_ARGS"); ok {
@@ -22,7 +22,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func runCLI(t *testing.T, args string) string {
+func runRebuildCLI(t *testing.T, args string) string {
 	t.Helper()
 	cmd := exec.Command(os.Args[0])
 	cmd.Env = append(os.Environ(), "SETTLEMENT_CLI_ARGS="+args)
@@ -70,7 +70,7 @@ func TestRebuildBalancesMerchantFlag_WritesTheCache(t *testing.T) {
 		t.Fatalf("seed drifted cache: %v", err)
 	}
 
-	out := runCLI(t, "rebuild-balances --merchant="+merchantID.String())
+	out := runRebuildCLI(t, "rebuild-balances --merchant="+merchantID.String())
 
 	var cached int64
 	if err := pool.QueryRow(ctx, `
