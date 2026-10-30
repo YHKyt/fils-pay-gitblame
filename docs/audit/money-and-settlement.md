@@ -15,7 +15,7 @@ Severity: **Critical** = money moved or recorded wrongly at scale ·
   - `0055` inserts into `chart_of_accounts (code, account_type, description)` with kind `'suspense'`. The table (0007) is `(id, name, kind)` and `kind` must be asset/liability/revenue.
   - The dev fallback `WEBHOOK_SECRET_ENCRYPTION_KEY` is base64 of a 34-byte string, but `loadConfig` requires exactly 32 bytes, so the api and seed throw on startup outside production.
 - **Breaks:** every fresh environment (local, CI, a new hosted box).
-- **Fix:** view uses `te.settlement_batch_id IS NULL`; 0055 rewritten to the real schema (suspense modelled as `asset`, as 0007 already does for `scheme_rounding_residue`); a valid 32-byte dev-only key. Neither migration could have applied anywhere (both error), so editing them does not trip the runner's checksum guard.
+- **Fix:** view uses `te.settlement_batch_id IS NULL`; 0055 rewritten to the real schema (suspense modelled as `asset`, as 0007 already does for `scheme_rounding_residue`); a valid 32-byte dev-only key. Editing the two files in place is safe because neither could have applied anywhere (both error), so no database has them recorded as applied. (The runner tracks applied files by filename only, `db/migrate.ts:71-77`; the comment above it claiming a per-file checksum guard is wrong, so there is no guard to trip either way.)
 - **Test:** migrate applies 68/68 and seed's own assertions pass on an empty Postgres 16.
 
 ## M2. Every refund created without a reason fails — High
@@ -76,13 +76,13 @@ Severity: **Critical** = money moved or recorded wrongly at scale ·
 - **Fix:** `status = 'closed'`.
 - **Test:** `recalculate_mdr_paid_test.go` (DB-backed).
 
-## M8. Daily close uses the UTC date, not Bahrain — High
+## M8. Daily close fires about three hours late (daemon reads the UTC date) — Medium
 **Where:** `apps/settlement/internal/scheduler/daemon.go`
 **Evidence:** group chat — "the daily close is running at 3am local, not midnight"; ARCHITECTURE: business day is Asia/Bahrain.
 
-- **What:** the daemon closed the wrong business day and ran about three hours late.
-- **Why:** it read `time.Now().UTC()` and passed it to `BusinessDayWindow`, which takes the calendar date from the instant's own location. From 21:00 to 24:00 UTC it is already the next day in Bahrain (UTC+3), so the window was computed for the previous day and the run fired only once the UTC date caught up (~03:15 local). The code comment "UTC here is fine, BusinessDayWindow converts to Bahrain" is wrong — it does not convert.
-- **Breaks:** which transactions land in which settlement day; payout timing.
+- **What:** the daemon closed each business day about three hours late (at the first poll after 00:00 UTC, i.e. from 03:00 Bahrain, instead of 00:15; the ops log comment reports ~03:15). The day it closed, and that day's window, were always correct.
+- **Why:** it read `time.Now().UTC()` and passed it to `BusinessDayWindow`, which takes the calendar date from the instant's own location. From 21:00 to 24:00 UTC (00:00 to 03:00 Bahrain) the UTC date is still the previous day, so "yesterday" resolved to the day before the one that had just ended. That day was already closed, so the run was a no-op (CloseBatch is idempotent). The day that had just ended was only picked up once the UTC date rolled over at 00:00 UTC, i.e. 03:00 Bahrain. Its window was still the correct Bahrain window `[D-1 21:00Z, D 21:00Z)`, because `BusinessDayWindow` always builds the boundaries in Asia/Bahrain. The code comment "UTC here is fine, BusinessDayWindow converts to Bahrain" is wrong — it converts the boundaries, not the date it is given.
+- **Breaks:** close and payout timing only: the 00:15 run (15-minute default delay after Bahrain midnight) became ~03:00 or later, so payouts and the scheme file were three hours late every day. No transaction was put in the wrong settlement day. (An earlier version of this note said the daemon "closed the wrong business day"; that overstated it.)
 - **Fix:** read the clock in the business timezone (`settlement.BusinessLocation()`); `BusinessDayWindow` and its tests unchanged.
 - **Test:** `window_bahrain_test.go`. (`window_utc_compat_test.go` asserts the buggy "clock time is irrelevant" behaviour; fixing at the call site leaves it green rather than rewriting it.)
 
@@ -129,6 +129,12 @@ Severity: **Critical** = money moved or recorded wrongly at scale ·
   - **Not idempotent.** Each run posted a group with a fresh `randomUUID()`; the comment "re-running is safe, entry_group_id dedupes it" is false — nothing deduplicates, so every run adds the residue again.
   - **UTC month.** `monthBounds` uses `Date.UTC`, but the business day is Asia/Bahrain: Bahrain March is `2026-02-28T21:00Z .. 2026-03-31T21:00Z`, so the sweep missed March's first three local hours and swept April's.
   - **Wrong accounts.** It debited `merchant_payable` and credited `scheme_rounding_residue`, i.e. it charged *merchants* for the platform's scheme rounding. ADR-0002's legs are `card_scheme_clearing` credit / `scheme_rounding_residue` debit.
+- **Why the Bahrain month, although ADR-0003 is Accepted.** ADR-0003 says calendar-month finance reports and one-off scripts use the UTC month. We deliberately depart from it for this script, and say so openly:
+  - ADR-0003 rests on the claim that the three hours at each end "net out" over a month, and its own Consequences limit it: "If a month has unusual volume at the boundary, compare against the batch totals before booking." MK's reply to YA's objection in the same ADR is "revisit if a month doesn't tie".
+  - March does not tie. Huda reports it out by "roughly 4.7–4.8 BD" (meetings/2026-07-08-finance-eng.md:17) and "4.75 BD-ish" (archive/slack-export-fp-finance-2026-09.txt:71). The seed fixture puts 528 residue captures (527 × 9 + 7 = 4,750 fils = 4.750 BD) in the first three Bahrain hours of 1 March, which a UTC month counts as February (`db/seed/fixtures/marchReconciliation.ts:28-33`). That is exactly the gap, so the ADR's own revisit condition is met. August tied under the UTC window because its boundaries were ordinary, which is what the ADR predicts.
+  - This script is not a report: it posts ledger entries for the ADR-0002 residue that `CloseBatch` would have journalled per daily batch, and daily batches use the Bahrain business day (ADR-0003's own "daily" rule). A month of Bahrain days is the Bahrain month; a UTC window would book residue for transactions whose batches belong to February and April.
+  - The handover is explicit for this script: "Whoever writes it must use the Bahrain month, not a UTC month" (HANDOVER.md:30-32).
+  - We did not edit ADR-0003. Finance should supersede it for any script that posts to the ledger; until then this is a documented exception, not a silent change. `monthBounds` (UTC) is kept for callers that want a UTC report.
 - **Fix:** an exported `runSweep` that takes a transaction-scoped advisory lock and skips any merchant whose sweep group already exists (matched by the original description, so earlier production runs are detected), uses Bahrain month bounds, posts the ADR-0002 legs, and has a `--check` mode that writes nothing and reports how many times each merchant was already swept — which answers "did it run twice in production?" from the ledger itself. Groups already posted by old runs are not reversed automatically; `--check` lists them for finance.
 - **Test:** `reconcile_march.fix.test.ts` — Bahrain bounds; three consecutive runs post exactly one balanced group and never touch `merchant_payable`.
 
