@@ -10,14 +10,13 @@ import {
 import { rotateApiKeyAsAdmin } from "../admin/apiKeys.js";
 import { startImpersonation } from "../admin/impersonation.js";
 import { withTransaction } from "../db/withTransaction.js";
-import { BadRequestError, ForbiddenError, NotFoundError, UnauthorizedError } from "../lib/errors.js";
+import { BadRequestError, NotFoundError, UnauthorizedError } from "../lib/errors.js";
 import { lockMerchantUnderReviewInTx, recordKycReviewInTx } from "../onboarding/review.js";
 import { createWebhookDeliveryArchive, replayWebhookDeliveryArchive } from "../webhooks/archiveReplay.js";
 import {
   DEFAULT_REPLAY_STATUSES,
   REPLAYABLE_STATUSES,
   replayWebhookDeliveriesBatch,
-  SUPPORT_REPLAYABLE_STATUSES,
 } from "../webhooks/replayBatch.js";
 
 interface MerchantIdParams {
@@ -213,10 +212,11 @@ export async function adminMerchantRoutes(app: FastifyInstance): Promise<void> {
   );
 
   /**
-   * Webhook batch replay. Any admin role may replay `failed`/`exhausted`
-   * deliveries; naming `pending` or `succeeded` (re-delivering an event the
-   * receiver may already have acted on) requires finance or super_admin.
-   * That check is per request body, so it lives in the handler.
+   * Webhook batch replay. `requireAdminSession` only (any role): it is
+   * routine, reversible, and deduped receiver-side by the stable
+   * Webhook-Delivery-Id (B3a), so no money moves as a direct result, and
+   * support replaying a `succeeded` delivery is a documented operator action
+   * (ADMIN.md). An unknown status is still rejected with 400.
    */
   app.post<{ Params: EndpointParams; Body: ReplayBatchBody }>(
     "/:id/webhook-endpoints/:endpointId/replay-batch",
@@ -245,10 +245,6 @@ export async function adminMerchantRoutes(app: FastifyInstance): Promise<void> {
       }
       if (statuses !== undefined && !statuses.every((s) => REPLAYABLE_STATUSES.includes(s))) {
         throw new BadRequestError("invalid_request", `statuses must be drawn from ${REPLAYABLE_STATUSES.join(", ")}`);
-      }
-      const needsFinance = (statuses ?? []).some((s) => !SUPPORT_REPLAYABLE_STATUSES.includes(s));
-      if (needsFinance && adminAuth.role !== "finance" && adminAuth.role !== "super_admin") {
-        throw new ForbiddenError("forbidden");
       }
 
       const result = await replayWebhookDeliveriesBatch(app.db, {
@@ -309,13 +305,11 @@ export async function adminMerchantRoutes(app: FastifyInstance): Promise<void> {
    * Restore a previously captured archive against an endpoint,
    * defaulting to the one it was captured from. The target may be a
    * different, newly registered endpoint: that is the "migrate history to a
-   * rotated URL" case this archive exists for. It replays every archived
-   * delivery whatever its status (succeeded included), so it needs finance
-   * or super_admin, like a replay-batch that names `succeeded`.
+   * rotated URL" case this archive exists for.
    */
   app.post<{ Params: ArchiveReplayParams; Body: ArchiveReplayBody }>(
     "/:id/webhook-endpoints/:endpointId/archive/:archiveId/replay",
-    { preHandler: [requireAdminSession, requireAdminRole("finance", "super_admin")] },
+    { preHandler: [requireAdminSession] },
     async (request, reply) => {
       const adminAuth = request.adminAuth;
       if (!adminAuth) throw new UnauthorizedError("unauthenticated");
