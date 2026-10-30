@@ -1,6 +1,10 @@
 import type { ApiErrorBody } from "../types.js";
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:3000";
+// Same origin by default: the API sends no CORS headers, so the dashboard
+// must reach it through a proxy on its own origin (vite.config.ts in dev,
+// ops/nginx.web.conf when hosted). The old default, http://localhost:3000,
+// made every call cross-origin and the browser blocked them all.
+const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL as string | undefined) ?? "";
 
 /** Mirrors apps/api's own uniform `{ error, message? }` body
  *  (lib/errors.ts / plugins/errorHandler.ts) — one error shape end to
@@ -21,8 +25,8 @@ export class ApiError extends Error {
 
 /**
  * `credentials: "include"`: the dashboard is cookie-authenticated
- * (`fp_sid`), and apps/web (5173) is not the API origin (3000), so the
- * session cookie only rides along on a request that asks for it. The public
+ * (`fp_sid`). Requests are same-origin by default (see API_BASE_URL), where
+ * this is a no-op; it only matters if VITE_API_BASE_URL points elsewhere. The public
  * checkout flow is unaffected — /pay/:token reads no cookie server-side, so
  * sending one that doesn't exist is a no-op there.
  *
