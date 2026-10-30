@@ -1,52 +1,181 @@
 /* FilsPay Admin console — the operations-plane twin of the merchant
-   dashboard. Same FilsPay brand system (tokens defined once below, identical
-   palette to apps/web), reskinned for dense operational work: a navy top bar
-   with the wordmark and an "Admin" badge, a left section rail, cards, data
-   tables with right-aligned monospaced amounts, and colour-coded status
-   pills. Presentation only — no behaviour, route, data or API contract here.
+   dashboard. One FilsPay identity across both apps: a navy ink base, the
+   signature teal-to-emerald "Gulf aurora" gradient (the fils-coin motif in
+   the mark, the active-nav indicator, primary actions, focus glow, and the
+   accent rules on cards), Inter bundled offline, soft layered elevation,
+   generous 12-16px radii, a true dark mode, and a small, tasteful motion
+   system.
 
-   The impersonation banner stays deliberately loud: an active view-as grant
-   must be impossible for an operator to miss. */
+   Presentation only — no behaviour, route, data or API contract lives here.
+   Every animation is transform/opacity/clip-path, 60fps-friendly, and fully
+   disabled under prefers-reduced-motion. The impersonation banner stays
+   deliberately loud: an active view-as grant must be impossible to miss. */
+
+/* ------------------------------------------------------------- tokens */
 
 :root {
-  /* Brand palette — identical to the merchant dashboard so the two apps
-     read as one product. */
-  --fp-ink: #0b1f3a;           /* primary navy */
-  --fp-ink-700: #13294a;
+  /* FilsPay ink — the navy base, shared with the merchant dashboard. */
+  --fp-ink: #0a1f44;
+  --fp-ink-700: #12294e;
   --fp-ink-600: #22406b;
-  --fp-accent: #0fb5a6;        /* teal / emerald */
+
+  /* Signature accent: teal to emerald. The single colour story that marks
+     every FilsPay surface. */
+  --fp-accent: #0fb5a6;
+  --fp-accent-2: #10b981;
   --fp-accent-hover: #0c9488;
-  --fp-accent-weak: #e2f6f3;
+  --fp-accent-weak: #e2f7f4;
+  --fp-accent-ring: rgba(15, 181, 166, 0.28);
+
+  /* The Gulf-aurora gradient — the identity's keystone. */
+  --fp-grad: linear-gradient(135deg, #0fb5a6 0%, #10b981 100%);
+  --fp-grad-bright: linear-gradient(135deg, #15d1c0 0%, #1bc47f 100%);
+  --fp-grad-ink: linear-gradient(140deg, #0a1f44 0%, #112a54 55%, #0e3a56 100%);
+  --fp-grad-text: linear-gradient(120deg, #0c9488 0%, #0e9e6e 100%);
 
   --fp-surface: #ffffff;
-  --fp-app-bg: #f6f8fb;
-  --fp-border: #e4e9f0;
-  --fp-border-strong: #cfd8e5;
+  --fp-surface-2: #f8fafd;
+  --fp-app-bg: #f4f7fc;
+  --fp-border: #e5ebf3;
+  --fp-border-strong: #cfd9e6;
 
-  --fp-text: #0f172a;
-  --fp-muted: #5b6b82;
+  --fp-text: #0e1b32;
+  --fp-muted: #59697f;
+  --fp-faint: #93a1b5;
 
   --fp-success: #16a34a;
+  --fp-success-fg: #0f7a37;
   --fp-success-bg: #e8f6ee;
+  --fp-success-bd: #bfe6cd;
   --fp-danger: #dc2626;
+  --fp-danger-fg: #b42121;
   --fp-danger-bg: #fdecec;
+  --fp-danger-bd: #f3c7c7;
   --fp-warning: #d97706;
+  --fp-warning-fg: #9a5406;
   --fp-warning-bg: #fdf1e3;
+  --fp-warning-bd: #f0d6ab;
   --fp-info: #2563eb;
+  --fp-info-fg: #1d4ed8;
   --fp-info-bg: #e8eefc;
+  --fp-info-bd: #c6d4f7;
 
-  --fp-radius: 8px;
-  --fp-radius-sm: 6px;
+  --fp-radius-lg: 16px;
+  --fp-radius: 13px;
+  --fp-radius-sm: 9px;
   --fp-radius-pill: 999px;
-  --fp-shadow-sm: 0 1px 2px rgba(11, 31, 58, 0.06);
-  --fp-shadow: 0 1px 3px rgba(11, 31, 58, 0.08), 0 1px 2px rgba(11, 31, 58, 0.06);
-  --fp-shadow-lg: 0 10px 30px rgba(11, 31, 58, 0.12);
 
-  --fp-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --fp-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --fp-shadow-sm: 0 1px 2px rgba(10, 31, 68, 0.05), 0 1px 1px rgba(10, 31, 68, 0.04);
+  --fp-shadow: 0 2px 6px rgba(10, 31, 68, 0.06), 0 1px 2px rgba(10, 31, 68, 0.05);
+  --fp-shadow-md: 0 10px 24px -8px rgba(10, 31, 68, 0.14), 0 4px 10px -4px rgba(10, 31, 68, 0.08);
+  --fp-shadow-lg: 0 24px 54px -16px rgba(10, 31, 68, 0.26), 0 8px 20px -10px rgba(10, 31, 68, 0.14);
+  --fp-glow: 0 6px 20px -6px rgba(15, 181, 166, 0.5);
 
-  --fp-sidebar-w: 236px;
-  --fp-header-h: 60px;
+  --fp-font: "Inter", "Inter var", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --fp-mono: "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+  --fp-sidebar-w: 244px;
+  --fp-header-h: 62px;
+
+  --fp-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --fp-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  color-scheme: light;
+}
+
+/* True dark mode. Deep navy canvas, raised panels, the same aurora accent
+   nudged brighter so it keeps AA contrast on dark. Honours a stored choice
+   via [data-theme] and the OS preference when no choice is stored. */
+:root[data-theme="dark"] {
+  --fp-ink: #e8eefb;
+  --fp-ink-700: #d6e0f2;
+  --fp-ink-600: #b8c6de;
+
+  --fp-accent: #2dd4bf;
+  --fp-accent-2: #34d399;
+  --fp-accent-hover: #5eead4;
+  --fp-accent-weak: #0f2e30;
+  --fp-accent-ring: rgba(45, 212, 191, 0.32);
+
+  --fp-grad: linear-gradient(135deg, #14b8a6 0%, #10b981 100%);
+  --fp-grad-bright: linear-gradient(135deg, #2dd4bf 0%, #34d399 100%);
+  --fp-grad-ink: linear-gradient(140deg, #0a1424 0%, #0d1b30 55%, #0b2436 100%);
+  --fp-grad-text: linear-gradient(120deg, #5eead4 0%, #4ade80 100%);
+
+  --fp-surface: #101d33;
+  --fp-surface-2: #0c1728;
+  --fp-app-bg: #070e1c;
+  --fp-border: #1e2d47;
+  --fp-border-strong: #2b3c5a;
+
+  --fp-text: #e6edf9;
+  --fp-muted: #93a3bd;
+  --fp-faint: #67789a;
+
+  --fp-success-fg: #4ade80;
+  --fp-success-bg: #0f2a1d;
+  --fp-success-bd: #1d4a30;
+  --fp-danger-fg: #f87171;
+  --fp-danger-bg: #2d1416;
+  --fp-danger-bd: #5a2327;
+  --fp-warning-fg: #fbbf24;
+  --fp-warning-bg: #2c2008;
+  --fp-warning-bd: #5a4216;
+  --fp-info-fg: #93b4fc;
+  --fp-info-bg: #111f3d;
+  --fp-info-bd: #28406e;
+
+  --fp-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --fp-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  --fp-shadow-md: 0 12px 28px -10px rgba(0, 0, 0, 0.6);
+  --fp-shadow-lg: 0 28px 60px -18px rgba(0, 0, 0, 0.7);
+  --fp-glow: 0 6px 22px -6px rgba(45, 212, 191, 0.45);
+
+  color-scheme: dark;
+}
+
+/* Follow the OS when the operator has made no explicit choice. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --fp-ink: #e8eefb;
+    --fp-ink-700: #d6e0f2;
+    --fp-ink-600: #b8c6de;
+    --fp-accent: #2dd4bf;
+    --fp-accent-2: #34d399;
+    --fp-accent-hover: #5eead4;
+    --fp-accent-weak: #0f2e30;
+    --fp-accent-ring: rgba(45, 212, 191, 0.32);
+    --fp-grad: linear-gradient(135deg, #14b8a6 0%, #10b981 100%);
+    --fp-grad-bright: linear-gradient(135deg, #2dd4bf 0%, #34d399 100%);
+    --fp-grad-ink: linear-gradient(140deg, #0a1424 0%, #0d1b30 55%, #0b2436 100%);
+    --fp-grad-text: linear-gradient(120deg, #5eead4 0%, #4ade80 100%);
+    --fp-surface: #101d33;
+    --fp-surface-2: #0c1728;
+    --fp-app-bg: #070e1c;
+    --fp-border: #1e2d47;
+    --fp-border-strong: #2b3c5a;
+    --fp-text: #e6edf9;
+    --fp-muted: #93a3bd;
+    --fp-faint: #67789a;
+    --fp-success-fg: #4ade80;
+    --fp-success-bg: #0f2a1d;
+    --fp-success-bd: #1d4a30;
+    --fp-danger-fg: #f87171;
+    --fp-danger-bg: #2d1416;
+    --fp-danger-bd: #5a2327;
+    --fp-warning-fg: #fbbf24;
+    --fp-warning-bg: #2c2008;
+    --fp-warning-bd: #5a4216;
+    --fp-info-fg: #93b4fc;
+    --fp-info-bg: #111f3d;
+    --fp-info-bd: #28406e;
+    --fp-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --fp-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+    --fp-shadow-md: 0 12px 28px -10px rgba(0, 0, 0, 0.6);
+    --fp-shadow-lg: 0 28px 60px -18px rgba(0, 0, 0, 0.7);
+    --fp-glow: 0 6px 22px -6px rgba(45, 212, 191, 0.45);
+    color-scheme: dark;
+  }
 }
 
 * {
@@ -62,15 +191,17 @@ body {
   background: var(--fp-app-bg);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  font-feature-settings: "cv05" 1, "ss01" 1;
+  transition: background-color 0.4s var(--fp-ease), color 0.4s var(--fp-ease);
 }
 
 code {
   font-family: var(--fp-mono);
-  font-size: 0.86em;
+  font-size: 0.85em;
   color: var(--fp-ink-700);
-  background: #f1f4f9;
-  padding: 0.08em 0.36em;
-  border-radius: 4px;
+  background: var(--fp-surface-2);
+  padding: 0.1em 0.4em;
+  border-radius: 5px;
   border: 1px solid var(--fp-border);
   word-break: break-word;
 }
@@ -78,33 +209,38 @@ code {
 a {
   color: var(--fp-accent-hover);
   text-decoration: none;
+  transition: color 0.14s var(--fp-ease);
 }
 a:hover {
   text-decoration: underline;
 }
 
 h1 {
-  font-size: 1.55rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-size: 1.7rem;
+  font-weight: 760;
+  letter-spacing: -0.021em;
   color: var(--fp-ink);
   margin: 0 0 0.5rem;
+  line-height: 1.18;
 }
 h2 {
-  font-size: 1.12rem;
-  font-weight: 650;
+  font-size: 1.1rem;
+  font-weight: 680;
+  letter-spacing: -0.012em;
   color: var(--fp-ink);
-  margin: 2rem 0 0.4rem;
-  padding-top: 1.25rem;
+  margin: 2.1rem 0 0.5rem;
+  padding-top: 1.3rem;
   border-top: 1px solid var(--fp-border);
 }
 h2:first-of-type {
   border-top: none;
   padding-top: 0;
+  margin-top: 1.2rem;
 }
 h3 {
-  font-size: 1rem;
-  font-weight: 650;
+  font-size: 0.98rem;
+  font-weight: 680;
+  letter-spacing: -0.008em;
   color: var(--fp-ink-700);
   margin: 1.5rem 0 0.4rem;
 }
@@ -117,20 +253,37 @@ h3 {
   flex-direction: column;
 }
 
-/* Top bar: navy, wordmark + Admin badge on the left, identity + logout on
-   the right. */
+/* Top bar: inked navy with a faint aurora wash on the right so the brand
+   feels lit, not flat. */
 .admin-header {
   display: flex;
   align-items: center;
   gap: 1.25rem;
   height: var(--fp-header-h);
-  padding: 0 1.25rem;
-  background: var(--fp-ink);
+  padding: 0 1.4rem;
+  background: var(--fp-grad-ink);
   color: #fff;
   position: sticky;
   top: 0;
   z-index: 20;
   box-shadow: var(--fp-shadow);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.admin-header::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    120% 180% at 100% 0%,
+    rgba(16, 185, 129, 0.22) 0%,
+    rgba(15, 181, 166, 0.1) 32%,
+    transparent 60%
+  );
+}
+.admin-header > * {
+  position: relative;
+  z-index: 1;
 }
 
 .admin-brand {
@@ -141,26 +294,30 @@ h3 {
   color: #fff;
 }
 
-/* Inline wordmark: mark + "FilsPay" + small "Admin" tag. */
 .admin-brand-mark {
   display: block;
   flex: none;
+  filter: drop-shadow(0 3px 8px rgba(15, 181, 166, 0.45));
+  transition: transform 0.4s var(--fp-ease-out);
+}
+.admin-brand:hover .admin-brand-mark {
+  transform: rotate(-6deg) scale(1.05);
 }
 .admin-brand-word {
-  font-size: 1.12rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-size: 1.16rem;
+  font-weight: 750;
+  letter-spacing: -0.02em;
   color: #fff;
 }
 .admin-brand-badge {
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  font-size: 0.64rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--fp-accent);
-  background: rgba(15, 181, 166, 0.14);
-  border: 1px solid rgba(15, 181, 166, 0.4);
-  padding: 0.12rem 0.44rem;
+  color: #d7fbf5;
+  background: rgba(15, 181, 166, 0.2);
+  border: 1px solid rgba(45, 212, 191, 0.5);
+  padding: 0.14rem 0.46rem;
   border-radius: var(--fp-radius-pill);
 }
 
@@ -168,25 +325,68 @@ h3 {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.85rem;
   font-size: 0.88rem;
   color: #c9d4e4;
 }
 .admin-identity-email {
   color: #fff;
   font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .admin-role-chip {
   display: inline-block;
-  padding: 0.12rem 0.5rem;
+  padding: 0.12rem 0.55rem;
   border-radius: var(--fp-radius-pill);
-  font-size: 0.72rem;
-  font-weight: 650;
-  letter-spacing: 0.02em;
-  color: #d7f5f1;
-  background: rgba(15, 181, 166, 0.16);
-  border: 1px solid rgba(15, 181, 166, 0.45);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: capitalize;
+  color: #d7fbf5;
+  background: rgba(15, 181, 166, 0.18);
+  border: 1px solid rgba(45, 212, 191, 0.5);
+}
+
+/* Logout sits in the dark bar: make it a glassy ghost, not a white slab. */
+.admin-header .admin-identity button {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #eaf1fb;
+  box-shadow: none;
+}
+.admin-header .admin-identity button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.32);
+}
+
+/* Theme toggle — an animated sun/moon pill in the top bar. */
+.admin-theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: var(--fp-radius-pill);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #eaf1fb;
+  cursor: pointer;
+  transition: background 0.18s var(--fp-ease), transform 0.3s var(--fp-ease-out),
+    border-color 0.18s var(--fp-ease);
+}
+.admin-theme-toggle:hover {
+  background: rgba(255, 255, 255, 0.18);
+  transform: translateY(-1px);
+}
+.admin-theme-toggle svg {
+  transition: transform 0.5s var(--fp-ease-out), opacity 0.3s var(--fp-ease);
+}
+.admin-theme-toggle:active svg {
+  transform: rotate(40deg);
 }
 
 /* Body: section rail + content. */
@@ -202,46 +402,65 @@ h3 {
   width: var(--fp-sidebar-w);
   background: var(--fp-surface);
   border-right: 1px solid var(--fp-border);
-  padding: 1rem 0.75rem;
+  padding: 1.1rem 0.85rem;
 }
 
 .admin-nav {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.2rem;
 }
 
 .admin-nav a {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.55rem;
-  padding: 0.5rem 0.7rem;
+  padding: 0.6rem 0.8rem;
   border-radius: var(--fp-radius-sm);
-  color: var(--fp-ink-700);
-  font-weight: 500;
+  color: var(--fp-ink-600);
+  font-weight: 560;
   font-size: 0.92rem;
   text-decoration: none;
-  border-left: 3px solid transparent;
-  transition: background 0.12s ease, color 0.12s ease;
+  overflow: hidden;
+  transition: background 0.16s var(--fp-ease), color 0.16s var(--fp-ease),
+    transform 0.16s var(--fp-ease);
+}
+/* Sliding aurora indicator — scales in from the top on activate. */
+.admin-nav a::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12%;
+  bottom: 12%;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--fp-grad);
+  transform: scaleY(0);
+  transform-origin: center;
+  transition: transform 0.26s var(--fp-ease-out);
 }
 .admin-nav a:hover {
-  background: #f1f4f9;
+  background: var(--fp-surface-2);
+  color: var(--fp-ink);
   text-decoration: none;
 }
 .admin-nav a.active {
   background: var(--fp-accent-weak);
-  color: var(--fp-ink);
-  font-weight: 650;
-  border-left-color: var(--fp-accent);
+  color: var(--fp-accent-hover);
+  font-weight: 680;
   text-decoration: none;
+}
+.admin-nav a.active::before {
+  transform: scaleY(1);
 }
 
 .admin-main {
   flex: 1;
   min-width: 0;
-  max-width: 76rem;
+  max-width: 78rem;
   margin: 0 auto;
-  padding: 1.75rem 2rem;
+  padding: 1.9rem 2.1rem;
   width: 100%;
 }
 
@@ -253,23 +472,44 @@ h3 {
   background: var(--fp-surface);
 }
 
-/* Login and other full-page centred cards. */
+/* Login and other full-page centred cards, lit by the aurora backdrop. */
 .admin-centered {
-  max-width: 27rem;
-  margin: 5rem auto;
-  padding: 2rem 1.9rem;
+  position: relative;
+  max-width: 27.5rem;
+  margin: 5.5rem auto;
+  padding: 2.3rem 2.1rem;
   background: var(--fp-surface);
   border: 1px solid var(--fp-border);
-  border-radius: var(--fp-radius);
+  border-radius: var(--fp-radius-lg);
   box-shadow: var(--fp-shadow-lg);
+  overflow: hidden;
+  animation: fp-pop 0.5s var(--fp-ease-out) both;
+}
+.admin-centered::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  height: 4px;
+  background: var(--fp-grad);
+}
+body:has(.admin-centered) {
+  background:
+    radial-gradient(60% 50% at 15% 0%, rgba(15, 181, 166, 0.1), transparent 60%),
+    radial-gradient(55% 45% at 100% 100%, rgba(16, 185, 129, 0.1), transparent 55%),
+    var(--fp-app-bg);
 }
 .admin-centered .admin-brand {
   color: var(--fp-ink);
   margin-bottom: 1.1rem;
 }
+.admin-centered .admin-brand-mark {
+  filter: drop-shadow(0 4px 12px rgba(15, 181, 166, 0.35));
+}
 .admin-centered .admin-brand-word {
   color: var(--fp-ink);
-  font-size: 1.3rem;
+  font-size: 1.35rem;
 }
 .admin-centered .admin-brand-badge {
   color: var(--fp-accent-hover);
@@ -284,12 +524,36 @@ section > p,
   margin: 0.5rem 0;
 }
 
+/* Blocks rise in on mount. The whole content area is staggered by the
+   children's source order for a calm cascade, never a jitter. */
+.admin-main > section > h1,
+.admin-main > section > h2,
+.admin-main > section > h3,
+.admin-main > section > p,
+.admin-main > section > form,
+.admin-main > section > .admin-card,
+.admin-main > section > .admin-table,
+.admin-main > section > .admin-dl,
+.admin-main > section > .admin-filters,
+.admin-main > section > .admin-stat-grid,
+.admin-main > section > fieldset,
+.admin-main > section > .admin-tabs {
+  animation: fp-rise 0.5s var(--fp-ease-out) both;
+}
+.admin-main > section > *:nth-child(1) { animation-delay: 0.02s; }
+.admin-main > section > *:nth-child(2) { animation-delay: 0.06s; }
+.admin-main > section > *:nth-child(3) { animation-delay: 0.1s; }
+.admin-main > section > *:nth-child(4) { animation-delay: 0.14s; }
+.admin-main > section > *:nth-child(5) { animation-delay: 0.18s; }
+.admin-main > section > *:nth-child(6) { animation-delay: 0.22s; }
+.admin-main > section > *:nth-child(n + 7) { animation-delay: 0.26s; }
+
 /* ----------------------------------------------------------------- forms */
 
 .admin-form {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 0.9rem;
   margin: 1rem 0;
   max-width: 44rem;
 }
@@ -304,13 +568,12 @@ section > p,
 .admin-form label {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-  font-size: 0.86rem;
-  font-weight: 600;
+  gap: 0.32rem;
+  font-size: 0.84rem;
+  font-weight: 620;
   color: var(--fp-ink-700);
 }
 
-/* Checkbox / radio labels read as rows, not stacked. */
 .admin-form label:has(> input[type="checkbox"]),
 .admin-form label:has(> input[type="radio"]) {
   flex-direction: row;
@@ -323,18 +586,19 @@ section > p,
 .admin-form input,
 .admin-form select,
 .admin-form textarea {
-  padding: 0.5rem 0.6rem;
+  padding: 0.56rem 0.7rem;
   font: inherit;
   font-size: 0.92rem;
   color: var(--fp-text);
   background: var(--fp-surface);
   border: 1px solid var(--fp-border-strong);
   border-radius: var(--fp-radius-sm);
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  transition: border-color 0.14s var(--fp-ease), box-shadow 0.14s var(--fp-ease),
+    background 0.3s var(--fp-ease);
 }
 .admin-form input::placeholder,
 .admin-form textarea::placeholder {
-  color: #9aa7b8;
+  color: var(--fp-faint);
 }
 .admin-form input:focus,
 .admin-form select:focus,
@@ -342,7 +606,7 @@ section > p,
 .admin-form input[type="checkbox"]:focus-visible {
   outline: none;
   border-color: var(--fp-accent);
-  box-shadow: 0 0 0 3px rgba(15, 181, 166, 0.22);
+  box-shadow: 0 0 0 3.5px var(--fp-accent-ring);
 }
 .admin-form textarea {
   resize: vertical;
@@ -359,48 +623,52 @@ input[type="radio"] {
 /* ---------------------------------------------------------------- buttons */
 
 button {
-  padding: 0.5rem 0.95rem;
+  padding: 0.52rem 1rem;
   font: inherit;
   font-size: 0.9rem;
-  font-weight: 600;
+  font-weight: 620;
   cursor: pointer;
   color: var(--fp-ink-700);
   border: 1px solid var(--fp-border-strong);
   border-radius: var(--fp-radius-sm);
   background: var(--fp-surface);
-  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease,
-    color 0.12s ease;
+  transition: background 0.16s var(--fp-ease), border-color 0.16s var(--fp-ease),
+    box-shadow 0.2s var(--fp-ease), transform 0.14s var(--fp-ease-out), color 0.16s var(--fp-ease);
   white-space: nowrap;
 }
 button:hover:not(:disabled) {
-  background: #f1f4f9;
+  background: var(--fp-surface-2);
   border-color: var(--fp-border-strong);
+  transform: translateY(-1px);
+}
+button:active:not(:disabled) {
+  transform: translateY(0);
 }
 button:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(15, 181, 166, 0.3);
+  box-shadow: 0 0 0 3.5px var(--fp-accent-ring);
 }
 button:disabled {
   cursor: default;
-  opacity: 0.55;
+  opacity: 0.5;
 }
 
-/* Primary call-to-action: accent fill. Submit buttons are primary by
-   default; non-submit primaries opt in with .admin-btn-primary. */
+/* Primary call-to-action: aurora fill, lift + glow on hover. */
 button[type="submit"],
 .admin-btn-primary {
   color: #fff;
-  background: var(--fp-accent);
-  border-color: var(--fp-accent);
+  background: var(--fp-grad);
+  border-color: transparent;
   box-shadow: var(--fp-shadow-sm);
 }
 button[type="submit"]:hover:not(:disabled),
 .admin-btn-primary:hover:not(:disabled) {
-  background: var(--fp-accent-hover);
-  border-color: var(--fp-accent-hover);
+  background: var(--fp-grad-bright);
+  border-color: transparent;
+  transform: translateY(-1px);
+  box-shadow: var(--fp-glow);
 }
 
-/* Destructive action. */
 .admin-btn-danger {
   color: #fff;
   background: var(--fp-danger);
@@ -409,20 +677,21 @@ button[type="submit"]:hover:not(:disabled),
 .admin-btn-danger:hover:not(:disabled) {
   background: #b91c1c;
   border-color: #b91c1c;
+  box-shadow: 0 6px 20px -6px rgba(220, 38, 38, 0.5);
 }
 
-/* A quieter secondary (e.g. Cancel) when sat next to a danger primary. */
 .admin-btn-ghost {
   background: transparent;
   border-color: var(--fp-border-strong);
+  color: var(--fp-ink-700);
 }
 
 /* Tabbed segmented control (Credits status tabs). */
 .admin-tabs {
   display: inline-flex;
   gap: 0;
-  padding: 0.25rem;
-  background: #eef2f7;
+  padding: 0.28rem;
+  background: var(--fp-surface-2);
   border: 1px solid var(--fp-border);
   border-radius: var(--fp-radius);
   margin: 1rem 0;
@@ -431,13 +700,14 @@ button[type="submit"]:hover:not(:disabled),
   background: transparent;
   border: none;
   color: var(--fp-muted);
-  font-weight: 600;
-  padding: 0.4rem 0.9rem;
+  font-weight: 620;
+  padding: 0.42rem 0.95rem;
   border-radius: var(--fp-radius-sm);
   box-shadow: none;
 }
 .admin-tabs button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--fp-surface);
+  transform: none;
 }
 .admin-tabs button:disabled {
   opacity: 1;
@@ -457,14 +727,15 @@ button[type="submit"]:hover:not(:disabled),
   border: 1px solid var(--fp-border);
   background: var(--fp-surface);
   border-radius: var(--fp-radius);
-  padding: 0.75rem 1rem;
+  padding: 0.8rem 1.1rem;
   margin: 1rem 0;
+  box-shadow: var(--fp-shadow-sm);
 }
 .admin-filters legend {
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: 0.72rem;
+  font-weight: 750;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   color: var(--fp-muted);
   padding: 0 0.3rem;
 }
@@ -473,18 +744,79 @@ button[type="submit"]:hover:not(:disabled),
   align-items: center;
   gap: 0.4rem;
   font-size: 0.9rem;
+  text-transform: capitalize;
 }
 
 /* ---------------------------------------------------------------- cards */
 
-/* Wrap a standalone block as a card where markup allows. */
 .admin-card {
   background: var(--fp-surface);
   border: 1px solid var(--fp-border);
   border-radius: var(--fp-radius);
-  padding: 1.1rem 1.25rem;
+  padding: 1.2rem 1.3rem;
   box-shadow: var(--fp-shadow-sm);
   margin: 1rem 0;
+}
+
+/* Stat cards: a premium summary row. Each tile carries a thin aurora rule
+   up top and a big tabular figure (count-up aware). */
+.admin-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin: 1.1rem 0;
+}
+.admin-stat {
+  position: relative;
+  background: var(--fp-surface);
+  border: 1px solid var(--fp-border);
+  border-radius: var(--fp-radius);
+  padding: 1.1rem 1.2rem 1.15rem;
+  box-shadow: var(--fp-shadow-sm);
+  overflow: hidden;
+  transition: transform 0.2s var(--fp-ease-out), box-shadow 0.2s var(--fp-ease);
+}
+.admin-stat::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 3px;
+  background: var(--fp-grad);
+  opacity: 0.9;
+}
+.admin-stat:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--fp-shadow-md);
+}
+.admin-stat-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fp-muted);
+  margin: 0 0 0.45rem;
+}
+.admin-stat-value {
+  font-size: 1.6rem;
+  font-weight: 740;
+  letter-spacing: -0.02em;
+  color: var(--fp-ink);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.admin-stat-value .admin-stat-unit {
+  font-size: 0.95rem;
+  font-weight: 620;
+  color: var(--fp-muted);
+  margin-left: 0.3rem;
+  letter-spacing: 0;
+}
+.admin-stat-sub {
+  margin: 0.4rem 0 0;
+  font-size: 0.82rem;
+  color: var(--fp-muted);
 }
 
 /* ---------------------------------------------------------------- tables */
@@ -499,38 +831,59 @@ button[type="submit"]:hover:not(:disabled),
   border-radius: var(--fp-radius);
   overflow: hidden;
   font-size: 0.9rem;
+  box-shadow: var(--fp-shadow-sm);
 }
 
 .admin-table th,
 .admin-table td {
-  padding: 0.6rem 0.8rem;
+  padding: 0.68rem 0.85rem;
   text-align: left;
   vertical-align: top;
   border-bottom: 1px solid var(--fp-border);
 }
 
 .admin-table thead th {
-  background: #f3f6fb;
+  position: sticky;
+  top: var(--fp-header-h);
+  background: var(--fp-surface-2);
   color: var(--fp-muted);
-  font-size: 0.74rem;
-  font-weight: 700;
+  font-size: 0.72rem;
+  font-weight: 750;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   border-bottom: 1px solid var(--fp-border-strong);
   white-space: nowrap;
+  z-index: 2;
 }
 
+.admin-table tbody tr {
+  transition: background 0.14s var(--fp-ease), box-shadow 0.14s var(--fp-ease);
+}
 .admin-table tbody tr:nth-child(even) {
-  background: #fafbfd;
+  background: var(--fp-surface-2);
 }
 .admin-table tbody tr:hover {
   background: var(--fp-accent-weak);
+  box-shadow: inset 3px 0 0 0 var(--fp-accent);
 }
 .admin-table tbody tr:last-child td {
   border-bottom: none;
 }
 
-/* Monetary / numeric columns: right-aligned, monospaced, tabular. */
+/* Rows fade/slide in, lightly staggered. */
+.admin-table tbody tr {
+  animation: fp-row 0.42s var(--fp-ease-out) both;
+}
+.admin-table tbody tr:nth-child(1) { animation-delay: 0.02s; }
+.admin-table tbody tr:nth-child(2) { animation-delay: 0.05s; }
+.admin-table tbody tr:nth-child(3) { animation-delay: 0.08s; }
+.admin-table tbody tr:nth-child(4) { animation-delay: 0.11s; }
+.admin-table tbody tr:nth-child(5) { animation-delay: 0.14s; }
+.admin-table tbody tr:nth-child(6) { animation-delay: 0.17s; }
+.admin-table tbody tr:nth-child(7) { animation-delay: 0.2s; }
+.admin-table tbody tr:nth-child(8) { animation-delay: 0.23s; }
+.admin-table tbody tr:nth-child(n + 9) { animation-delay: 0.26s; }
+
 .admin-num {
   text-align: right;
   font-family: var(--fp-mono);
@@ -551,18 +904,18 @@ button[type="submit"]:hover:not(:disabled),
   background: var(--fp-surface);
   border: 1px solid var(--fp-border);
   border-radius: var(--fp-radius);
-  padding: 1rem 1.25rem;
+  padding: 1.1rem 1.3rem;
   box-shadow: var(--fp-shadow-sm);
 }
 .admin-dl dt {
-  font-weight: 600;
+  font-weight: 620;
   color: var(--fp-muted);
-  font-size: 0.86rem;
-  padding: 0.3rem 0;
+  font-size: 0.85rem;
+  padding: 0.34rem 0;
 }
 .admin-dl dd {
   margin: 0;
-  padding: 0.3rem 0;
+  padding: 0.34rem 0;
   color: var(--fp-text);
 }
 
@@ -573,16 +926,14 @@ button[type="submit"]:hover:not(:disabled),
   font-size: 0.9rem;
 }
 
-/* Colour-coded status pill. Tone classes carry the semantics; the default
-   is neutral so an unmapped value still renders cleanly. */
 .admin-pill {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.15rem 0.55rem;
+  gap: 0.38rem;
+  padding: 0.16rem 0.6rem;
   border-radius: var(--fp-radius-pill);
-  font-size: 0.76rem;
-  font-weight: 650;
+  font-size: 0.75rem;
+  font-weight: 680;
   line-height: 1.4;
   white-space: nowrap;
   border: 1px solid transparent;
@@ -590,80 +941,83 @@ button[type="submit"]:hover:not(:disabled),
 }
 .admin-pill::before {
   content: "";
-  width: 0.4rem;
-  height: 0.4rem;
+  width: 0.42rem;
+  height: 0.42rem;
   border-radius: 50%;
   background: currentColor;
-  opacity: 0.85;
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 22%, transparent);
 }
 .admin-pill.is-neutral {
   color: var(--fp-muted);
-  background: #eef2f7;
+  background: var(--fp-surface-2);
   border-color: var(--fp-border);
 }
 .admin-pill.is-success {
-  color: #0f7a37;
+  color: var(--fp-success-fg);
   background: var(--fp-success-bg);
-  border-color: #bfe6cd;
+  border-color: var(--fp-success-bd);
 }
 .admin-pill.is-danger {
-  color: #b42121;
+  color: var(--fp-danger-fg);
   background: var(--fp-danger-bg);
-  border-color: #f3c7c7;
+  border-color: var(--fp-danger-bd);
 }
 .admin-pill.is-warning {
-  color: #9a5406;
+  color: var(--fp-warning-fg);
   background: var(--fp-warning-bg);
-  border-color: #f0d6ab;
+  border-color: var(--fp-warning-bd);
 }
 .admin-pill.is-info {
-  color: #1d4ed8;
+  color: var(--fp-info-fg);
   background: var(--fp-info-bg);
-  border-color: #c6d4f7;
+  border-color: var(--fp-info-bd);
 }
 .admin-pill.is-accent {
   color: var(--fp-accent-hover);
   background: var(--fp-accent-weak);
-  border-color: #b7e7e1;
+  border-color: color-mix(in srgb, var(--fp-accent) 35%, transparent);
 }
 
 /* --------------------------------------------------- notices and errors */
 
 .admin-error {
-  padding: 0.7rem 0.9rem;
-  border: 1px solid #f3c7c7;
+  padding: 0.75rem 0.95rem;
+  border: 1px solid var(--fp-danger-bd);
   border-left: 4px solid var(--fp-danger);
   background: var(--fp-danger-bg);
-  color: #8a1c1c;
+  color: var(--fp-danger-fg);
   border-radius: var(--fp-radius-sm);
   margin: 1rem 0;
   font-size: 0.9rem;
+  animation: fp-rise 0.35s var(--fp-ease-out) both;
 }
 
 .admin-notice {
-  padding: 0.7rem 0.9rem;
-  border: 1px solid #bfe6cd;
+  padding: 0.75rem 0.95rem;
+  border: 1px solid var(--fp-success-bd);
   border-left: 4px solid var(--fp-success);
   background: var(--fp-success-bg);
-  color: #13602f;
+  color: var(--fp-success-fg);
   border-radius: var(--fp-radius-sm);
   margin: 1rem 0;
   font-size: 0.9rem;
+  animation: fp-rise 0.35s var(--fp-ease-out) both;
 }
 .admin-notice code {
-  background: rgba(255, 255, 255, 0.6);
+  background: color-mix(in srgb, var(--fp-surface) 60%, transparent);
 }
 
-/* Confirmation dialog block. */
+/* Confirmation dialog block — pops in, draws the eye. */
 .admin-confirm {
-  padding: 1rem 1.15rem;
-  border: 1px solid #f0d6ab;
+  padding: 1.1rem 1.25rem;
+  border: 1px solid var(--fp-warning-bd);
   border-left: 4px solid var(--fp-warning);
   background: var(--fp-warning-bg);
   border-radius: var(--fp-radius);
   margin: 1rem 0;
   max-width: 44rem;
-  box-shadow: var(--fp-shadow-sm);
+  box-shadow: var(--fp-shadow-md);
+  animation: fp-pop 0.34s var(--fp-ease-out) both;
 }
 .admin-confirm p {
   margin-top: 0;
@@ -672,7 +1026,7 @@ button[type="submit"]:hover:not(:disabled),
 .admin-id-list {
   max-height: 14rem;
   overflow-y: auto;
-  background: var(--fp-surface);
+  background: var(--fp-surface-2);
   border: 1px solid var(--fp-border);
   border-radius: var(--fp-radius-sm);
   padding: 0.5rem 0.75rem;
@@ -685,7 +1039,7 @@ button[type="submit"]:hover:not(:disabled),
 /* ------------------------------------------------- empty / loading state */
 
 .admin-empty {
-  padding: 2rem 1rem;
+  padding: 2.5rem 1rem;
   text-align: center;
   color: var(--fp-muted);
   background: var(--fp-surface);
@@ -700,37 +1054,94 @@ button[type="submit"]:hover:not(:disabled),
   padding: 0.5rem 0;
 }
 
+/* Skeleton loaders — shimmering placeholders while data loads. */
+.admin-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--fp-surface-2);
+  border-radius: 6px;
+  min-height: 0.85rem;
+}
+.admin-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--fp-accent) 10%, transparent) 45%,
+    color-mix(in srgb, var(--fp-accent) 16%, transparent) 50%,
+    transparent 100%
+  );
+  animation: fp-shimmer 1.3s infinite;
+}
+.admin-skel-card {
+  height: 92px;
+  border-radius: var(--fp-radius);
+}
+.admin-skel-line {
+  height: 0.78rem;
+  margin: 0.5rem 0;
+}
+.admin-skel-line.w-40 { width: 40%; }
+.admin-skel-line.w-60 { width: 60%; }
+.admin-skel-line.w-80 { width: 80%; }
+
+/* A skeleton table body: reuse the real table chrome, fill cells with bars. */
+.admin-table td .admin-skeleton {
+  width: 100%;
+}
+.admin-table tbody tr.is-skeleton {
+  animation: none;
+}
+.admin-table tbody tr.is-skeleton:hover {
+  background: transparent;
+  box-shadow: none;
+}
+
 /* ----------------------------------------------- impersonation banner */
 
 /* Deliberately loud: an active impersonation grant must never be something
-   an operator can fail to notice. */
+   an operator can fail to notice. Slides down on entrance. */
 .impersonation-banner {
   display: flex;
   align-items: center;
   gap: 1rem;
-  padding: 0.75rem 1.5rem;
-  background: #7a0016;
+  padding: 0.8rem 1.5rem;
+  background: linear-gradient(100deg, #8a0019 0%, #a4001f 100%);
   color: #fff;
   border-bottom: 4px solid #ffcc00;
   position: sticky;
   top: 0;
   z-index: 30;
   font-size: 0.92rem;
-  box-shadow: var(--fp-shadow);
+  box-shadow: var(--fp-shadow-md);
+  animation: fp-banner 0.45s var(--fp-ease-out) both;
+}
+.impersonation-banner::before {
+  content: "";
+  flex: none;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  background: #ffcc00;
+  box-shadow: 0 0 0 0 rgba(255, 204, 0, 0.7);
+  animation: fp-pulse 1.8s infinite;
 }
 .impersonation-banner strong {
   letter-spacing: 0.01em;
 }
 .impersonation-banner code {
   color: #fff;
-  background: rgba(255, 255, 255, 0.16);
-  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.28);
 }
 .impersonation-banner button {
   margin-left: auto;
   background: #fff;
-  color: #7a0016;
-  font-weight: 700;
+  color: #8a0019;
+  font-weight: 720;
   border-color: #fff;
   white-space: nowrap;
 }
@@ -749,14 +1160,41 @@ button[type="submit"]:hover:not(:disabled),
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  padding: 0.6rem 0.9rem;
+  padding: 0.65rem 0.95rem;
   background: var(--fp-info-bg);
-  border: 1px solid #c6d4f7;
+  border: 1px solid var(--fp-info-bd);
   border-left: 4px solid var(--fp-info);
   border-radius: var(--fp-radius-sm);
-  color: #1d4ed8;
+  color: var(--fp-info-fg);
   font-size: 0.9rem;
   margin: 1rem 0;
+}
+
+/* ------------------------------------------------------------- keyframes */
+
+@keyframes fp-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fp-row {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fp-pop {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes fp-banner {
+  from { opacity: 0; transform: translateY(-100%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fp-shimmer {
+  to { transform: translateX(100%); }
+}
+@keyframes fp-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255, 204, 0, 0.6); }
+  70% { box-shadow: 0 0 0 7px rgba(255, 204, 0, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 204, 0, 0); }
 }
 
 /* --------------------------------------------------------- responsive */
@@ -774,18 +1212,23 @@ button[type="submit"]:hover:not(:disabled),
   .admin-nav {
     flex-direction: row;
     flex-wrap: wrap;
-    gap: 0.25rem;
+    gap: 0.3rem;
   }
-  .admin-nav a {
-    border-left: none;
-    border-bottom: 3px solid transparent;
+  .admin-nav a::before {
+    left: 8%;
+    right: 8%;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    height: 3px;
+    border-radius: 3px 3px 0 0;
+    transform: scaleX(0);
   }
-  .admin-nav a.active {
-    border-left: none;
-    border-bottom-color: var(--fp-accent);
+  .admin-nav a.active::before {
+    transform: scaleX(1);
   }
   .admin-main {
-    padding: 1.25rem 1rem;
+    padding: 1.3rem 1rem;
   }
   .admin-table thead th {
     position: static;
@@ -801,5 +1244,18 @@ button[type="submit"]:hover:not(:disabled),
     padding-top: 0.1rem;
     padding-bottom: 0.5rem;
     border-bottom: 1px solid var(--fp-border);
+  }
+}
+
+/* ----------------------------------------------- reduced motion opt-out */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }

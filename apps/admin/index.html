@@ -5,6 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- MK: no CSP meta yet, TODO after the admin v2 / SSO migration -->
     <title>FilsPay Admin</title>
+    <!-- Apply the stored light/dark choice before first paint so the console
+         never flashes the wrong theme. No stored choice => CSS follows the OS. -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("fp-admin-theme");
+          if (t === "light" || t === "dark") {
+            document.documentElement.setAttribute("data-theme", t);
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

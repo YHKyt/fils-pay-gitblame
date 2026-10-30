@@ -3,6 +3,7 @@ import { useAdminAuth } from "../auth/AdminAuthContext.js";
 import { WEB_BASE_URL } from "../api/client.js";
 import { ImpersonationBanner } from "./ImpersonationBanner.js";
 import { Brand } from "./Brand.js";
+import { ThemeToggle } from "./ThemeToggle.js";
 
 /** Nav shell for every admin-plane screen: who you are signed in as, the
  *  section links, a logout, and — above all of it — the impersonation
@@ -36,6 +37,7 @@ export function AdminLayout() {
               {admin.email} <span className="admin-role-chip">{admin.role}</span>
             </span>
           ) : null}
+          <ThemeToggle />
           <button type="button" onClick={() => void handleSignOut()}>
             Log out
           </button>
