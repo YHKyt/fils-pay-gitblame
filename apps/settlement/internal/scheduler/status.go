@@ -31,16 +31,17 @@ func schedulingLocation() *time.Location {
 	return time.Local
 }
 
-// estimateNextRunAt gives a rough, log-only estimate of the daemon's next
-// check-in: the last check-in plus 24 hours, in schedulingLocation(). It
-// is never consulted by runIfDue.
-func estimateNextRunAt(lastCheckedAt time.Time) time.Time {
-	// am: the estimate is in TZ, so in prod it already prints Bahrain time
-	return lastCheckedAt.In(schedulingLocation()).Add(24 * time.Hour)
+// estimateNextRunAt is the daemon's next check-in, in schedulingLocation():
+// its ticker fires every poll interval, so one interval after the wake that
+// just ran (lastCheckedAt is that wake's tick). It used to be the last
+// check-in plus 24 hours, which was neither the next check nor the next
+// close. It is never consulted by runIfDue.
+func estimateNextRunAt(lastCheckedAt time.Time, pollInterval time.Duration) time.Time {
+	return lastCheckedAt.Add(pollInterval).In(schedulingLocation())
 }
 
-// logNextRunEstimate writes the estimate to the daemon's log, alongside
-// the outcome of the check that just ran.
-func logNextRunEstimate(lastCheckedAt time.Time) {
-	log.Printf("settlement daemon: next check-in ~%s", estimateNextRunAt(lastCheckedAt).Format(time.RFC3339))
+// logNextRunEstimate writes the next check-in to the daemon's log after
+// each wake.
+func logNextRunEstimate(lastCheckedAt time.Time, pollInterval time.Duration) {
+	log.Printf("settlement daemon: next check-in ~%s", estimateNextRunAt(lastCheckedAt, pollInterval).Format(time.RFC3339))
 }

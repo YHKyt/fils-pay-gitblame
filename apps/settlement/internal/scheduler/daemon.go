@@ -39,6 +39,7 @@ func Run(ctx context.Context, db *pgxpool.Pool, cfg config.Config) {
 	// TODO(YA): swap ticker for a cron lib once ops picks one (Dec 2025)
 	ticker := time.NewTicker(cfg.DaemonPollInterval)
 	defer ticker.Stop()
+	started := time.Now()
 
 	// Run once immediately on start (covers a restart that lands after the
 	// most recently completed business day's run delay has already
@@ -56,15 +57,17 @@ func Run(ctx context.Context, db *pgxpool.Pool, cfg config.Config) {
 	// which is harmless because the refresh overwrites, it never adds.
 	var lastBalanceRefresh time.Time
 	lastBalanceRefresh = refreshBalancesIfDue(ctx, db, time.Now(), lastBalanceRefresh)
+	logNextRunEstimate(started, cfg.DaemonPollInterval)
 
 	for {
 		select {
 		case <-ctx.Done():
 			log.Printf("settlement daemon: shutting down (%v)", ctx.Err())
 			return
-		case <-ticker.C:
+		case tick := <-ticker.C:
 			runIfDue(ctx, db, cfg.DaemonRunDelayMinutes)
 			lastBalanceRefresh = refreshBalancesIfDue(ctx, db, time.Now(), lastBalanceRefresh)
+			logNextRunEstimate(tick, cfg.DaemonPollInterval)
 		}
 	}
 }
@@ -98,7 +101,6 @@ func runIfDue(ctx context.Context, db *pgxpool.Pool, runDelayMinutes int) {
 	if now.Before(dueAt) {
 		// The grace period after today's Bahrain midnight hasn't elapsed
 		// yet; nothing new to do this tick.
-		logNextRunEstimate(now)
 		return
 	}
 	// am: logs show the close ~03:15 local not 00:15?? whatever, it runs. yalla
@@ -132,8 +134,6 @@ func runIfDue(ctx context.Context, db *pgxpool.Pool, runDelayMinutes int) {
 	} else if enqueued > 0 {
 		log.Printf("settlement daemon: enqueued %d settlement.paid event(s)", enqueued)
 	}
-
-	logNextRunEstimate(now)
 }
 
 // missedDayLookback is how many business days before yesterday each run
