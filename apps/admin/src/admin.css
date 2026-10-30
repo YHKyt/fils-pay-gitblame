@@ -1806,3 +1806,17 @@ body:has(.admin-centered) .admin-centered {
   .admin-form input,
   .admin-form textarea { max-width: 100%; min-width: 0; }
 }
+/* Inside the detail grid the main column is narrower: two-column profile list
+   until the column itself is wide (1920). */
+.admin-detail-panel .admin-dl {
+  grid-template-columns: 11rem minmax(0, 1fr);
+  column-gap: 1.5rem;
+  overflow-wrap: anywhere;
+}
+@media (min-width: 1800px) {
+  .admin-detail-panel .admin-dl { grid-template-columns: 10rem minmax(0, 1fr) 10rem minmax(0, 1fr); }
+}
+@media (max-width: 600px) {
+  .admin-detail-panel .admin-dl { grid-template-columns: minmax(0, 1fr); padding: 0.9rem 1rem; }
+  .admin-detail-panel .admin-dl dd { padding-top: 0; }
+}
