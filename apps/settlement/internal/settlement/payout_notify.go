@@ -11,8 +11,12 @@ import (
 )
 
 // EnqueuePayoutNotifications scans for settlement_batches that have reached
-// 'paid' with a nonzero net payout and have no settlement.paid outbox event
-// yet, and enqueues one per batch. Deliberately outside CloseBatch/
+// 'paid' and have no settlement.paid outbox event yet, and enqueues one per
+// batch, whatever its net payout. The event is how the reporting read model
+// learns a batch was paid (applySettlementPaid), so a zero or negative net
+// batch needs it too, or its payout trend stays 'closed' forever. Merchants
+// still get no "payout" webhook for such a batch: the webhook dispatcher
+// creates no delivery for a settlement.paid with netPayoutFils <= 0. Deliberately outside CloseBatch/
 // PayoutBatch's own transactions: this scan also has to see batches paid
 // out through the sub-merchant split path (internal/splits.PayoutSplitBatch),
 // a second, independent function that reaches 'paid' its own way — reading
@@ -35,7 +39,6 @@ func EnqueuePayoutNotifications(ctx context.Context, db *pgxpool.Pool) (int, err
 		SELECT sb.id, sb.merchant_id, sb.batch_date, sb.net_payout_fils
 		  FROM settlement_batches sb
 		 WHERE sb.status = 'paid'
-		   AND sb.net_payout_fils > 0
 		   AND NOT EXISTS (
 		     SELECT 1 FROM outbox_events oe
 		      WHERE oe.event_type = 'settlement.paid' AND oe.aggregate_id = sb.id
@@ -68,14 +71,12 @@ func EnqueuePayoutNotifications(ctx context.Context, db *pgxpool.Pool) (int, err
 		return 0, fmt.Errorf("settlement: EnqueuePayoutNotifications: iterate: %w", err)
 	}
 
-	// YA: zero payouts are skipped because the dispatcher rejects a payload with netPayoutFils = 0
 	count := 0
 	for _, b := range batches {
 		// merchantId at the top level is required, not decorative: the webhook
 		// dispatcher's delivery-creation step joins webhook_endpoints on
 		// (outbox_events.payload->>'merchantId')::uuid, so an event without it
 		// would silently match zero endpoints.
-		// am: dispatcher drops settlement.paid anyway?? or was that refund.succeeded. one of them
 		payload, err := json.Marshal(map[string]any{
 			"merchantId":    b.merchantID,
 			"batchId":       b.id,

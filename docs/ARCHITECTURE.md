@@ -48,7 +48,9 @@ A settlement business day runs from midnight to midnight Asia/Bahrain
 (UTC+3, no DST). The daemon closes the previous business day shortly after
 local midnight. Batch lifecycle: **close** claims unbatched capture events
 and computes gross/fee/net; **pay** posts payout legs and records
-disbursement; **notify** enqueues `settlement.paid`. Re-running a day is
+disbursement; **notify** enqueues `settlement.paid` for every paid batch.
+A batch with a zero or negative net gets the event too (reporting needs it
+to show the batch as paid) but no merchant webhook. Re-running a day is
 safe; closed and paid batches are left alone.
 
 Fees are computed per capture event, not per batch total. Rates come from
@@ -60,7 +62,8 @@ amount the MDR is charged on.
 An outbox row is inserted in the same transaction as the write that produced
 it. Each consumer keeps its own cursor, advanced transactionally. Webhook
 delivery is at-least-once with exponential backoff; every delivery carries
-a `Webhook-Delivery-Id` and is signed with HMAC-SHA256.
+a `Webhook-Delivery-Id` and is signed with HMAC-SHA256. Deliveries that are
+due together are sent in outbox event order.
 
 ## Security
 

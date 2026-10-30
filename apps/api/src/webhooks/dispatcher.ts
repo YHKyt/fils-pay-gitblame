@@ -97,6 +97,9 @@ async function createMissingDeliveries(pool: Pool): Promise<number> {
           AND we.status = 'active'
           AND oe.created_at >= we.created_at
         WHERE oe.event_type = ANY($1::text[])
+          -- settlement.paid is enqueued for every paid batch (reporting needs
+          -- it); a batch with nothing to pay out is not a payout to announce.
+          AND (oe.event_type <> 'settlement.paid' OR (oe.payload->>'netPayoutFils')::bigint > 0)
           AND NOT EXISTS (
             SELECT 1 FROM webhook_deliveries wd
              WHERE wd.outbox_event_id = oe.id AND wd.endpoint_id = we.id

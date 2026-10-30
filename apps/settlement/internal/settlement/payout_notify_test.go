@@ -107,17 +107,19 @@ func TestEnqueuePayoutNotificationsSkipsIneligibleBatches(t *testing.T) {
 	pool := mustPool(t)
 	ctx := context.Background()
 
+	// This test used to also require that a paid zero-payout batch get no
+	// event. That pinned a bug (judgeprep JP5): settlement.paid is the only
+	// way reporting learns a batch was paid, so such a batch stayed 'closed'
+	// in the payout trends forever. Zero/negative net batches are now
+	// notified (payout_notify_zero_test.go) and the webhook dispatcher skips
+	// them, so only the not-yet-paid case remains here.
 	merchantID := insertActiveMerchant(t, pool, 250)
-	zeroPayout := insertBatch(t, pool, merchantID, time.Date(2026, 3, 4, 0, 0, 0, 0, time.UTC), "paid", 0)
 	notPaid := insertBatch(t, pool, merchantID, time.Date(2026, 3, 5, 0, 0, 0, 0, time.UTC), "closed", 90_000)
 
 	if _, err := EnqueuePayoutNotifications(ctx, pool); err != nil {
 		t.Fatalf("EnqueuePayoutNotifications: %v", err)
 	}
 
-	if got := countPaidEvents(t, pool, zeroPayout); got != 0 {
-		t.Fatalf("a zero-payout batch must not be notified, got %d event(s)", got)
-	}
 	if got := countPaidEvents(t, pool, notPaid); got != 0 {
 		t.Fatalf("a batch that has not reached 'paid' must not be notified, got %d event(s)", got)
 	}
