@@ -231,11 +231,18 @@ export async function captureTransaction(
     const fullyCaptured = compareFils(newCapturedFils, amountAuthorized) === 0;
     // Same derivation as a refund uses: a partially captured transaction
     // keeps its refunds in refunded_fils, so capturing the rest must not
-    // report it as plain 'captured' with money already returned.
+    // report it as plain 'captured' with money already returned. The
+    // refunded total counts refunds that succeeded, as processRefund does:
+    // refunded_fils also holds the reservation of a refund still at the
+    // acquirer, which a decline releases again.
+    const succeededRefunds = await client.query<{ total: string }>(
+      `SELECT COALESCE(SUM(amount_fils), 0)::text AS total FROM refunds WHERE transaction_id = $1 AND status = 'succeeded'`,
+      [txn.id],
+    );
     const newStatus = nextStatusAfterRefund({
       amountFils: amountAuthorized,
       capturedFils: newCapturedFils,
-      refundedTotalFils: toFils(Number(txn.refunded_fils)),
+      refundedTotalFils: toFils(Number(succeededRefunds.rows[0]!.total)),
     });
 
     const updateResult = await client.query<TransactionRow>(
