@@ -4,7 +4,7 @@ import { listSettlementBatches } from "../../api/settlement.js";
 import { describeError } from "../../api/client.js";
 import { Pagination } from "../../components/Pagination.js";
 import { SkeletonRows } from "../../components/SkeletonRows.js";
-import { bhdDisplay, dateTime, humanDate, shortId, statusLabel } from "../../format.js";
+import { bhdDisplay, humanDate, humanDateTime, shortId, statusLabel } from "../../format.js";
 import { usePageTitle } from "../../hooks/usePageTitle.js";
 import type { SettlementBatchDto, SettlementBatchStatus } from "../../types.js";
 
@@ -127,8 +127,8 @@ export function SettlementBatchListPage() {
               <td className="dash-num">{bhdDisplay(batch.grossFils)}</td>
               <td className="dash-num">{bhdDisplay(batch.feeFils)}</td>
               <td className="dash-num">{bhdDisplay(batch.netPayoutFils)}</td>
-              <td>{dateTime(batch.closedAt)}</td>
-              <td>{dateTime(batch.paidAt)}</td>
+              <td>{humanDateTime(batch.closedAt)}</td>
+              <td>{humanDateTime(batch.paidAt)}</td>
             </tr>
           ))}
           {batches.length === 0 && loading ? <SkeletonRows columns={7} /> : null}

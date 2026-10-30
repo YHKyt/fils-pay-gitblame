@@ -1874,3 +1874,7 @@ h1 .dash-ref-sub {
     display: none;
   }
 }
+.dash-showall {
+  margin: 0.6rem 0 0;
+  text-align: center;
+}
