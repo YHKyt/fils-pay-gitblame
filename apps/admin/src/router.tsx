@@ -32,4 +32,8 @@ export const router = createBrowserRouter([
       { path: "/webhooks/:merchantId", element: <WebhookReplayPage /> },
     ],
   },
-]);
+], {
+  // "/" in dev; "/admin" when built for the hosted stack (ops/Dockerfile.web
+  // builds with --base=/admin/ so the console shares the dashboard's origin).
+  basename: import.meta.env.BASE_URL.replace(/\/$/, "") || "/",
+});

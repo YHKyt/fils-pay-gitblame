@@ -1,7 +1,10 @@
 import type { ApiErrorBody } from "../types.js";
 
-const API_BASE_URL =
-  (import.meta.env.VITE_ADMIN_API_BASE_URL as string | undefined) ?? "http://localhost:3000";
+// Same origin by default: apps/api has no CORS handling, so the console
+// reaches it through a proxy on its own origin (vite.config.ts in dev,
+// ops/nginx.web.conf when hosted). The old default, http://localhost:3000,
+// made every call cross-origin and the browser blocked them all.
+const API_BASE_URL = (import.meta.env.VITE_ADMIN_API_BASE_URL as string | undefined) ?? "";
 
 /** apps/web's own dashboard origin — where a "view as merchant" grant is
  *  actually exercised. */
