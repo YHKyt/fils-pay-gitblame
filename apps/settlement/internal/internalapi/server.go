@@ -349,6 +349,12 @@ func handleRecalculateMDR(pool *pgxpool.Pool) http.Handler {
 		}
 
 		result, err := settlement.RecalculateMDR(r.Context(), pool, merchantID, from, to)
+		// A refusal on the data, with nothing committed: the caller asked
+		// for a range holding a batch that cannot be re-rated per event.
+		if errors.Is(err, settlement.ErrBatchEventsIncomplete) {
+			writeJSON(w, http.StatusConflict, errorResponse{Error: "batch_events_incomplete", Message: err.Error()})
+			return
+		}
 		if err != nil {
 			log.Printf("settlement internal api: recalculate-mdr(%s) failed: %v", body.MerchantID, err)
 			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "recalculate_mdr_failed"})

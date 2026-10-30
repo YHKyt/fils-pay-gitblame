@@ -106,14 +106,20 @@ class SettlementCallFailedError extends AppError {
  * One `fetch` against apps/settlement's internal HTTP server, with an
  * `AbortController`-driven timeout and a bearer token.
  *
- * The two failure modes are deliberately distinct:
+ * The failure modes are deliberately distinct:
  *   - the call never completed (connection refused, DNS failure, timeout) ->
  *     502 `settlement_unreachable`. Nothing ran; retrying is safe.
- *   - the call completed and settlement itself reported failure (non-2xx) ->
- *     500 `settlement_run_failed`. Something may have partially run; the
- *     operator needs to look at settlement, not retry blindly.
- * Collapsing these two into one status would tell an operator nothing about
- * which of the two situations they are in.
+ *   - settlement refused the request with a coded 4xx (`{ error, message }`,
+ *     e.g. 409 `batch_events_incomplete`, 422 `business_day_not_over`) ->
+ *     the same status, code and message. A refusal of this request, not a
+ *     server fault; the admin needs the reason.
+ *   - anything else (5xx; 401/403, which mean this API's own service token
+ *     was refused, not the admin's request; an uncoded 4xx such as an
+ *     unknown route) -> 500 `settlement_run_failed`. Something may have
+ *     partially run; the operator needs to look at settlement, not retry
+ *     blindly.
+ * Collapsing these into one status would tell an operator nothing about
+ * which situation they are in.
  */
 async function callSettlementInternal(
   config: SettlementInternalConfig,
@@ -157,6 +163,11 @@ async function callSettlementInternal(
       parsed = isRecord(decoded) ? decoded : null;
     } catch {
       parsed = null;
+    }
+    const code = typeof parsed?.error === "string" ? parsed.error : "";
+    if (response.status >= 400 && response.status < 500 && response.status !== 401 && response.status !== 403 && code !== "") {
+      const message = typeof parsed?.message === "string" && parsed.message !== "" ? parsed.message : code;
+      throw new AppError(response.status, code, message);
     }
     throw new SettlementCallFailedError(
       `settlement internal call to ${path} returned ${response.status}: ${text.slice(0, 500)}`,
