@@ -68,9 +68,32 @@ export async function request<T>(path: string, init?: RequestInit & { timeoutMs?
     if (timer !== undefined) clearTimeout(timer);
   }
   if (!res.ok) {
+    if (signalsExpiredSession(res.status, path) && typeof window !== "undefined") {
+      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    }
     throw new ApiError(res.status, (body as ApiErrorBody) ?? { error: "unknown_error" });
   }
   return body as T;
+}
+
+/** Fired on any 401 from a non-auth route: the merchant session ended
+ *  mid-use (idle timeout, revoked elsewhere). DashboardAuthProvider listens,
+ *  drops to anonymous, and the route guard sends the user to the login screen
+ *  with a "session expired" notice. Same pattern as apps/admin's
+ *  `admin:unauthorized`. */
+export const UNAUTHORIZED_EVENT = "dashboard:unauthorized";
+
+/**
+ * True when a failed response means "your session is gone". Only a `401`
+ * counts, and never from `/v1/auth/*`: login, OTP verify/resend and logout
+ * answer 401 as part of a normal sign-in flow, and the startup `/me` probe
+ * answers 401 for every anonymous visitor, so treating any of those as an
+ * expiry would loop the login screen. The public checkout's
+ * `/v1/payment-links/:token` calls never need a session; even if one 401'd,
+ * /pay/:token renders outside DashboardAuthProvider, so nothing listens there.
+ */
+export function signalsExpiredSession(status: number, path: string): boolean {
+  return status === 401 && !path.startsWith("/v1/auth/");
 }
 
 /** For the routes that answer `204 No Content` (logout, cancel payment

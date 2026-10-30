@@ -31,14 +31,15 @@ type Step = { kind: "credentials" } | { kind: "otp"; challenge: DashboardLoginRe
  * scope for a frontend-only phase.
  */
 export function LoginPage() {
-  const { status, refresh } = useDashboardAuth();
+  const { status, refresh, sessionExpired, expiredEmail } = useDashboardAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
   const [step, setStep] = useState<Step>({ kind: "credentials" });
   // MK: remembers the last merchantId in localStorage. not a secret
   const [merchantId, setMerchantId] = useState(() => readLastMerchantId());
-  const [email, setEmail] = useState("");
+  // Prefilled after a session expiry (memory only, never the password).
+  const [email, setEmail] = useState(() => expiredEmail ?? "");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -134,6 +135,11 @@ export function LoginPage() {
           : "The pearl of Gulf payments. Sign in to your FilsPay account."}
       </p>
 
+      {sessionExpired && step.kind === "credentials" && !error ? (
+        <p className="dash-notice" role="status">
+          Your session expired. Please sign in again.
+        </p>
+      ) : null}
       {error ? <p className="dash-error">{error}</p> : null}
       {notice ? <p className="dash-notice">{notice}</p> : null}
 

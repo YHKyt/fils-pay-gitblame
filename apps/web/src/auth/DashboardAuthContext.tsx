@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { UNAUTHORIZED_EVENT } from "../api/client.js";
 import { logout as logoutRequest, me as fetchMe } from "../api/dashboardAuth.js";
 import type { DashboardMe } from "../types.js";
 import { signOutLocallyRegardless } from "../utils/signOut.js";
@@ -15,6 +16,12 @@ export interface DashboardAuthValue {
   refresh: () => Promise<void>;
   /** `POST /v1/auth/logout`, then drops local state regardless. Never throws. */
   signOut: () => Promise<void>;
+  /** True after a 401 from a data route ended a live session mid-use; the
+   *  login screen shows a "session expired" notice. Cleared on next sign-in. */
+  sessionExpired: boolean;
+  /** Email of the user whose session expired, kept in memory only so the
+   *  login form can be prefilled. Never the password. */
+  expiredEmail: string | null;
 }
 
 const DashboardAuthReactContext = createContext<DashboardAuthValue | null>(null);
@@ -59,12 +66,16 @@ export function writeLastMerchantId(merchantId: string): void {
 export function DashboardAuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<DashboardAuthStatus>("loading");
   const [me, setMe] = useState<DashboardMe | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [expiredEmail, setExpiredEmail] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
       const current = await fetchMe();
       setMe(current);
       setStatus("authenticated");
+      setSessionExpired(false);
+      setExpiredEmail(null);
     } catch {
       // Any failure — 401, a revoked session, the API being down — lands on
       // the login screen rather than a half-rendered dashboard.
@@ -77,17 +88,38 @@ export function DashboardAuthProvider({ children }: { children: ReactNode }) {
     void refresh();
   }, [refresh]);
 
+  // A 401 from any data route means the session ended under the user (idle
+  // timeout, revoked elsewhere). Drop to anonymous so the route guard
+  // redirects to the login screen instead of leaving a dead dashboard.
+  // Mirrors apps/admin's AdminAuthProvider.
+  useEffect(() => {
+    function onUnauthorized(): void {
+      setMe((previous) => {
+        if (previous) {
+          setSessionExpired(true);
+          setExpiredEmail(previous.email);
+        }
+        return null;
+      });
+      setStatus("anonymous");
+    }
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+  }, []);
+
   const signOut = useCallback(async () => {
     const failure = await signOutLocallyRegardless(logoutRequest, () => {
       setMe(null);
       setStatus("anonymous");
+      setSessionExpired(false);
+      setExpiredEmail(null);
     });
     if (failure) console.warn("logout request failed; local session cleared anyway", failure);
   }, []);
 
   const value = useMemo<DashboardAuthValue>(
-    () => ({ status, me, refresh, signOut }),
-    [status, me, refresh, signOut],
+    () => ({ status, me, refresh, signOut, sessionExpired, expiredEmail }),
+    [status, me, refresh, signOut, sessionExpired, expiredEmail],
   );
 
   return (
