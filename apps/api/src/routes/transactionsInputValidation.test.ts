@@ -137,7 +137,7 @@ test("a malformed card is a 400 invalid_card, not a 500 from the acquirer", asyn
   const { merchantId, rawKey } = await approvedMerchant();
   const spy = spyOnAcquirer();
   try {
-    for (const card of [{}, "4242424242424242", [], { pan: 4242424242424242 }, { pan: null }, { ...VALID_CARD, pan: "4242" }, { ...VALID_CARD, pan: "4242-4242-4242-4242" }]) {
+    for (const card of [{}, "4242424242424242", [], { pan: 4242424242424242 }, { pan: null }, { ...VALID_CARD, pan: "4242" }, { ...VALID_CARD, pan: "4242-4242-42ab" }]) {
       const res = await authorizeRequest(rawKey, randomUUID(), { amountFils: 1_000, card });
       assert.equal(res.statusCode, 400, `${JSON.stringify(card)}: ${res.body}`);
       assert.equal(res.json().error, "invalid_card");
@@ -150,4 +150,11 @@ test("a malformed card is a 400 invalid_card, not a 500 from the acquirer", asyn
 
   const ok = await authorizeRequest(rawKey, randomUUID(), { amountFils: 1_000, card: VALID_CARD });
   assert.equal(ok.statusCode, 201, ok.body);
+
+  // A grouped PAN with spaces or dashes is normalized and accepted, as the
+  // simulator did before the strict regex; the acquirer still sees digits.
+  for (const pan of ["4242 4242 4242 4242", "4242-4242-4242-4242"]) {
+    const grouped = await authorizeRequest(rawKey, randomUUID(), { amountFils: 1_000, card: { ...VALID_CARD, pan } });
+    assert.equal(grouped.statusCode, 201, `${pan}: ${grouped.body}`);
+  }
 });

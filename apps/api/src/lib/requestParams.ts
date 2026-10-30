@@ -37,6 +37,19 @@ export function parsePositiveAmountFils(value: unknown): Fils {
   return toFils(value);
 }
 
+/** Normalizes a card PAN and requires 12 to 19 digits. The hosted checkout
+ *  and many terminals send a formatted number ("4242 4242 4242 4242"), so
+ *  spaces and dashes are stripped before the digit check; otherwise a buyer
+ *  typing a grouped number was refused with 400 invalid_card even though the
+ *  simulator would have approved the digits. Returns the digits-only PAN. */
+export function normalizeCardPan(pan: unknown): string {
+  if (typeof pan === "string") {
+    const normalized = pan.replace(/[\s-]/g, "");
+    if (/^\d{12,19}$/.test(normalized)) return normalized;
+  }
+  throw new BadRequestError("invalid_card", "card.pan must be a string of 12 to 19 digits");
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A path id that is not UUID-shaped can never name a row: 400 invalid_id

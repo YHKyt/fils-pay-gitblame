@@ -499,3 +499,17 @@ test("pay with a malformed card is a 400 invalid_card and leaves the link payabl
   const ok = await pay(link.token, APPROVED_CARD);
   assert.equal(ok.statusCode, 200, ok.body);
 });
+
+// Regression: the strict PAN regex refused a grouped number ("4242 4242 4242
+// 4242") that the hosted checkout sends raw and the simulator used to approve.
+// Spaces and dashes are now stripped before the digit check.
+test("pay with a spaced or dashed PAN is normalized and approved", async () => {
+  for (const pan of ["4242 4242 4242 4242", "4242-4242-4242-4242"]) {
+    const { rawKey, merchantId } = await createApprovedMerchantWithApiKey("grouped-pan");
+    const link = await createLink(rawKey, merchantId);
+    const res = await pay(link.token, { ...APPROVED_CARD, pan });
+    assert.equal(res.statusCode, 200, `${pan}: ${res.body}`);
+    const read = await getPublicLink(link.token);
+    assert.equal(read.json().status, "paid");
+  }
+});
