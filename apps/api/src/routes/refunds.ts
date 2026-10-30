@@ -7,6 +7,7 @@ import {
 } from "../auth/requireMerchantAuth.js";
 import { assertRefundRequestScope, initiateMerchantRefund } from "../refunds/initiateMerchantRefund.js";
 import { BadRequestError } from "../lib/errors.js";
+import { isAcceptedAmountFils, MAX_AMOUNT_FILS } from "../lib/requestParams.js";
 
 interface RefundBody {
   transactionId?: unknown;
@@ -35,8 +36,11 @@ function parseBody(body: RefundBody | undefined) {
   if (typeof transactionId !== "string" || transactionId === "") {
     throw new BadRequestError("invalid_request", "transactionId is required");
   }
-  if (amountFils !== undefined && (typeof amountFils !== "number" || !Number.isSafeInteger(amountFils) || amountFils <= 0)) {
-    throw new BadRequestError("invalid_request", "amountFils must be a positive integer number of fils");
+  if (amountFils !== undefined && !isAcceptedAmountFils(amountFils)) {
+    throw new BadRequestError(
+      "invalid_request",
+      `amountFils must be a positive integer number of fils, at most ${MAX_AMOUNT_FILS}`,
+    );
   }
   if (reason !== undefined && typeof reason !== "string") {
     throw new BadRequestError("invalid_request", "reason must be a string");

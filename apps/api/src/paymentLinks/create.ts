@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import { toFils } from "@filspay/money";
 import { BadRequestError } from "../lib/errors.js";
+import { isAcceptedAmountFils, MAX_AMOUNT_FILS } from "../lib/requestParams.js";
 import { randomFromAlphabet } from "../lib/random.js";
 import { serializePaymentLink, type PaymentLinkDto, type PaymentLinkRow } from "./serialize.js";
 
@@ -40,8 +41,11 @@ export async function createPaymentLink(
     throw new BadRequestError("invalid_amount", err instanceof Error ? err.message : String(err));
   }
   // payment_links.amount_fils has CHECK (amount_fils > 0); toFils accepts 0.
-  if (amountFils <= 0) {
-    throw new BadRequestError("invalid_amount", "amountFils must be a positive integer number of fils");
+  if (!isAcceptedAmountFils(amountFils)) {
+    throw new BadRequestError(
+      "invalid_amount",
+      `amountFils must be a positive integer number of fils, at most ${MAX_AMOUNT_FILS}`,
+    );
   }
 
   // JSON bodies are not schema-checked: an array or object here was stored

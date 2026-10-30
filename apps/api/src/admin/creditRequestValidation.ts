@@ -1,5 +1,6 @@
 import { toFils, type Fils } from "@filspay/money";
 import { BadRequestError } from "../lib/errors.js";
+import { isAcceptedAmountFils, MAX_AMOUNT_FILS } from "../lib/requestParams.js";
 
 export type CreditReasonCode = "goodwill" | "dispute_resolution" | "correction";
 
@@ -47,10 +48,10 @@ export function parseCreditRequestInput(body: unknown, now: Date = new Date()): 
   const input = body as Record<string, unknown>;
 
   const rawAmount = input.baseAmountFils;
-  if (typeof rawAmount !== "number" || !Number.isSafeInteger(rawAmount) || rawAmount <= 0) {
+  if (!isAcceptedAmountFils(rawAmount)) {
     throw new BadRequestError(
       "invalid_amount",
-      "baseAmountFils must be a positive integer number of fils",
+      `baseAmountFils must be a positive integer number of fils, at most ${MAX_AMOUNT_FILS}`,
     );
   }
   const baseAmountFils = toFils(rawAmount);
