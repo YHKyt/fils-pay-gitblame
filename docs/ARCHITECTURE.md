@@ -88,7 +88,7 @@ the action. Credits above the threshold need a second approver.
 | `DATABASE_URL` | all | — |
 | `PGCONN_SETTLEMENT` | settlement | unset |
 | `SETTLEMENT_INTERNAL_TOKEN` | api, settlement | `dev-token` in dev |
-| `ACQUIRER_CALLBACK_REQUIRE_SIGNATURE` | api | `false` |
+| `ACQUIRER_CALLBACK_REQUIRE_SIGNATURE` | api | `true` (always `true` when `NODE_ENV=production`; `false` is honoured only outside production) |
 | `FEATURE_ASYNC_CLOSE` | settlement | `0` |
 
 The API is sized for 0.5 vCPU / 512 MB. In compose, all services connect as

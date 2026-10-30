@@ -40,7 +40,7 @@ What was checked and found correct (with a run):
   The 9-decimal cap rounded away every later digit, so `1` and `1.0000000004` became equal weights.
 - **Breaks:** any pro-rata split built on the package's documented promise ("shares proportional to
   weights"). The sum still equalled the total, so the error was invisible to a sum check. No live app
-  code calls this function today, hence Low; settlement splits use their own Go `ChildShares` (M5).
+  code calls this function today (no live callers, so this is a defensive fix), hence Low; settlement splits use their own Go `ChildShares` (M5).
 - **Fix:** read each weight exactly from its shortest decimal form, including the exponent, as
   `digits x 10^exponent`, then bring all weights to the smallest exponent. Every digit is kept, no
   float arithmetic is introduced, and ordinary weights give the same results as before. This replaces

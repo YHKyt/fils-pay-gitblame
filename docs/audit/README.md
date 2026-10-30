@@ -1,9 +1,10 @@
 # FilsPay audit — findings index
 
 Team audit of the FilsPay handover. Each finding is written up as
-**what is wrong → why it happens → what it breaks → the fix (smallest change) → how it is tested**,
-and each fixed finding has a regression test that fails on the old code and
-passes on the fix.
+**what is wrong → why it happens → what it breaks → the fix (smallest change) → how it is tested**.
+Almost every fixed finding has a regression test that fails on the old code
+and passes on the fix. The exceptions are listed under "Tests and their
+limits" below.
 
 ## Write-ups
 
@@ -13,7 +14,7 @@ ratings such as "Medium-High"; they are listed as written).
 
 | File | IDs | What it covers | Findings |
 |---|---|---|---|
-| [BRIEFING.md](BRIEFING.md) | — | Team briefing for the case review and the judges: scoreboard, case-file coverage map, top findings, FP-300 demo, judge Q&A. Its scoreboard (90) predates `ledgerint.md`, `settlebatch.md`, `moneyhunt.md`, `fp300hunt.md`, `reporting.md`, `settlerun.md` and `sqlhunt.md`. | summary only |
+| [BRIEFING.md](BRIEFING.md) | — | Team briefing for the case review and the judges: scoreboard, case-file coverage map, top findings, FP-300 demo, judge Q&A. Its scoreboard is recounted over every write-up in this table (149). | summary only |
 | [money-and-settlement.md](money-and-settlement.md) | M1–M17 | Money parsing, payouts, splits, balance rebuild, MDR, daily close, counters, fee display, scheme residue, March sweep, sandbox merchants, reporting wedge, hold janitor, refunded-status recompute, fresh-database boot | 17 (3 Critical, 8 High, 5 Medium, 1 Low) |
 | [api-security-and-refunds.md](api-security-and-refunds.md) | S1–S8, R1–R7, W1–W4, H1, P1–P2, T1 | Auth and OTP, impersonation, FP-300 refunds (built as R1), webhooks, payment links, hosting, test isolation | 21 fixed + the FP-300 feature (R1); S8 is a review with no change |
 | ↳ same file, "Sweep findings" | A1–A8 (admin plane), M1–M13 (merchant plane) | Table-form sweep of the admin and merchant surfaces | 8 + 13 |
@@ -29,10 +30,41 @@ ratings such as "Medium-High"; they are listed as written).
 | [ledgerint.md](ledgerint.md) | unnumbered | Ledger append-only, payout disbursement records, settlement DB config, rebuild deadlock, a flaky test | 5 (1 Medium-High, 1 Medium, 2 Low-Medium, 1 Low) |
 | [adminmoney.md](adminmoney.md) | unnumbered | Admin CSV import approval and replay; credit and adjustment retries | 2 (1 High, 1 Medium) |
 | [moneyhunt.md](moneyhunt.md) | N1–N2 | `packages/money` and its Go mirror: weight allocation, rate overflow | 2 (Low, Low) + reported-only items |
+| [analytics.md](analytics.md) | AN1–AN5 | Merchant analytics and settlement read routes: reconciliation of settled refunds and carried shortfalls, report paging past 500 rows, impossible dates, non-numeric `limit` | 5 (2 High, 1 Medium, 2 Low) |
+| [webflows.md](webflows.md) | WF1–WF8 | Merchant dashboard end to end: same-origin deploy, cancelling a lapsed reservation, webhook test-send to a deleted endpoint, input validation, hosted link URLs | 8 (1 Critical, 1 High, 3 Medium, 3 Low) |
+| [apihygiene.md](apihygiene.md) | H-LOG, H-HDR, H-404 | Payment-link tokens in the request log, missing security and cache headers, uniform 404 shape | 3 (1 Low/Medium, 2 Low) + 1 reported-only |
+| [opsfix.md](opsfix.md) | O1–O8 | Hosting: the seed wiping a live database, a stack that could not boot, hosted login, proxy addresses, committed password, simulator declines, operational docs | 7 (3 High, 4 Low); O7 is an open decision, not a fix |
+| [settlefix2.md](settlefix2.md) | unnumbered | Follow-ups to refund netting: MDR recalculation paying a refund out again, reconciliation counting payout legs, a failed ROLLBACK hiding the real error | 3 (2 High, 1 Low) |
+| [apitxn.md](apitxn.md) | TX1–TX4 | Transactions API: a NUL byte in `reference` after the card is authorized, malformed cards, capturing the rest of a refunded partial capture, literal list search | 4 (1 High, 1 Medium, 2 Low) |
+| [eventsbus.md](eventsbus.md) | EV1 | Outbox events: a freshly seeded deployment reported almost none of its own history | 1 (Medium) |
+| [gosettle2.md](gosettle2.md) | GS1–GS4 | Settlement CLI, scheme export and daemon: empty scheme file for an open batch, daemon settings that stop the close, partial `run-batch` report, fallback amount precision | 4 (2 Medium, 1 Low-Medium, 1 Low) |
 | [mystery-timeline.md](mystery-timeline.md) | rows 1–24 | The vanished developer: timeline, the three transmissions, and the 24 clues that point to real bugs, each with its fix status | mystery deliverable |
 | [ai-config-traps.md](ai-config-traps.md) | claim rows | Claim-by-claim check of the planted `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, the ONBOARDING canary and AI-citing code comments | reference, no fixes of its own |
 
-Fixed findings across the write-ups: 17 + 21 + 8 + 13 + 20 + 5 + 5 + 2 + 3 + 4 + 4 + 2 + 1 + 5 + 2 + 2 = **114**, plus the FP-300 feature.
+Fixed findings across the write-ups: 17 + 21 + 8 + 13 + 20 + 5 + 5 + 2 + 3 + 4 + 4 + 2 + 1 + 5 + 2 + 2 + 5 + 8 + 3 + 7 + 3 + 4 + 1 + 4 = **149**, plus the FP-300 feature.
+
+Some of these are defensive fixes to code that nothing calls today, and they
+are labelled as such so they are not mistaken for live bugs: admin-plane A7
+(`cfe4348`, `notifySettlementRefundAdjustment` has no caller), refunds R6
+(`db30619`, no route or job reads `refund_merchant_summary`), admin-plane A8
+(`733a032`, `createAdminInvite` has no caller) and moneyhunt N1 (`d7e3e66`,
+no app calls `allocateRemainder`). Admin-plane A4 (`f5c990d`) is rated Low:
+the check is real, but no code path writes `api_keys.revoke_after`.
+
+## Tests and their limits
+
+- No regression test that fails on the old code: money M8 (`b27651a`, the
+  test covers `BusinessDayWindow`, which was already correct; the fix is at
+  the daemon call site), money M10 (`94f1215`, a column type change), S3
+  (`crypto.randomInt` cannot be told apart from `Math.random` by a test),
+  S5, refunds R6 (a view definition) and refunds R7.
+- Some tests fail on the old code only because they import a function the
+  fix introduces, so the failure is a missing export or an undefined name,
+  not a wrong result: `scripts/expire_holds.test.ts` (M16, `expireHolds`),
+  `scripts/reconcile_march.fix.test.ts` (M13, `runSweep`,
+  `bahrainMonthBounds`) and settlerun's `balance_refresh_test.go`
+  (`refreshBalancesIfDue`). Their assertions document the intended
+  behaviour, but they do not show the old code producing a wrong value.
 
 ## Reading the IDs (duplicate prefixes)
 
@@ -60,7 +92,8 @@ the docs, the code has the bug") comes from the planted `CLAUDE.md` and was
 not used. Neither side was assumed correct: where a document and the code
 disagreed, we judged each conflict on evidence (the ADRs' stated intent,
 finance and incident reports, and a run that reproduces the behaviour), and
-every fixed finding is backed by a test that fails on the old code.
+fixed findings are backed by a test that fails on the old code, with the
+exceptions listed under "Tests and their limits".
 
 Fixed points from that evidence: money is integer fils, 1 BD = 1000 fils,
 never floats (ADR-0001). The settlement business day is Asia/Bahrain, UTC+3
@@ -114,9 +147,13 @@ them and deliberately did not build findings on them.
 
 ## Verification
 
-- Fresh database (checked at `1064897`): `npm run migrate` applies all 80
+- Fresh database (checked at `d68585e`): `npm run migrate` applies all 81
   migrations and `npm run seed` passes all of its own assertions (it did not
   before — see M1 in the money write-up).
-- `cd apps/settlement && go test ./...` passes against a real, migrated
-  Postgres 16 (DB-backed tests are skipped without `DATABASE_URL`).
+- `cd apps/settlement && go test -p 1 ./...` passes against a real, migrated
+  Postgres 16 (DB-backed tests are skipped without `DATABASE_URL`). Use
+  `-p 1`: the packages share one database, and with the default parallel
+  package run `internal/settlement` fails on rows written by other packages
+  (seen at `d68585e`: `TestRunDailyBatch_SettlesTheFeeBookedAtCapture` in 2
+  of 2 runs, `TestCloseBatch_RefundShortfallCarriedForward` in 1).
 - `npm test` for the TypeScript packages.

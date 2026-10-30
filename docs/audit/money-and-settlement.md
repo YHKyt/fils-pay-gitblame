@@ -25,7 +25,7 @@ Severity: **Critical** = money moved or recorded wrongly at scale ·
 - **Why:** migration 0070 made `reason` NOT NULL (CHECK) with `DEFAULT 'unspecified'`, but a column DEFAULT only applies when the column is omitted. The code passes `input.reason ?? null` — an explicit NULL — so the CHECK fires.
 - **Breaks:** the refund feature (FP-300) for the common case.
 - **Fix:** pass `'unspecified'` when no reason is given.
-- **Test:** the existing refund suites (24 tests) go from failing to passing.
+- **Test:** the existing refund suites. Re-run at `42727e0` on a database migrated to that commit, with `processRefund.ts` reverted to its parent: of the 24 tests in `processRefund.test.ts`, `refundState.test.ts` and `initiateMerchantRefund.test.ts`, 11 fail (7 + 0 + 4); with the fix all 24 pass. Across the whole API suite of that commit the fix turns 12 failures into 1 (the remaining one is an unrelated dispatcher backoff test).
 
 ## M3. CSV balance-adjustment import is 10× too small — Critical
 **Where:** `apps/api/src/admin/adjustmentCsvParsing.ts` (and `payments/discountAdjustment.ts`)
@@ -53,7 +53,7 @@ Severity: **Critical** = money moved or recorded wrongly at scale ·
 - **What:** sub-merchant shares summed to more or less than the batch net payout.
 - **Why:** each child share was rounded independently (`ApplyRateFils` per child). Independent rounding does not preserve the total: 1001 fils over 3333/3333/3334 bps paid 334+334+334 = **1002**; other splits paid less. The difference was never posted, so short splits left fils stranded in the parent's `merchant_payable` ("can't find them anywhere in the ledger").
 - **Breaks:** every split batch.
-- **Fix:** `ChildShares` floors each exact share and gives the leftover fils to the largest remainders (ties to the lower index); `PayoutSplitBatch` uses it. When weights sum to 10000 the children receive exactly the net payout; partial weights leave the remainder with the parent as before.
+- **Fix:** `ChildShares` floors each exact share and gives the leftover fils to the largest remainders (ties to the lower index); `PayoutSplitBatch` uses it. When weights sum to 10000 the children receive exactly the net payout. When this fix was written, partial weights left the remainder with the parent; since G2 (`settleguards.md`, `f23cc2c`), `PayoutSplitBatch` refuses any parent whose weights do not sum to exactly 10000 (`ErrSplitWeightsNotWhole`), so partial weights are no longer paid out at all.
 - **Test:** `shares_exact_test.go` (non-round splits, partial weights). The original test only used splits that happen to divide evenly.
 
 ## M6. "Rebuild cached balances" button reads the wrong source (FP-203) — High
