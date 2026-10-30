@@ -1033,6 +1033,21 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
       );
       outboxEventCount += voidedOutbox.rowCount ?? 0;
 
+      // merchant_balances caches merchant_payable (ADR-0004), and live
+      // captures, refunds and payouts move it by their own delta. The legs
+      // above were written directly, so start the cache at the ledger
+      // balance, as `settlement rebuild-balances` would; otherwise the first
+      // live posting creates a row holding only that posting.
+      await client.query(
+        `INSERT INTO merchant_balances (merchant_id, cached_payable_fils, updated_at)
+         SELECT m.id,
+                COALESCE(SUM(CASE WHEN le.direction = 'credit' THEN le.amount_fils ELSE -le.amount_fils END), 0),
+                now()
+           FROM merchants m
+           LEFT JOIN ledger_entries le ON le.merchant_id = m.id AND le.account_id = 'merchant_payable'
+          GROUP BY m.id`,
+      );
+
       await client.query("COMMIT");
     } catch (err) {
       await client.query("ROLLBACK");
