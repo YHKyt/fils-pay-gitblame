@@ -46,36 +46,176 @@ function SuccessCheck() {
   );
 }
 
-/** The chrome shared by every checkout state: brand header, a single content
- *  card, and a FilsPay trust footer. Presentation only — each state renders
- *  its own content inside. `tone` tints the card header strip for success /
- *  error / neutral states. */
+/** Simple card-brand marks for the trust row. Generic shapes, no trademarks. */
+function CardMarks() {
+  return (
+    <span className="checkout-cardmarks" aria-label="Visa, Mastercard and BENEFIT cards accepted">
+      <span className="checkout-cardmark checkout-cardmark-visa" aria-hidden="true">VISA</span>
+      <span className="checkout-cardmark checkout-cardmark-mc" aria-hidden="true">
+        <svg viewBox="0 0 30 18" width="26" height="16" focusable="false">
+          <circle cx="11" cy="9" r="7" fill="#EB5A3C" />
+          <circle cx="19" cy="9" r="7" fill="#F2A93B" fillOpacity="0.9" />
+        </svg>
+      </span>
+      <span className="checkout-cardmark checkout-cardmark-benefit" aria-hidden="true">BENEFIT</span>
+    </span>
+  );
+}
+
+/** Counts the displayed amount up once on first show. Reduced-motion viewers
+ *  (and the test environment) get the final value straight away. */
+function useCountUp(targetFils: number, durationMs = 900): number {
+  const [value, setValue] = useState(() => {
+    if (typeof window === "undefined" || typeof window.requestAnimationFrame !== "function") return targetFils;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return targetFils;
+    return 0;
+  });
+  useEffect(() => {
+    if (value === targetFils) return;
+    if (typeof window.requestAnimationFrame !== "function") {
+      setValue(targetFils);
+      return;
+    }
+    let frame = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / durationMs);
+      const eased = 1 - Math.pow(1 - t, 3);
+      setValue(Math.round(targetFils * eased));
+      if (t < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetFils, durationMs]);
+  return value;
+}
+
+function AsideAmount({ amountFils }: { amountFils: number }) {
+  const shown = useCountUp(amountFils);
+  const final = formatBhd(toFils(amountFils));
+  return (
+    <p className="checkout-aside-amount" aria-label={`${final} BHD`}>
+      <span aria-hidden="true">{formatBhd(toFils(shown))}</span>
+      <span className="checkout-aside-unit" aria-hidden="true">BHD</span>
+    </p>
+  );
+}
+
+/** The left (desktop) / top (phone) petrol panel: who is being paid, how
+ *  much, and why. Without a loaded link it shows the FilsPay brand only. */
+function CheckoutAside({ link }: { link: PaymentLinkPublicDto | null }) {
+  const initial = link?.merchantDisplayName.trim().charAt(0).toUpperCase() || "F";
+  return (
+    <aside className="checkout-aside">
+      <div className="checkout-aside-inner">
+        <div className="checkout-aside-top">
+          <Logo tone="light" size={26} />
+          <span className="checkout-aside-secure">
+            <LockIcon /> Secure checkout
+          </span>
+        </div>
+        {link ? (
+          <div className="checkout-aside-body">
+            <div className="checkout-merchant-row">
+              <span className="checkout-avatar" aria-hidden="true">{initial}</span>
+              <span className="checkout-merchant-meta">
+                <span className="checkout-aside-kicker">Pay</span>
+                <span className="checkout-merchant">{link.merchantDisplayName}</span>
+              </span>
+            </div>
+            <AsideAmount amountFils={link.amountFils} />
+            {link.description ? <p className="checkout-description">{link.description}</p> : null}
+            <dl className="checkout-order">
+              <div>
+                <dt>Merchant</dt>
+                <dd>{link.merchantDisplayName}</dd>
+              </div>
+              {link.reference ? (
+                <div>
+                  <dt>Reference</dt>
+                  <dd className="checkout-mono">{link.reference}</dd>
+                </div>
+              ) : null}
+              <div>
+                <dt>Currency</dt>
+                <dd>Bahraini dinar (BHD)</dd>
+              </div>
+              <div className="checkout-order-total">
+                <dt>Total due</dt>
+                <dd>{formatBhd(toFils(link.amountFils))} BHD</dd>
+              </div>
+            </dl>
+          </div>
+        ) : (
+          <div className="checkout-aside-body checkout-aside-brand">
+            <p className="checkout-aside-headline">Payments, settled in Bahrain.</p>
+            <p className="checkout-aside-sub">Hosted checkout by FilsPay.</p>
+          </div>
+        )}
+        <div className="checkout-trust">
+          <span className="checkout-trust-lock">
+            <LockIcon size={14} /> Secured by <strong>FilsPay</strong>
+          </span>
+          <CardMarks />
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+/** The frame shared by every checkout state: a petrol summary panel and a
+ *  pearl content panel. Presentation only; each state renders its own content
+ *  inside. `tone` tints the state for success / error / info screens. */
 function CheckoutShell({
   children,
+  link = null,
   tone = "neutral",
 }: {
   children: React.ReactNode;
+  link?: PaymentLinkPublicDto | null;
   tone?: "neutral" | "success" | "error" | "info";
 }) {
   return (
-    <div className="checkout-root">
-      <div className={`checkout-page checkout-tone-${tone}`}>
-        <header className="checkout-header">
-          <Logo tone="ink" size={24} />
-          <span className="checkout-header-right">
-            <span className="checkout-secure">
-              <LockIcon /> Secure checkout
-            </span>
-            <ThemeToggle />
-          </span>
-        </header>
+    <div className={`checkout-root checkout-tone-${tone}`}>
+      <CheckoutAside link={link} />
+      <main className="checkout-main">
+        <div className="checkout-main-top">
+          <ThemeToggle />
+        </div>
         <div className="checkout-card">{children}</div>
         <footer className="checkout-footer">
-          <LockIcon size={12} /> Payments secured by <strong>FilsPay</strong>
+          <LockIcon size={12} /> Payments secured by <strong>FilsPay</strong> · Encrypted end to end
         </footer>
-      </div>
+      </main>
     </div>
   );
+}
+
+/** A state icon for the non-success screens (error / info). */
+function StateIcon({ kind }: { kind: "error" | "info" }) {
+  return (
+    <span className={`checkout-state-icon checkout-state-icon-${kind}`} aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="30" height="30" fill="none" focusable="false">
+        {kind === "error" ? (
+          <>
+            <circle cx="12" cy="12" r="9.5" stroke="currentColor" strokeWidth="1.8" />
+            <path d="M12 7.5v5.5M12 16.3v.2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </>
+        ) : (
+          <>
+            <circle cx="12" cy="12" r="9.5" stroke="currentColor" strokeWidth="1.8" />
+            <path d="M12 7v5l3.2 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+          </>
+        )}
+      </svg>
+    </span>
+  );
+}
+
+/** Groups card digits in fours for display ("4242 4242 4242 4242"). */
+function groupPan(digits: string): string {
+  return digits.replace(/(\d{4})(?=\d)/g, "$1 ");
 }
 
 type LoadState =
@@ -115,6 +255,8 @@ export function CheckoutPage() {
   const [payState, setPayState] = useState<PayState>({ kind: "idle" });
   const [card, setCard] = useState<SimulatedCardInput>(EMPTY_CARD);
   const [brandHint, setBrandHint] = useState<string | null>(null);
+  // The combined MM/YY field as typed; parsed into expiryMonth / expiryYear.
+  const [expiryDraft, setExpiryDraft] = useState("");
   // One Idempotency-Key per payment attempt, kept across network failures:
   // if the request reached the server but the response was lost, the retry
   // replays that payment instead of charging the card a second time. It is
@@ -259,7 +401,10 @@ export function CheckoutPage() {
   if (loadState.kind === "loading") {
     return (
       <CheckoutShell>
-        <p className="checkout-loading">Loading payment details…</p>
+        <div className="checkout-state" aria-busy="true">
+          <span className="checkout-spinner" aria-hidden="true" />
+          <p className="checkout-loading">Loading payment details…</p>
+        </div>
       </CheckoutShell>
     );
   }
@@ -267,10 +412,13 @@ export function CheckoutPage() {
   if (loadState.kind === "not_found") {
     return (
       <CheckoutShell tone="error">
-        <h1>This payment link isn't valid</h1>
-        <p className="checkout-message">
-          Check the link with the business that sent it. No payment was taken.
-        </p>
+        <div className="checkout-state">
+          <StateIcon kind="error" />
+          <h1>This payment link isn't valid</h1>
+          <p className="checkout-message">
+            Check the link with the business that sent it. No payment was taken.
+          </p>
+        </div>
       </CheckoutShell>
     );
   }
@@ -279,8 +427,8 @@ export function CheckoutPage() {
 
   if (payState.kind === "success") {
     return (
-      <CheckoutShell tone="success">
-        <div className="checkout-result">
+      <CheckoutShell tone="success" link={link}>
+        <div className="checkout-state checkout-result">
           <SuccessCheck />
           <h1>Payment successful</h1>
           <p className="checkout-message">Thank you — your payment has been received.</p>
@@ -311,53 +459,66 @@ export function CheckoutPage() {
             </>
           ) : null}
         </dl>
+        <p className="checkout-smallprint">You can close this page. Keep the reference for your records.</p>
       </CheckoutShell>
     );
   }
 
   if (payState.kind === "terminal") {
     return (
-      <CheckoutShell tone="error">
-        <h1>Unable to pay</h1>
-        <p className="checkout-message">{payState.message}</p>
+      <CheckoutShell tone="error" link={link}>
+        <div className="checkout-state">
+          <StateIcon kind="error" />
+          <h1>Unable to pay</h1>
+          <p className="checkout-message">{payState.message}</p>
+        </div>
       </CheckoutShell>
     );
   }
 
   if (link.status === "paid") {
     return (
-      <CheckoutShell tone="success">
-        <div className="checkout-result">
+      <CheckoutShell tone="success" link={link}>
+        <div className="checkout-state checkout-result">
           <SuccessCheck />
           <h1>Already paid</h1>
-          <p className="checkout-message">This invoice has already been paid.</p>
+          <p className="checkout-message">This invoice has already been paid. Nothing more is due.</p>
         </div>
       </CheckoutShell>
     );
   }
   if (link.status === "expired") {
     return (
-      <CheckoutShell tone="error">
-        <h1>Link expired</h1>
-        <p className="checkout-message">This payment link has expired.</p>
+      <CheckoutShell tone="error" link={link}>
+        <div className="checkout-state">
+          <StateIcon kind="error" />
+          <h1>Link expired</h1>
+          <p className="checkout-message">This payment link has expired. Ask the business for a new one.</p>
+        </div>
       </CheckoutShell>
     );
   }
   if (link.status === "canceled") {
     return (
-      <CheckoutShell tone="error">
-        <h1>No longer available</h1>
-        <p className="checkout-message">This payment link is no longer available.</p>
+      <CheckoutShell tone="error" link={link}>
+        <div className="checkout-state">
+          <StateIcon kind="error" />
+          <h1>No longer available</h1>
+          <p className="checkout-message">This payment link is no longer available.</p>
+        </div>
       </CheckoutShell>
     );
   }
   if (link.status === "processing") {
     return (
-      <CheckoutShell tone="info">
-        <h1>Payment processing</h1>
-        <p className="checkout-loading">
-          A payment is being processed for this link. This page updates automatically.
-        </p>
+      <CheckoutShell tone="info" link={link}>
+        <div className="checkout-state">
+          <span className="checkout-spinner" aria-hidden="true" />
+          <h1>Payment processing</h1>
+          <p className="checkout-loading">
+            A payment is being processed for this link. This page updates automatically.
+          </p>
+        </div>
       </CheckoutShell>
     );
   }
@@ -367,15 +528,10 @@ export function CheckoutPage() {
   const submitting = payState.kind === "submitting" || payState.kind === "verifying";
 
   return (
-    <CheckoutShell>
-      <div className="checkout-summary">
-        <p className="checkout-merchant">{link.merchantDisplayName}</p>
-        <p className="checkout-amount">
-          {amount}
-          <span className="checkout-amount-unit">BHD</span>
-        </p>
-        {link.description ? <p className="checkout-description">{link.description}</p> : null}
-        {link.reference ? <p className="checkout-reference">Reference: {link.reference}</p> : null}
+    <CheckoutShell link={link}>
+      <div className="checkout-form-head">
+        <h1>Pay by card</h1>
+        <p className="checkout-form-sub">Enter your card details to pay {link.merchantDisplayName}.</p>
       </div>
 
       {payState.kind === "declined" ? (
@@ -385,66 +541,84 @@ export function CheckoutPage() {
       ) : null}
 
       <form onSubmit={handleSubmit} className="checkout-form">
-        <label>
-          Card number
-          <input
-            type="text"
-            inputMode="numeric"
-            required
-            value={card.pan}
-            onChange={(e) => {
-              const pan = e.target.value;
-              setCard({ ...card, pan });
-              const digits = pan.replace(/\D/g, "");
-              if (digits.length >= 4) {
-                void import("../../utils/helpers.js").then((m) => {
-                  setBrandHint(m.formatCardBrandHint(digits));
-                });
-              } else {
-                setBrandHint(null);
-              }
-            }}
-          />
-          {brandHint && brandHint !== "unknown" ? (
-            <span className="checkout-brand-hint">{brandHint}</span>
-          ) : null}
-        </label>
-        <div className="checkout-form-row">
-          <label>
-            Expiry month
-            <input
-              type="number"
-              min={1}
-              max={12}
-              required
-              value={card.expiryMonth}
-              onChange={(e) => setCard({ ...card, expiryMonth: Number(e.target.value) })}
-            />
-          </label>
-          <label>
-            Expiry year
-            <input
-              type="number"
-              min={new Date().getFullYear()}
-              required
-              value={card.expiryYear}
-              onChange={(e) => setCard({ ...card, expiryYear: Number(e.target.value) })}
-            />
-          </label>
-          <label>
-            CVV
+        <label className="checkout-field">
+          <span className="checkout-label">Card number</span>
+          <span className="checkout-input-wrap">
             <input
               type="text"
               inputMode="numeric"
+              autoComplete="cc-number"
+              placeholder="1234 5678 9012 3456"
+              maxLength={23}
+              required
+              value={groupPan(card.pan)}
+              onChange={(e) => {
+                const pan = e.target.value.replace(/\D/g, "").slice(0, 19);
+                setCard({ ...card, pan });
+                const digits = pan;
+                if (digits.length >= 4) {
+                  void import("../../utils/helpers.js").then((m) => {
+                    setBrandHint(m.formatCardBrandHint(digits));
+                  });
+                } else {
+                  setBrandHint(null);
+                }
+              }}
+            />
+            {brandHint && brandHint !== "unknown" ? (
+              <span className="checkout-brand-hint">{brandHint}</span>
+            ) : null}
+          </span>
+        </label>
+        <div className="checkout-form-row">
+          <label className="checkout-field">
+            <span className="checkout-label">Expiry (MM/YY)</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="cc-exp"
+              placeholder="MM/YY"
+              maxLength={5}
+              required
+              pattern="(0[1-9]|1[0-2])/[0-9]{2}"
+              title="Expiry as MM/YY"
+              value={expiryDraft}
+              onChange={(e) => {
+                const digits = e.target.value.replace(/\D/g, "").slice(0, 4);
+                const text = digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits;
+                setExpiryDraft(text);
+                if (digits.length === 4) {
+                  const month = Number(digits.slice(0, 2));
+                  const year = 2000 + Number(digits.slice(2));
+                  if (month >= 1 && month <= 12) setCard({ ...card, expiryMonth: month, expiryYear: year });
+                }
+              }}
+            />
+          </label>
+          <label className="checkout-field">
+            <span className="checkout-label">CVV</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="cc-csc"
+              placeholder="123"
+              maxLength={4}
               required
               value={card.cvv}
-              onChange={(e) => setCard({ ...card, cvv: e.target.value })}
+              onChange={(e) => setCard({ ...card, cvv: e.target.value.replace(/\D/g, "").slice(0, 4) })}
             />
           </label>
         </div>
-        <button type="submit" disabled={submitting}>
-          {payState.kind === "verifying" ? "Checking payment status..." : submitting ? "Processing..." : `Pay ${amount} BHD`}
+        <button type="submit" className="checkout-pay" disabled={submitting}>
+          {submitting ? <span className="checkout-btn-spinner" aria-hidden="true" /> : <LockIcon size={15} />}
+          <span>
+            {payState.kind === "verifying" ? "Checking payment status..." : submitting ? "Processing..." : `Pay ${amount} BHD`}
+          </span>
         </button>
+        <p className="checkout-smallprint">
+          Your card details go straight to the acquirer over an encrypted connection. {link.merchantDisplayName} never
+          sees your full card number.
+        </p>
       </form>
 
       {/* The simulated-acquirer cheat sheet is for development and the demo
