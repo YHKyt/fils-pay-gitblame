@@ -213,7 +213,7 @@ Smallest fix each, one commit each, with a regression test confirmed to fail bef
 |---|---|---|---|
 | A1 | **Admin session fixation**: the pre-OTP cookie became the logged-in admin session unchanged (the "re-issued at verify" comment re-set the same token) | High | new token issued at OTP verify |
 | A2 | **Admin OTP attempt race**: 26 of 30 parallel guesses were checked against a limit of 5 (the `FOR UPDATE` comment was false) | High | atomic conditional UPDATE reserves each attempt |
-| A3 | **API key rotation left the old key working** (no "24h grace" exists) | High | old key revoked with reason `rotated` (0037); the test that asserted the old key stays active was corrected |
+| A3 | **API key rotation left the old key working** (no "24h grace" exists) | High | old key revoked with reason `rotated` (0037); the test that asserted the old key stays active was corrected. Trade-off: 0056 intended a staged overlap (`revoke_after`), but immediate revocation is the safe default when the reason for rotating is a leaked key, at the cost of a hard cut-over for the merchant's integration (a staged overlap would need an explicit opt-in, not the default) |
 | A4 | `api_keys.revoke_after` ignored: the sweep job promised in 0056 does not exist | Medium | checked at verification time |
 | A5 | **Bulk KYC approve** approved rejected or never-reviewed merchants and set `kyc_passed` | High | only `under_review` merchants |
 | A6 | **Credit four-eyes compared display names**: the requester could approve their own credit after a rename | High | compare admin user ids |

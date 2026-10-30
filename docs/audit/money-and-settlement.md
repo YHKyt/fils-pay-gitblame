@@ -94,6 +94,7 @@ Severity: **Critical** = money moved or recorded wrongly at scale ·
 - **Breaks:** consistent pricing for every merchant around the tier.
 - **Fix:** migration 0073 to `BIGINT`, `int64` in Go, and the API converts node-pg's BIGINT string.
 - **Test:** `platform_volume_int64_test.go` (values above int32 max).
+- **Pricing decision needed.** The discount itself has no recorded finance sign-off. The handover says "I said no until finance signs off in writing" (HANDOVER.md:38-39), and the threshold's "approved by finance" comment is challenged in the code itself: "which finance ticket? cant find one. Huda didnt know about it" (`platformVolumeTier.ts:3-4`). Before our fix the overflow switched the discount off again ~147K BD after it switched on; after it, the 0.15% discount applies consistently to every merchant once lifetime volume passes 2,000,000 BD. We fixed the counter, not the policy: finance must confirm the tier exists (or it should be disabled) before this ships. It is not approved by this audit.
 
 ## M10. Lifetime payout estimate stored as a 32-bit float — Low
 **Where:** `db/migrations/0074_lifetime_payout_estimate_bigint.sql`, `payout_estimate.go`
