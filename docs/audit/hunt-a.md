@@ -1,0 +1,14 @@
+# hunt-a: payments, links, refunds, auth, admin money, webhooks
+
+Branch `b/hunt-a`, from `fix/money-parsing` (`12ccd15`). Each finding has a
+regression test that fails on the old code and passes with the fix.
+
+## HA1. A suspended or closed merchant's payment links still charge customers — High
+
+**Where:** `apps/api/src/payments/authorize.ts` (merchant gate), reached from `apps/api/src/paymentLinks/pay.ts`
+
+- **What:** `authorizeTransaction` only checked `onboarding_status = 'approved'`. It never read `merchants.status`.
+- **Why:** login, live sessions and API keys all refuse a merchant whose `status` is not `active` (`b/h2-auth-edges`). The public checkout (`POST /v1/payment-links/:token/pay`) has no merchant credential, so none of those gates ran. It called authorize and capture directly.
+- **Breaks:** after a merchant is suspended (fraud review, compliance) or closed, every open link it had shared still authorized and captured the customer's card (200, `paid`). The money landed on a payable that settlement does not pay out to a suspended merchant, so the customer was charged and the funds were stuck.
+- **Fix:** authorize refuses a merchant that is not `active` with 403 `merchant_not_active`, before the acquirer is called. The link answers `{ stage: "authorize", error: "merchant_not_active" }` and its reservation is released. The check sits in authorize so that every caller gets it, not just the checkout.
+- **Test:** `apps/api/src/paymentLinks/pay.suspendedMerchant.test.ts` (suspended and closed). Before the fix: `200`, card authorized and captured. After: 403, no acquirer call, no transaction, link back to `active`.
