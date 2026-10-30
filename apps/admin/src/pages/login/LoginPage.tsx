@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
-import { login, verifyOtp } from "../../api/auth.js";
+import { login, resendOtp, verifyOtp } from "../../api/auth.js";
 import { describeError } from "../../api/client.js";
 import { time } from "../../format.js";
 import { Brand } from "../../components/Brand.js";
@@ -29,6 +29,7 @@ export function LoginPage() {
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const redirectTo =
     (location.state as { from?: string } | null)?.from ?? "/merchants";
@@ -52,11 +53,28 @@ export function LoginPage() {
     }
   }
 
+  async function handleResend(): Promise<void> {
+    setSubmitting(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const challenge = await resendOtp();
+      setStep({ kind: "otp", challenge });
+      setCode("");
+      setNotice("A new code has been issued.");
+    } catch (err) {
+      setError(describeError(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   // YA: admin verify re-issues the cookie with the full TTL
   async function handleOtp(event: React.FormEvent): Promise<void> {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
+    setNotice(null);
     try {
       await verifyOtp({ code });
       // The session cookie is now authenticated server-side; re-read `me`
@@ -82,6 +100,7 @@ export function LoginPage() {
       </p>
 
       {error ? <p className="admin-error">{error}</p> : null}
+      {notice && !error ? <p className="admin-notice">{notice}</p> : null}
 
       {step.kind === "credentials" ? (
         <form onSubmit={(e) => void handleCredentials(e)} className="admin-form">
@@ -138,21 +157,27 @@ export function LoginPage() {
             <button
               type="button"
               className="admin-btn-ghost"
+              disabled={submitting}
+              onClick={() => void handleResend()}
+            >
+              Resend code
+            </button>
+            <button
+              type="button"
+              className="admin-btn-ghost"
               onClick={() => {
                 setStep({ kind: "credentials" });
                 setCode("");
                 setError(null);
+                setNotice(null);
               }}
             >
               Start over
             </button>
           </div>
-          {/* The admin auth API issues a fresh code on each login; there is no
-              standalone resend. "Start over" re-enters the password and
-              requests a new one. */}
           <p className="admin-muted admin-login-hint">
-            Didn&apos;t receive a code? Use <strong>Start over</strong> to sign in again and request a
-            new one.
+            Didn&apos;t receive a code? Use <strong>Resend code</strong> to get a new one, or{" "}
+            <strong>Start over</strong> to sign in again.
           </p>
         </form>
       )}

@@ -19,6 +19,13 @@ export function verifyOtp(input: { code: string }): Promise<AdminOtpVerifyRespon
   });
 }
 
+/** `POST /v1/admin/auth/otp/resend`. Issues a fresh code for the pending
+ *  session; the previous code stops working. Throttled server-side
+ *  (`429 resend_too_soon`). */
+export function resendOtp(): Promise<AdminLoginResponse> {
+  return request("/v1/admin/auth/otp/resend", { method: "POST" });
+}
+
 /** `POST /v1/admin/auth/logout` (`204`). */
 export function logout(): Promise<void> {
   return requestNoContent("/v1/admin/auth/logout", { method: "POST" });

@@ -70,7 +70,9 @@ export async function requestNoContent(path: string, init?: RequestInit): Promis
 const ERROR_MESSAGES: Record<string, string> = {
   invalid_credentials: "That email or password is not correct.",
   invalid_code: "That one-time code is not correct. Check it and try again.",
-  otp_expired: "That one-time code has expired. Start over to request a new one.",
+  otp_expired: "That one-time code has expired. Use Resend code to get a new one.",
+  resend_too_soon: "Please wait a moment before requesting another code.",
+  no_pending_session: "Your sign-in has timed out. Start over to sign in again.",
   otp_required: "Enter the one-time code to finish signing in.",
   too_many_attempts: "Too many attempts. Wait a little while, then try again.",
   account_locked: "This account is temporarily locked after too many attempts. Try again later.",
