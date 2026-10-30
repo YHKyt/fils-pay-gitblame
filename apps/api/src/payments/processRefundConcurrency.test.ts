@@ -213,43 +213,24 @@ test("a capture racing the refund does not over-reverse the MDR fee", async () =
   assert.equal(Number(reversal.rows[0]!.amount_fils), 100);
 });
 
-// Regression: when acquirer.refund() threw (a timeout/socket error) instead of
+/// Regression: when acquirer.refund() threw (a timeout/socket error) instead of
 // returning an outcome, the exception propagated out of processRefund: the
-// step-1 reservation was never released (refunded_fils stayed inflated) and
-// the idempotency key stayed in_progress forever, so no retry could ever win.
-test("an acquirer that throws releases the reservation and leaves the key retriable", async () => {
+// step-1 reservation was never released and the key stayed in_progress
+// forever. The first fix (97ded12) then released the reservation and retried
+// under a NEW acquirer idempotency key; but a timeout can arrive after the
+// acquirer refunded, so that retry refunded the cardholder a second time.
+// Now the reservation is kept and a same-key retry resends the same
+// acquirer key, which the acquirer deduplicates.
+test("an acquirer that throws keeps the reservation and a same-key retry reuses the acquirer key", async () => {
   const m = await approvedMerchant("throw");
   const id = await authCap(m.rawKey, 10_000);
-  const thrower: AcquirerSimulator = {
-    authorize() {
-      throw new Error("n/a");
-    },
-    capture() {
-      throw new Error("n/a");
-    },
-    refund() {
-      return Promise.reject(new Error("ETIMEDOUT"));
-    },
-  };
-  const key = randomUUID();
-
-  const first = await processRefund(pool, thrower, {
-    transactionId: id,
-    merchantId: m.merchantId,
-    amountFils: toFils(4_000),
-    idempotencyKey: key,
-    actor: m.actor,
-  });
-  assert.equal(first.statusCode, 502);
-  assert.deepEqual(first.body, { error: "acquirer_unavailable" });
-
-  const txn = await pool.query<{ refunded_fils: string }>(`SELECT refunded_fils FROM transactions WHERE id = $1`, [id]);
-  assert.equal(Number(txn.rows[0]!.refunded_fils), 0, "the reservation must be released");
-  const keyRow = await pool.query<{ status: string }>(`SELECT status FROM idempotency_keys WHERE key = $1`, [key]);
-  assert.equal(keyRow.rows[0]!.status, "failed", "the key must be retriable, not stuck in_progress");
-
-  // A retry with the same key and a working acquirer now succeeds.
-  const working: AcquirerSimulator = {
+  const sentKeys: string[] = [];
+  let refundsExecuted = 0;
+  const executed = new Map<string, AcquirerRefundResult>();
+  let throwNext = true;
+  // Behaves like a real acquirer: processes the refund, deduplicates on the
+  // idempotency key, and the first response is lost to a timeout.
+  const acquirer: AcquirerSimulator = {
     authorize() {
       throw new Error("n/a");
     },
@@ -257,17 +238,59 @@ test("an acquirer that throws releases the reservation and leaves the key retria
       throw new Error("n/a");
     },
     refund(req) {
-      return Promise.resolve({ outcome: "approved", acquirerReference: req.acquirerReference, latencyMs: 0 });
+      sentKeys.push(req.idempotencyKey);
+      let result = executed.get(req.idempotencyKey);
+      if (!result) {
+        refundsExecuted++;
+        result = { outcome: "approved", acquirerReference: req.acquirerReference, latencyMs: 0 };
+        executed.set(req.idempotencyKey, result);
+      }
+      if (throwNext) {
+        throwNext = false;
+        return Promise.reject(new Error("ETIMEDOUT after the acquirer accepted"));
+      }
+      return Promise.resolve(result);
     },
   };
-  const retry = await processRefund(pool, working, {
-    transactionId: id,
-    merchantId: m.merchantId,
-    amountFils: toFils(4_000),
-    idempotencyKey: key,
-    actor: m.actor,
-  });
+  const key = randomUUID();
+  const request = { transactionId: id, merchantId: m.merchantId, amountFils: toFils(4_000), idempotencyKey: key, actor: m.actor };
+
+  const first = await processRefund(pool, acquirer, request);
+  assert.equal(first.statusCode, 502);
+  assert.deepEqual(first.body, { error: "acquirer_unavailable" });
+
+  const txn = await pool.query<{ refunded_fils: string }>(`SELECT refunded_fils FROM transactions WHERE id = $1`, [id]);
+  assert.equal(Number(txn.rows[0]!.refunded_fils), 4_000, "the reservation is kept while the outcome is unknown");
+  const keyRow = await pool.query<{ status: string }>(`SELECT status FROM idempotency_keys WHERE key = $1`, [key]);
+  assert.equal(keyRow.rows[0]!.status, "failed", "the key must be retriable, not stuck in_progress");
+
+  const retry = await processRefund(pool, acquirer, request);
   assert.equal(retry.statusCode, 200, JSON.stringify(retry.body));
+  assert.equal(new Set(sentKeys).size, 1, "the retry must resend the first acquirer idempotency key");
+  assert.equal(refundsExecuted, 1, "the cardholder is refunded once");
   const txn2 = await pool.query<{ refunded_fils: string }>(`SELECT refunded_fils FROM transactions WHERE id = $1`, [id]);
   assert.equal(Number(txn2.rows[0]!.refunded_fils), 4_000);
+  const rows = await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM refunds WHERE transaction_id = $1`, [id]);
+  assert.equal(rows.rows[0]!.n, 1);
+
+  // A refund that never reached the acquirer still completes on the retry.
+  const id2 = await authCap(m.rawKey, 10_000);
+  throwNext = true;
+  const lostRequest: AcquirerSimulator = {
+    ...acquirer,
+    refund(req) {
+      if (throwNext) {
+        throwNext = false;
+        sentKeys.push(req.idempotencyKey);
+        return Promise.reject(new Error("ECONNREFUSED"));
+      }
+      return acquirer.refund(req);
+    },
+  };
+  const req2 = { ...request, transactionId: id2, idempotencyKey: randomUUID() };
+  assert.equal((await processRefund(pool, lostRequest, req2)).statusCode, 502);
+  const retry2 = await processRefund(pool, lostRequest, req2);
+  assert.equal(retry2.statusCode, 200, JSON.stringify(retry2.body));
+  const txn3 = await pool.query<{ refunded_fils: string }>(`SELECT refunded_fils FROM transactions WHERE id = $1`, [id2]);
+  assert.equal(Number(txn3.rows[0]!.refunded_fils), 4_000);
 });

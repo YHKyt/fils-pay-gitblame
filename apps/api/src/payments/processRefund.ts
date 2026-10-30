@@ -36,6 +36,22 @@ interface RefundTransactionRow {
   acquirer_reference: string;
 }
 
+/** Stored on a failed key when the acquirer call threw: the outcome is unknown and the reservation is still held. */
+interface UnknownOutcomeMarker {
+  error: "acquirer_unavailable";
+  acquirerOutcome: "unknown";
+  acquirerIdempotencyKey: string;
+  reservedFils: number;
+}
+
+function unknownOutcomeMarker(body: unknown): UnknownOutcomeMarker | null {
+  if (typeof body !== "object" || body === null) return null;
+  const b = body as Partial<UnknownOutcomeMarker>;
+  if (b.acquirerOutcome !== "unknown" || typeof b.acquirerIdempotencyKey !== "string") return null;
+  if (typeof b.reservedFils !== "number" || !Number.isSafeInteger(b.reservedFils) || b.reservedFils <= 0) return null;
+  return b as UnknownOutcomeMarker;
+}
+
 /** Refund business logic: validate, call the acquirer, then journal the reversal. */
 export async function processRefund(
   pool: Pool,
@@ -70,6 +86,31 @@ export async function processRefund(
       };
     }
 
+    // A retry after an acquirer call that threw (outcome unknown): the
+    // step-1 reservation is still held and the acquirer may already have
+    // refunded. Resend the SAME acquirer idempotency key for the reserved
+    // amount, so the acquirer answers with its first result instead of
+    // refunding the cardholder a second time.
+    const pending = unknownOutcomeMarker(claim.outcome === "retry_after_failure" ? claim.row.responseBody : null);
+    if (pending) {
+      const pendingTxn = await client.query<{ id: string; merchant_id: string; acquirer_reference: string }>(
+        `SELECT id, merchant_id, acquirer_reference FROM transactions WHERE id = $1 AND merchant_id = $2 FOR UPDATE`,
+        [input.transactionId, input.merchantId],
+      );
+      const row = pendingTxn.rows[0];
+      if (row) {
+        return {
+          kind: "proceed" as const,
+          claimId: claim.row.id,
+          acquirerIdempotencyKey: pending.acquirerIdempotencyKey,
+          transactionId: row.id,
+          merchantId: row.merchant_id,
+          acquirerReference: row.acquirer_reference,
+          requestedAmount: toFils(pending.reservedFils),
+        };
+      }
+    }
+
     // Scoped to the caller's merchant (another merchant's id is just "not
     // found"), and row-locked so two concurrent refunds with different
     // idempotency keys validate one after the other, never against the same
@@ -88,7 +129,6 @@ export async function processRefund(
       return { kind: "settled" as const, result: { statusCode: 404, body } };
     }
 
-    const amountAuthorized = toFils(Number(txn.amount_fils));
     const capturedFils = toFils(Number(txn.captured_fils));
     const refundedFils = toFils(Number(txn.refunded_fils));
 
@@ -126,12 +166,10 @@ export async function processRefund(
     return {
       kind: "proceed" as const,
       claimId: claim.row.id,
-      attemptCount: claim.row.attemptCount,
+      acquirerIdempotencyKey: `${claim.row.id}:${claim.row.attemptCount}`,
       transactionId: txn.id,
       merchantId: txn.merchant_id,
       acquirerReference: txn.acquirer_reference,
-      amountAuthorized,
-      capturedFils,
       requestedAmount: validation.amountFils,
     };
   });
@@ -146,22 +184,26 @@ export async function processRefund(
     acquirerResult = await acquirer.refund({
       acquirerReference: prepared.acquirerReference,
       amountFils: prepared.requestedAmount,
-      idempotencyKey: `${prepared.claimId}:${prepared.attemptCount}`,
+      idempotencyKey: prepared.acquirerIdempotencyKey,
     });
   } catch {
     // The acquirer call threw (e.g. a timeout or socket error) rather than
-    // returning an outcome. Nothing durable happened at the acquirer that we
-    // can confirm, so treat it exactly like the "error" outcome below:
-    // release the step-1 reservation and mark the key failed, so the same
-    // Idempotency-Key can be retried. Without this the reservation leaked
-    // (refunded_fils stayed inflated, shrinking what could ever be refunded)
-    // and the key stayed in_progress forever (every retry a 409).
+    // returning an outcome, so whether the cardholder was refunded is
+    // UNKNOWN: a timeout can arrive after the acquirer processed it. Keep the
+    // step-1 reservation (refunded_fils stays reserved, so no other refund
+    // can spend the same money) and mark the key failed with the acquirer
+    // key and the reserved amount: a retry with the same Idempotency-Key
+    // then resends that same acquirer key, and the acquirer deduplicates.
+    // Releasing the reservation here and retrying under a new acquirer key
+    // refunded the cardholder twice.
+    const marker: UnknownOutcomeMarker = {
+      error: "acquirer_unavailable",
+      acquirerOutcome: "unknown",
+      acquirerIdempotencyKey: prepared.acquirerIdempotencyKey,
+      reservedFils: prepared.requestedAmount,
+    };
     await withTransaction(pool, async (client) => {
-      await client.query(`UPDATE transactions SET refunded_fils = refunded_fils - $2 WHERE id = $1`, [
-        prepared.transactionId,
-        prepared.requestedAmount,
-      ]);
-      await failIdempotencyKey(client, prepared.claimId, { statusCode: 502, body: { error: "acquirer_unavailable" } });
+      await failIdempotencyKey(client, prepared.claimId, { statusCode: 502, body: marker });
     });
     return { statusCode: 502, body: { error: "acquirer_unavailable" } };
   }
