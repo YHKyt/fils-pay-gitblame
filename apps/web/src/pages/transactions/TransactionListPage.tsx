@@ -95,7 +95,7 @@ export function TransactionListPage() {
               checked={statuses.includes(status)}
               onChange={() => toggleStatus(status)}
             />
-            {status}
+            {statusLabel(status)}
           </label>
         ))}
       </fieldset>
@@ -127,7 +127,7 @@ export function TransactionListPage() {
 
       {error ? <p className="dash-error">{error}</p> : null}
 
-      <p>{pluralize(transactions.length, "transaction")} loaded</p>
+      <p className="dash-muted">Showing {pluralize(transactions.length, "transaction")}</p>
 
       <div className="dash-tablewrap"><table className="dash-table">
         <thead>

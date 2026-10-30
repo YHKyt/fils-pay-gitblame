@@ -537,12 +537,19 @@ body {
     padding: 1.4rem 1.15rem;
   }
   .checkout-amount {
-    font-size: 2.1rem;
+    font-size: 2.3rem;
   }
+  /* Keep expiry month / year / CVV on one compact row on phones rather than
+     three full-height stacked fields. */
   .checkout-form-row {
-    flex-wrap: wrap;
+    gap: 0.5rem;
   }
   .checkout-form-row label {
-    flex: 1 1 100%;
+    flex: 1 1 0;
+    min-width: 0;
+    font-size: 0.76rem;
+  }
+  .checkout-form-row input {
+    padding: 0.65rem 0.5rem;
   }
 }
