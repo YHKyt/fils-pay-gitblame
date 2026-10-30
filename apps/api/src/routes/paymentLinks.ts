@@ -12,7 +12,7 @@ import { cancelPaymentLink } from "../paymentLinks/cancel.js";
 import { getPaymentLinkForMerchant, listPaymentLinks } from "../paymentLinks/query.js";
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../lib/errors.js";
 import type { SimulatedCardInput } from "../acquirer/types.js";
-import { parseOptionalPositiveInt } from "../lib/requestParams.js";
+import { assertBhdCurrency, parseOptionalPositiveInt } from "../lib/requestParams.js";
 
 interface MerchantIdParams {
   merchantId: string;
@@ -84,6 +84,7 @@ export async function paymentLinkMerchantRoutes(app: FastifyInstance): Promise<v
       if (amountFils === undefined || !expiresAt) {
         throw new BadRequestError("invalid_request", "amountFils and expiresAt are required");
       }
+      assertBhdCurrency(request.body);
 
       const writer = requireMerchantWriterActor(request.merchantAuth!);
       const link = await createPaymentLink(app.db, app.config, {
