@@ -5,7 +5,7 @@ import { getPaymentLink, payPaymentLink } from "../../api/paymentLinks.js";
 import { ApiError } from "../../api/client.js";
 import { bahrainDateTime } from "../../format.js";
 import type { PaymentLinkPublicDto, SimulatedCardInput } from "../../types.js";
-import { isOutcomeUnknown, resolveLostPayment } from "../../utils/checkoutRecovery.js";
+import { endsCheckoutAttempt, isOutcomeUnknown, resolveLostPayment } from "../../utils/checkoutRecovery.js";
 import "./CheckoutPage.css";
 
 type LoadState =
@@ -121,8 +121,9 @@ export function CheckoutPage() {
       if (err instanceof ApiError) {
         const { statusCode, body } = err;
         // A decline or other definitive answer ends this attempt; "try
-        // again" (e.g. with another card) is a new one. 5xx keeps the key.
-        if (statusCode < 500) setIdempotencyKey(crypto.randomUUID());
+        // again" (e.g. with another card) is a new one. 5xx and an
+        // in-flight 409 keep the key.
+        if (endsCheckoutAttempt(err)) setIdempotencyKey(crypto.randomUUID());
         if (statusCode === 402) {
           const stageLabel = body.stage === "capture" ? "Your payment could not be completed." : "Your card was declined.";
           setPayState({ kind: "declined", message: stageLabel, retryable: true });

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { bahrainDateTime } from "../format.js";
 import type { PaymentLinkPublicDto, PublicPaymentLinkStatus } from "../types.js";
-import { isOutcomeUnknown, resolveLostPayment } from "./checkoutRecovery.js";
+import { endsCheckoutAttempt, isOutcomeUnknown, resolveLostPayment } from "./checkoutRecovery.js";
 
 function link(status: PublicPaymentLinkStatus): PaymentLinkPublicDto {
   return {
@@ -73,4 +73,18 @@ test("Paid at is rendered in Asia/Bahrain (UTC+3), not the viewer's zone", () =>
   // Crosses midnight in Bahrain while still the previous day in UTC.
   assert.equal(bahrainDateTime("2026-10-28T22:30:00.000Z"), "2026-10-29 01:30:00 (Bahrain time)");
   assert.equal(bahrainDateTime(null), "—");
+});
+
+// Regression: the checkout rotated its Idempotency-Key on every 4xx, so a
+// "payment in flight" 409 made the next Pay authorize the card a second
+// time under a new key, orphaning the first authorization.
+test("an in-flight 409 keeps the checkout key; a decline or a closed link ends the attempt", () => {
+  assert.equal(endsCheckoutAttempt({ statusCode: 409, code: "payment_link_processing" }), false);
+  assert.equal(endsCheckoutAttempt({ statusCode: 409, code: "request_in_progress" }), false);
+  assert.equal(endsCheckoutAttempt({ statusCode: 429, code: "rate_limited" }), false);
+  assert.equal(endsCheckoutAttempt({ statusCode: 500, code: "internal_error" }), false);
+  assert.equal(endsCheckoutAttempt(new TypeError("Failed to fetch")), false);
+  assert.equal(endsCheckoutAttempt({ statusCode: 402, code: "card_declined" }), true);
+  assert.equal(endsCheckoutAttempt({ statusCode: 409, code: "payment_link_already_paid" }), true);
+  assert.equal(endsCheckoutAttempt({ statusCode: 410, code: "payment_link_expired" }), true);
 });

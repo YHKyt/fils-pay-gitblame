@@ -36,3 +36,14 @@ regression test that fails on the old code and passes on the fix.
 - **Breaks:** The cardholder is refunded twice; the merchant's payable and the platform's clearing account are short by the first, unrecorded refund.
 - **Fix:** On a throw, keep the reservation and fail the key with a stored marker `{ acquirerOutcome: "unknown", acquirerIdempotencyKey, reservedFils }` (the client still sees `502 acquirer_unavailable`). A retry with the same Idempotency-Key that finds the marker skips re-validation and re-reservation and resends the stored acquirer key for the reserved amount; the acquirer returns its first answer. A definitive `declined` or `error` outcome on that retry releases the reservation as before. No schema change; `idempotency.ts` is untouched (the marker rides in the existing `response_body`).
 - **Test:** The 97ded12 test asserted the release and a fresh retry; it now asserts the reservation is kept, one distinct acquirer key across both calls, one executed refund and `refunded_fils` 4000 (not 8000), plus a lost-request case that still completes on retry.
+
+## FX4 Checkout changes its Idempotency-Key on an in-flight 409 — MEDIUM
+
+**Where:** `apps/web/src/pages/checkout/CheckoutPage.tsx` (key rotation in the pay error handler), new helper `endsCheckoutAttempt` in `apps/web/src/utils/checkoutRecovery.ts`.
+**Evidence:** `checkoutRecovery.test.ts` "an in-flight 409 keeps the checkout key": the old rule `statusCode < 500 => rotate` treated `409 payment_link_processing` and `409 request_in_progress` as final.
+
+- **What:** Any 4xx from pay minted a new Idempotency-Key, including the two 409s that mean "a payment for this link is still in flight", which can be this customer's own attempt.
+- **Why:** The pay endpoint's authorize key is derived from the client key. With a new key the customer's next click authorizes the card again instead of replaying the first authorization; once the first attempt finishes or its reservation lapses, one of the two authorizations is left holding the customer's funds.
+- **Breaks:** Orphan authorizations (funds held on the card for the 7-day window) and confused customers.
+- **Fix:** A small pure helper decides when an answer ends the attempt: 5xx, 429 and the two in-flight 409s keep the key; declines, `already_paid`, `canceled`, `expired` rotate it. Same rule as the dashboard's `isDefinitiveFailure`, plus the checkout's own 409 code.
+- **Test:** Unit test on the helper (fails on the old code, where the rule did not exist).
