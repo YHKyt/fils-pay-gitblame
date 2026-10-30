@@ -160,3 +160,45 @@ test("WF3: test-send refuses a deleted webhook endpoint and sends nothing", asyn
     assert.deepEqual(hits, []);
   });
 });
+
+test("WF4: webhook endpoint create/update reject a non-string url and an unknown status with 400", async () => {
+  const { merchantId, auth } = await approvedMerchant("wh-validate");
+  const arrayUrl = await app.inject({
+    method: "POST",
+    url: `/v1/merchants/${merchantId}/webhook-endpoints`,
+    headers: auth,
+    payload: { url: ["http://127.0.0.1:9/hook"] },
+  });
+  assert.equal(arrayUrl.statusCode, 400, arrayUrl.body);
+  assert.equal(arrayUrl.json().error, "invalid_url");
+  const stored = await pool.query(`SELECT url FROM webhook_endpoints WHERE merchant_id = $1`, [merchantId]);
+  assert.equal(stored.rowCount, 0);
+
+  const created = await app.inject({
+    method: "POST",
+    url: `/v1/merchants/${merchantId}/webhook-endpoints`,
+    headers: auth,
+    payload: { url: "http://127.0.0.1:9/hook" },
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  const { id } = created.json<{ id: string }>();
+
+  const badStatus = await app.inject({
+    method: "PATCH",
+    url: `/v1/merchants/${merchantId}/webhook-endpoints/${id}`,
+    headers: auth,
+    payload: { status: "paused" },
+  });
+  assert.equal(badStatus.statusCode, 400, badStatus.body);
+  assert.equal(badStatus.json().error, "invalid_request");
+
+  const badUrl = await app.inject({
+    method: "PATCH",
+    url: `/v1/merchants/${merchantId}/webhook-endpoints/${id}`,
+    headers: auth,
+    payload: { url: { href: "http://127.0.0.1:9/x" } },
+  });
+  assert.equal(badUrl.statusCode, 400, badUrl.body);
+  const after = await pool.query<{ url: string; status: string }>(`SELECT url, status FROM webhook_endpoints WHERE id = $1`, [id]);
+  assert.deepEqual(after.rows[0], { url: "http://127.0.0.1:9/hook", status: "active" });
+});
