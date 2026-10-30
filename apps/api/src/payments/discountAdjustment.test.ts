@@ -147,7 +147,7 @@ test("a payment-link capture gets the negotiated discount too", async () => {
      VALUES ($1, $2, 602, now() + interval '1 hour', 'merchant_api_key', gen_random_uuid())`,
     [merchantId, token],
   );
-  const result = await payPaymentLink(pool, approvingAcquirer, { paymentLinkReservationTimeoutSeconds: 60 }, {
+  const result = await payPaymentLink(pool, approvingAcquirer, { paymentLinkReservationTimeoutSeconds: 60, cardFingerprintKey: Buffer.alloc(32) }, {
     token,
     card: VALID_CARD,
     idempotencyKey: randomUUID(),

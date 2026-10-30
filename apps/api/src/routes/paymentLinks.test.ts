@@ -12,7 +12,7 @@ import { buildApp } from "../app.js";
 import { loadConfig } from "../config.js";
 import { issueApiKey } from "../apiKeys/issue.js";
 import { recordKycReview } from "../onboarding/review.js";
-import { authorizeTransaction } from "../payments/authorize.js";
+import { authorizeTransaction, deriveCardFingerprintKey } from "../payments/authorize.js";
 import { captureTransaction } from "../payments/capture.js";
 import { payPaymentLink } from "../paymentLinks/pay.js";
 import type { AcquirerSimulator } from "../acquirer/types.js";
@@ -41,6 +41,7 @@ const config = loadConfig({
 
 const pool = new Pool({ connectionString: databaseUrl, max: 5 });
 const app = buildApp(config, pool);
+const cardFingerprintKey = deriveCardFingerprintKey(config.webhookSecretEncryptionKey);
 
 test.after(async () => {
   await app.close();
@@ -254,7 +255,7 @@ test("a payer whose reservation was taken over does not capture: its authorizati
     capture: (req) => app.acquirer.capture(req),
     refund: (req) => app.acquirer.refund(req),
   };
-  const result = await payPaymentLink(pool, stealing, { paymentLinkReservationTimeoutSeconds: 60 }, {
+  const result = await payPaymentLink(pool, stealing, { paymentLinkReservationTimeoutSeconds: 60, cardFingerprintKey }, {
     token: link.token,
     card: APPROVED_CARD,
     idempotencyKey: randomUUID(),
@@ -374,6 +375,7 @@ test(
       reference: row.reference ?? undefined,
       idempotencyKey: authorizeKey,
       actor: { type: "system" },
+      cardFingerprintKey,
     });
     assert.equal(authRes.statusCode, 201, JSON.stringify(authRes.body));
     const txnId = (authRes.body as { id: string }).id;

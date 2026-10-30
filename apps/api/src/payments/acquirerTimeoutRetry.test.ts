@@ -89,7 +89,7 @@ test("authorize retried after an acquirer timeout authorizes the card once, not 
   const merchantId = await approvedMerchant();
   const fake = idempotentAcquirer();
   const key = randomUUID();
-  const input = { merchantId, amountFils: toFils(5_000), card: VALID_CARD, idempotencyKey: key };
+  const input = { merchantId, amountFils: toFils(5_000), card: VALID_CARD, idempotencyKey: key, cardFingerprintKey: Buffer.alloc(32) };
 
   fake.state.authorizeTimeouts = 1;
   await assert.rejects(authorizeTransaction(pool, fake.acquirer, input), /acquirer timeout/);
@@ -111,6 +111,7 @@ test("capture retried after an acquirer timeout captures once at the acquirer, n
     amountFils: toFils(5_000),
     card: VALID_CARD,
     idempotencyKey: randomUUID(),
+    cardFingerprintKey: Buffer.alloc(32),
   });
   assert.equal(auth.statusCode, 201);
   const transactionId = (auth.body as { id: string }).id;
@@ -145,7 +146,7 @@ test("a retry after a definitive acquirer error still uses a fresh acquirer key"
       throw new Error("not used");
     },
   };
-  const input = { merchantId, amountFils: toFils(1_000), card: VALID_CARD, idempotencyKey: randomUUID() };
+  const input = { merchantId, amountFils: toFils(1_000), card: VALID_CARD, idempotencyKey: randomUUID(), cardFingerprintKey: Buffer.alloc(32) };
   assert.equal((await authorizeTransaction(pool, acquirer, input)).statusCode, 502);
   assert.equal((await authorizeTransaction(pool, acquirer, input)).statusCode, 201);
   assert.equal(seen.length, 2);

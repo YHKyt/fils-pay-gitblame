@@ -60,6 +60,7 @@ test("two concurrent retries of a failed capture key capture once", async () => 
     amountFils: toFils(5_000),
     card: VALID_CARD,
     idempotencyKey: randomUUID(),
+    cardFingerprintKey: Buffer.alloc(32),
   });
   assert.equal(auth.statusCode, 201);
   const transactionId = (auth.body as { id: string }).id;

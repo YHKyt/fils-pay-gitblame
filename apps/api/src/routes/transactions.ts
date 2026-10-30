@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { requireApiKey } from "../apiKeys/verify.js";
 import { requireMerchantAuth, requireMerchantRole, requireMerchantWriterActor } from "../auth/requireMerchantAuth.js";
-import { authorizeTransaction, type AuthorizeInput } from "../payments/authorize.js";
+import { authorizeTransaction, deriveCardFingerprintKey, type AuthorizeInput } from "../payments/authorize.js";
 import { captureTransaction } from "../payments/capture.js";
 import { voidTransaction } from "../payments/void.js";
 import { openTransactionsExportStream } from "../transactions/exportCsv.js";
@@ -10,7 +10,7 @@ import { listTransactionEvents } from "../transactions/events.js";
 import { BadRequestError, NotFoundError } from "../lib/errors.js";
 import {
   parseOptionalInstant,
-  parseOptionalNonNegativeInt,
+  parseOptionalPositiveInt,
   parsePositiveAmountFils,
   requireUuidParam,
 } from "../lib/requestParams.js";
@@ -68,6 +68,8 @@ function getIdempotencyKey(request: FastifyRequest): string {
  * via `requireMerchantAuth`.
  */
 export async function transactionRoutes(app: FastifyInstance): Promise<void> {
+  const cardFingerprintKey = deriveCardFingerprintKey(app.config.webhookSecretEncryptionKey);
+
   app.post<{ Body: AuthorizeBody }>(
     "/",
     { preHandler: requireApiKey },
@@ -98,6 +100,7 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
         reference,
         idempotencyKey,
         actor: { type: "merchant_api_key", id: request.apiKeyAuth!.apiKeyId },
+        cardFingerprintKey,
       };
       const result = await authorizeTransaction(app.db, app.acquirer, input);
       reply.code(result.statusCode).send(result.body);
@@ -145,7 +148,7 @@ export async function transactionRoutes(app: FastifyInstance): Promise<void> {
     async (request) => {
       const q = request.query;
       const status = q.status === undefined ? undefined : Array.isArray(q.status) ? q.status : [q.status];
-      const limit = parseOptionalNonNegativeInt(q.limit, "limit");
+      const limit = parseOptionalPositiveInt(q.limit, "limit");
       // A repeated ?search= arrives as an array, and Postgres rejects U+0000
       // in text (that was a 500).
       if (q.search !== undefined && (typeof q.search !== "string" || q.search.includes("\u0000"))) {

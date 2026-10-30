@@ -7,6 +7,7 @@ import {
 import { createPaymentLink } from "../paymentLinks/create.js";
 import { getPublicPaymentLink } from "../paymentLinks/read.js";
 import { payPaymentLink } from "../paymentLinks/pay.js";
+import { deriveCardFingerprintKey } from "../payments/authorize.js";
 import { cancelPaymentLink } from "../paymentLinks/cancel.js";
 import { getPaymentLinkForMerchant, listPaymentLinks } from "../paymentLinks/query.js";
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../lib/errors.js";
@@ -160,6 +161,8 @@ export async function paymentLinkMerchantRoutes(app: FastifyInstance): Promise<v
  * prefix '/v1/payment-links'.
  */
 export async function paymentLinkPublicRoutes(app: FastifyInstance): Promise<void> {
+  const cardFingerprintKey = deriveCardFingerprintKey(app.config.webhookSecretEncryptionKey);
+
   app.get<{ Params: TokenParams }>("/:token", async (request) => {
     const link = await getPublicPaymentLink(
       app.db,
@@ -187,7 +190,7 @@ export async function paymentLinkPublicRoutes(app: FastifyInstance): Promise<voi
     const result = await payPaymentLink(
       app.db,
       app.acquirer,
-      { paymentLinkReservationTimeoutSeconds: app.config.paymentLinkReservationTimeoutSeconds },
+      { paymentLinkReservationTimeoutSeconds: app.config.paymentLinkReservationTimeoutSeconds, cardFingerprintKey },
       { token: request.params.token, card, idempotencyKey, submittedAt },
     );
     reply.code(result.statusCode).send(result.body);
