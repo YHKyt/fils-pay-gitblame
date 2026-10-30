@@ -202,3 +202,26 @@ test("WF4: webhook endpoint create/update reject a non-string url and an unknown
   const after = await pool.query<{ url: string; status: string }>(`SELECT url, status FROM webhook_endpoints WHERE id = $1`, [id]);
   assert.deepEqual(after.rows[0], { url: "http://127.0.0.1:9/hook", status: "active" });
 });
+
+test("WF5: a non-numeric limit on the payment-link and delivery lists uses the default page size, not a 500", async () => {
+  const { merchantId, auth } = await approvedMerchant("limit");
+  await createLink(merchantId, auth);
+  const links = await app.inject({ method: "GET", url: `/v1/merchants/${merchantId}/payment-links?limit=abc`, headers: auth });
+  assert.equal(links.statusCode, 200, links.body);
+  assert.equal(links.json<{ paymentLinks: unknown[] }>().paymentLinks.length, 1);
+
+  const created = await app.inject({
+    method: "POST",
+    url: `/v1/merchants/${merchantId}/webhook-endpoints`,
+    headers: auth,
+    payload: { url: "http://127.0.0.1:9/hook" },
+  });
+  const { id } = created.json<{ id: string }>();
+  const deliveries = await app.inject({
+    method: "GET",
+    url: `/v1/merchants/${merchantId}/webhook-endpoints/${id}/deliveries?limit=abc`,
+    headers: auth,
+  });
+  assert.equal(deliveries.statusCode, 200, deliveries.body);
+  assert.deepEqual(deliveries.json(), { deliveries: [], nextCursor: null });
+});
