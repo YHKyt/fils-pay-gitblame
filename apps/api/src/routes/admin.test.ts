@@ -541,6 +541,30 @@ test("KYC review 404s on an unknown merchant and 400s on a bad outcome", async (
   assert.equal(badOutcome.statusCode, 400);
 });
 
+test("a KYC rejection without a reason is a 400 and decides nothing", async () => {
+  const finance = await signedInAdmin("finance", "kycnoreason");
+  const { merchantId } = await createMerchant("kycnoreason");
+  for (const payload of [{ outcome: "rejected" }, { outcome: "rejected", notes: "   " }]) {
+    const res = await app.inject({
+      method: "POST",
+      url: `/v1/admin/merchants/${merchantId}/kyc-reviews`,
+      headers: { cookie: finance.cookie },
+      payload,
+    });
+    assert.equal(res.statusCode, 400, res.body);
+  }
+  const reviews = await pool.query(`SELECT 1 FROM merchant_kyc_reviews WHERE merchant_id = $1`, [merchantId]);
+  assert.equal(reviews.rowCount, 0);
+
+  const withReason = await app.inject({
+    method: "POST",
+    url: `/v1/admin/merchants/${merchantId}/kyc-reviews`,
+    headers: { cookie: finance.cookie },
+    payload: { outcome: "rejected", notes: "Commercial registration expired" },
+  });
+  assert.equal(withReason.statusCode, 200, withReason.body);
+});
+
 // ------------------------------------------------- bulk KYC approve
 
 /** One audit row for the whole batch; per-merchant merchant_kyc_reviews rows are written as well. */

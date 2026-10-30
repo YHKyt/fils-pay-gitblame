@@ -152,6 +152,11 @@ export async function adminMerchantRoutes(app: FastifyInstance): Promise<void> {
       if (outcome !== "approved" && outcome !== "rejected") {
         throw new BadRequestError("invalid_request", "outcome must be 'approved' or 'rejected'");
       }
+      // A rejection tells the merchant why and is the audit trail's only
+      // record of it, so it needs a reason (the console already requires one).
+      if (outcome === "rejected" && (typeof notes !== "string" || notes.trim() === "")) {
+        throw new BadRequestError("invalid_request", "a rejection needs a reason in notes");
+      }
       if (!(await merchantExists(app.db, request.params.id))) {
         throw new NotFoundError("merchant_not_found");
       }
