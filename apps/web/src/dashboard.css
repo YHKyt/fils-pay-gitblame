@@ -1,25 +1,28 @@
 /* One shared stylesheet for the whole /dashboard/* subtree.
 
-   Every selector is namespaced `dash-*` or scoped under `.dash-shell` /
-   `.dash-centered`. Nothing here styles a bare element at the top level,
+   Every selector is namespaced `dash-*` / `fp-*` or scoped under `.dash-shell`
+   / `.dash-centered`. Nothing here styles a bare element at the top level,
    because Vite bundles all imported CSS into one stylesheet for the whole
    app — a global bare-element rule would reach the /pay/:token checkout page
    too, which has its own look (CheckoutPage.css) and must keep it. Bare
    elements (h1, table, p …) are therefore only ever styled when nested inside
    a dashboard container class.
 
-   Colours, type, radius and shadow come from tokens.css (the shared brand
-   system), so the dashboard and the checkout page read one palette. */
+   Colours, type, radius, shadow, motion and gradient come from tokens.css
+   (the shared brand system), so the dashboard and the checkout page read one
+   palette and one set of animations. */
 
 /* am: dont add bare element selectors at top level here, they leak into checkout */
 .dash-shell {
   min-height: 100vh;
   font-family: var(--fp-font);
   font-size: 15px;
-  line-height: 1.5;
+  line-height: 1.55;
   color: var(--fp-text);
   background: var(--fp-bg);
+  background-image: radial-gradient(120% 60% at 50% -10%, var(--fp-bg-2) 0%, var(--fp-bg) 55%);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 /* ---- Top bar -------------------------------------------------------- */
@@ -29,12 +32,35 @@
   align-items: center;
   gap: 1rem 1.5rem;
   padding: 0.7rem 1.5rem;
-  background: linear-gradient(180deg, var(--fp-ink-700) 0%, var(--fp-ink) 100%);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.25);
-  box-shadow: var(--fp-shadow);
   position: sticky;
   top: 0;
   z-index: 20;
+  color: #fff;
+  background: var(--fp-gradient-ink);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: var(--fp-shadow);
+  isolation: isolate;
+}
+/* Aurora + grain wash over the ink chrome — the FilsPay signature glow. */
+.dash-header::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--fp-aurora);
+  opacity: 0.9;
+  pointer-events: none;
+}
+.dash-header::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: var(--fp-grain);
+  background-size: 160px 160px;
+  opacity: 0.04;
+  mix-blend-mode: overlay;
+  pointer-events: none;
 }
 
 .dash-brand {
@@ -54,44 +80,83 @@
 .fp-logo-mark {
   display: block;
   flex: none;
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+  filter: drop-shadow(0 2px 6px rgba(var(--fp-accent-rgb), 0.45));
+  transition: transform var(--fp-dur) var(--fp-ease-spring);
+}
+.fp-logo:hover .fp-logo-mark {
+  transform: rotate(-6deg) scale(1.06);
+}
+/* The coin disc sweeps a slow highlight; the whole mark lifts on hover. */
+.fp-logo-mark .fp-logo-shine {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .fp-logo-mark .fp-logo-shine {
+    animation: fp-logo-shine 5.5s var(--fp-ease) infinite;
+  }
+  @keyframes fp-logo-shine {
+    0%,
+    100% {
+      transform: translate(-1px, -1px) scale(0.8);
+      opacity: 0.18;
+    }
+    45% {
+      transform: translate(7px, 7px) scale(1.15);
+      opacity: 0.4;
+    }
+  }
 }
 .fp-logo-word {
   font-weight: 700;
-  font-size: 1.1rem;
-  letter-spacing: -0.01em;
+  font-size: 1.12rem;
+  letter-spacing: var(--fp-tracking-tight);
 }
 .fp-logo-word-accent {
+  background: var(--fp-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
   color: var(--fp-accent);
 }
 
 .dash-nav {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem;
+  gap: 0.2rem;
 }
 
 .dash-nav a {
+  position: relative;
   color: rgba(255, 255, 255, 0.78);
   text-decoration: none;
   font-weight: 500;
   font-size: 0.92rem;
-  padding: 0.35rem 0.7rem;
+  padding: 0.4rem 0.75rem;
   border-radius: var(--fp-radius-sm);
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--fp-dur-fast) var(--fp-ease),
+    color var(--fp-dur-fast) var(--fp-ease);
 }
-
 .dash-nav a:hover {
   color: #fff;
   background: rgba(255, 255, 255, 0.08);
 }
-
+/* Active pill with a sliding gradient underline that grows from the centre. */
 .dash-nav a.active {
   font-weight: 600;
   color: #fff;
-  background: rgba(15, 181, 166, 0.22);
-  box-shadow: inset 0 -2px 0 var(--fp-accent);
-  text-decoration: none;
+  background: rgba(var(--fp-accent-rgb), 0.16);
+}
+.dash-nav a.active::after {
+  content: "";
+  position: absolute;
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: 0.1rem;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--fp-gradient);
+  animation: dash-underline var(--fp-dur) var(--fp-ease);
 }
 
 .dash-identity {
@@ -104,48 +169,97 @@
 }
 
 .dash-role-chip {
-  padding: 0.08rem 0.45rem;
-  border: 1px solid rgba(255, 255, 255, 0.35);
+  padding: 0.1rem 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 999px;
   font-size: 0.72rem;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--fp-tracking-wide);
   color: #fff;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .dash-identity .dash-muted {
   color: rgba(255, 255, 255, 0.6);
 }
 
-/* The log-out button sits on the dark bar — override the default surface. */
+/* Buttons sitting on the dark bar — override the default light surface. */
 .dash-header .dash-button {
   background: rgba(255, 255, 255, 0.1);
   color: #fff;
-  border-color: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(6px);
 }
 .dash-header .dash-button:hover {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+/* ---- Theme toggle --------------------------------------------------- */
+.fp-theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  padding: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  transition: background var(--fp-dur-fast) var(--fp-ease),
+    transform var(--fp-dur) var(--fp-ease-spring);
+}
+.fp-theme-toggle:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+.fp-theme-toggle:active {
+  transform: scale(0.92);
+}
+.fp-theme-toggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.5);
+}
+.fp-theme-toggle svg {
+  display: block;
+}
+/* On the light checkout header the toggle reads as ink, not white. */
+.checkout-header .fp-theme-toggle {
+  color: var(--fp-muted);
+  background: var(--fp-surface-2);
+  border-color: var(--fp-border-strong);
+}
+.checkout-header .fp-theme-toggle:hover {
+  background: var(--fp-accent-soft);
+  color: var(--fp-accent-hover);
 }
 
 /* ---- Main layout & typography -------------------------------------- */
 .dash-main {
-  max-width: 76rem;
+  max-width: 78rem;
   margin: 0 auto;
-  padding: 1.75rem 1.5rem;
+  padding: 2rem 1.5rem;
+}
+/* Each page fades and lifts in on mount (see reduced-motion reset below). */
+.dash-main > section {
+  animation: dash-section-in var(--fp-dur-slow) var(--fp-ease) both;
 }
 
 .dash-shell h1,
 .dash-centered h1 {
-  font-size: 1.5rem;
+  font-size: 1.9rem;
   font-weight: 700;
-  letter-spacing: -0.015em;
-  margin: 0 0 1rem;
+  letter-spacing: var(--fp-tracking-tighter);
+  margin: 0 0 1.1rem;
   color: var(--fp-heading);
+  line-height: 1.15;
 }
 .dash-shell h2 {
-  font-size: 1.1rem;
+  font-size: 1.15rem;
   font-weight: 650;
-  margin: 1.75rem 0 0.6rem;
+  letter-spacing: var(--fp-tracking-tight);
+  margin: 2rem 0 0.7rem;
   color: var(--fp-heading);
   display: flex;
   flex-wrap: wrap;
@@ -174,15 +288,26 @@ footer.dash-main {
 
 /* The login / centered card. */
 .dash-centered {
-  max-width: 26rem;
+  max-width: 27rem;
   margin: 3.5rem auto;
-  padding: 2rem;
+  padding: 2.25rem;
   font-family: var(--fp-font);
   color: var(--fp-text);
   background: var(--fp-surface);
   border: 1px solid var(--fp-border);
-  border-radius: var(--fp-radius-lg);
+  border-radius: var(--fp-radius-xl);
   box-shadow: var(--fp-shadow-lg);
+  position: relative;
+  overflow: hidden;
+  animation: dash-section-in var(--fp-dur-slow) var(--fp-ease) both;
+}
+/* A slim brand gradient keyline across the top of the login card. */
+.dash-centered::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: var(--fp-gradient);
 }
 .dash-centered h1 {
   margin-bottom: 0.25rem;
@@ -225,13 +350,14 @@ footer.dash-main {
 
 .dash-form input,
 .dash-form select {
-  padding: 0.5rem 0.6rem;
+  padding: 0.55rem 0.65rem;
   font: inherit;
   color: var(--fp-text);
   background: var(--fp-surface);
   border: 1px solid var(--fp-border-strong);
   border-radius: var(--fp-radius-sm);
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  transition: border-color var(--fp-dur-fast) var(--fp-ease),
+    box-shadow var(--fp-dur-fast) var(--fp-ease);
 }
 .dash-form input:focus,
 .dash-form select:focus,
@@ -249,7 +375,7 @@ footer.dash-main {
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  padding: 0.5rem 0.9rem;
+  padding: 0.55rem 0.95rem;
   font: inherit;
   font-weight: 600;
   font-size: 0.9rem;
@@ -260,16 +386,22 @@ footer.dash-main {
   background: var(--fp-surface);
   color: var(--fp-text);
   text-decoration: none;
-  transition: background 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease,
-    transform 0.02s ease;
+  transition: background var(--fp-dur-fast) var(--fp-ease),
+    border-color var(--fp-dur-fast) var(--fp-ease),
+    box-shadow var(--fp-dur) var(--fp-ease),
+    transform var(--fp-dur) var(--fp-ease);
 }
 .dash-button:hover,
 .dash-button-link:hover {
   background: var(--fp-surface-2);
   border-color: var(--fp-accent);
+  transform: translateY(-1px);
+  box-shadow: var(--fp-shadow);
 }
-.dash-button:active {
-  transform: translateY(1px);
+.dash-button:active,
+.dash-button-link:active {
+  transform: translateY(0) scale(0.98);
+  box-shadow: var(--fp-shadow-sm);
 }
 .dash-button:focus-visible,
 .dash-button-link:focus-visible {
@@ -279,24 +411,28 @@ footer.dash-main {
 .dash-button:disabled {
   cursor: default;
   opacity: 0.55;
+  transform: none;
+  box-shadow: none;
 }
 
-/* Filled accent CTA — "New payment link", "New endpoint", and primary
-   submit buttons that opt in with .dash-button-primary. */
+/* Filled accent CTA — gradient fill, a glow lift on hover. */
 .dash-button-link,
 .dash-button-primary {
-  background: var(--fp-accent);
-  border-color: var(--fp-accent);
+  background: var(--fp-gradient);
+  border-color: transparent;
   color: #fff;
+  box-shadow: 0 2px 8px rgba(var(--fp-accent-rgb), 0.28);
 }
 .dash-button-link:hover,
 .dash-button-primary:hover {
-  background: var(--fp-accent-hover);
-  border-color: var(--fp-accent-hover);
+  background: var(--fp-gradient);
+  border-color: transparent;
+  filter: brightness(1.05);
+  box-shadow: var(--fp-shadow-glow);
 }
 .dash-button-primary:disabled {
-  background: var(--fp-accent);
-  border-color: var(--fp-accent);
+  background: var(--fp-gradient);
+  border-color: transparent;
 }
 
 /* Destructive actions (void, refund, cancel, delete). */
@@ -304,10 +440,12 @@ footer.dash-main {
   color: var(--fp-danger);
   border-color: var(--fp-danger-bd);
   background: var(--fp-surface);
+  box-shadow: none;
 }
 .dash-button-danger:hover {
   background: var(--fp-danger-bg);
   border-color: var(--fp-danger);
+  box-shadow: var(--fp-shadow-sm);
 }
 
 /* ---- Filter bars --------------------------------------------------- */
@@ -320,14 +458,14 @@ footer.dash-main {
   background: var(--fp-surface);
   border-radius: var(--fp-radius);
   box-shadow: var(--fp-shadow-sm);
-  padding: 0.8rem 1.1rem;
+  padding: 0.85rem 1.1rem;
   margin: 1rem 0;
 }
 .dash-filters legend {
   font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--fp-tracking-wide);
   color: var(--fp-muted);
   padding: 0 0.3rem;
 }
@@ -340,12 +478,14 @@ footer.dash-main {
 .dash-filters input[type="date"],
 .dash-filters input[type="search"],
 .dash-filters input[type="number"] {
-  padding: 0.4rem 0.5rem;
+  padding: 0.45rem 0.55rem;
   font: inherit;
   color: var(--fp-text);
   background: var(--fp-surface);
   border: 1px solid var(--fp-border-strong);
   border-radius: var(--fp-radius-sm);
+  transition: border-color var(--fp-dur-fast) var(--fp-ease),
+    box-shadow var(--fp-dur-fast) var(--fp-ease);
 }
 .dash-filters input[type="search"] {
   min-width: 18rem;
@@ -372,7 +512,7 @@ footer.dash-main {
 
 .dash-table th,
 .dash-table td {
-  padding: 0.6rem 0.8rem;
+  padding: 0.7rem 0.9rem;
   text-align: left;
   vertical-align: top;
   border-bottom: 1px solid var(--fp-border);
@@ -382,20 +522,26 @@ footer.dash-main {
   font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: var(--fp-tracking-wide);
   color: var(--fp-muted);
   border-bottom: 1px solid var(--fp-border-strong);
   position: sticky;
   top: 0;
+  z-index: 1;
 }
 .dash-table tbody tr:last-child td {
   border-bottom: none;
 }
+.dash-table tbody tr {
+  transition: background var(--fp-dur-fast) var(--fp-ease),
+    box-shadow var(--fp-dur-fast) var(--fp-ease);
+}
 .dash-table tbody tr:nth-child(even) {
-  background: var(--fp-surface-2);
+  background: color-mix(in srgb, var(--fp-surface-2) 60%, transparent);
 }
 .dash-table tbody tr:hover {
   background: var(--fp-accent-soft);
+  box-shadow: inset 3px 0 0 var(--fp-accent);
 }
 .dash-table a {
   color: var(--fp-accent-hover);
@@ -427,17 +573,17 @@ footer.dash-main {
   border: 1px solid var(--fp-border);
   border-radius: var(--fp-radius);
   box-shadow: var(--fp-shadow-sm);
-  padding: 1rem 1.2rem;
+  padding: 1.1rem 1.3rem;
 }
 .dash-dl dt {
   font-weight: 600;
   color: var(--fp-muted);
-  padding: 0.3rem 0;
+  padding: 0.35rem 0;
   font-size: 0.9rem;
 }
 .dash-dl dd {
   margin: 0;
-  padding: 0.3rem 0;
+  padding: 0.35rem 0;
 }
 
 .dash-muted {
@@ -452,7 +598,7 @@ footer.dash-main {
 
 /* ---- Messages ------------------------------------------------------ */
 .dash-error {
-  padding: 0.7rem 0.9rem;
+  padding: 0.75rem 0.95rem;
   border: 1px solid var(--fp-danger-bd);
   border-left: 4px solid var(--fp-danger);
   background: var(--fp-danger-bg);
@@ -463,7 +609,7 @@ footer.dash-main {
 }
 
 .dash-notice {
-  padding: 0.7rem 0.9rem;
+  padding: 0.75rem 0.95rem;
   border: 1px solid var(--fp-success-bd);
   border-left: 4px solid var(--fp-success);
   background: var(--fp-success-bg);
@@ -544,10 +690,39 @@ footer.dash-main {
   }
 }
 
+/* ---- Skeleton loaders (shimmer) ------------------------------------ */
+.dash-skeleton {
+  display: block;
+  height: 0.85rem;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--fp-surface-2) 0%,
+    color-mix(in srgb, var(--fp-border) 70%, var(--fp-surface-2)) 40%,
+    var(--fp-surface-2) 80%
+  );
+  background-size: 300% 100%;
+  animation: dash-shimmer 1.3s ease-in-out infinite;
+}
+.dash-skeleton-card {
+  height: 7.5rem;
+  border-radius: var(--fp-radius-lg);
+}
+@keyframes dash-shimmer {
+  0% {
+    background-position: 150% 0;
+  }
+  100% {
+    background-position: -150% 0;
+  }
+}
+
 /* ---- Status pills --------------------------------------------------- */
 .dash-status {
-  display: inline-block;
-  padding: 0.12rem 0.55rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.14rem 0.6rem 0.14rem 0.5rem;
   border-radius: 999px;
   font-size: 0.76rem;
   font-weight: 650;
@@ -555,6 +730,14 @@ footer.dash-main {
   text-transform: capitalize;
   border: 1px solid transparent;
   white-space: nowrap;
+}
+.dash-status::before {
+  content: "";
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
 }
 
 .dash-status-captured,
@@ -600,7 +783,7 @@ footer.dash-main {
 /* ---- Badges (staleness / reconciliation) --------------------------- */
 .dash-badge {
   display: inline-block;
-  padding: 0.14rem 0.55rem;
+  padding: 0.16rem 0.6rem;
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 600;
@@ -627,18 +810,141 @@ footer.dash-main {
   color: var(--fp-danger);
 }
 
-/* ---- Overview volume bars ------------------------------------------ */
+/* ---- Overview: stat cards ------------------------------------------ */
+.dash-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 1rem;
+  margin: 1.25rem 0 0.5rem;
+}
+.dash-stat {
+  position: relative;
+  overflow: hidden;
+  padding: 1.1rem 1.2rem 1.2rem;
+  background: var(--fp-surface);
+  border: 1px solid var(--fp-border);
+  border-radius: var(--fp-radius-lg);
+  box-shadow: var(--fp-shadow-sm);
+  transition: transform var(--fp-dur) var(--fp-ease),
+    box-shadow var(--fp-dur) var(--fp-ease);
+}
+.dash-stat:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--fp-shadow);
+}
+/* A faint corner glow tinted by the card's accent. */
+.dash-stat::after {
+  content: "";
+  position: absolute;
+  top: -40%;
+  right: -20%;
+  width: 60%;
+  height: 120%;
+  background: radial-gradient(closest-side, rgba(var(--fp-accent-rgb), 0.16), transparent);
+  pointer-events: none;
+}
+.dash-stat-label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--fp-tracking-wide);
+  color: var(--fp-muted);
+  margin: 0 0 0.45rem;
+}
+.dash-stat-value {
+  display: block;
+  font-family: var(--fp-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: var(--fp-tracking-tight);
+  color: var(--fp-heading);
+  line-height: 1.1;
+}
+.dash-stat-unit {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--fp-muted);
+  margin-left: 0.25rem;
+}
+.dash-stat-sub {
+  display: block;
+  margin-top: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--fp-muted);
+}
+.dash-stat-spark {
+  display: block;
+  width: 100%;
+  height: 2.2rem;
+  margin-top: 0.7rem;
+  overflow: visible;
+}
+.dash-spark-line {
+  fill: none;
+  stroke: var(--fp-accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.dash-spark-area {
+  stroke: none;
+}
+
+/* ---- Overview: volume chart ---------------------------------------- */
+.dash-chart-card {
+  padding: 1.25rem 1.3rem 1rem;
+  background: var(--fp-surface);
+  border: 1px solid var(--fp-border);
+  border-radius: var(--fp-radius-lg);
+  box-shadow: var(--fp-shadow-sm);
+  margin: 0.5rem 0 1rem;
+}
+.dash-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.dash-chart-grid {
+  stroke: var(--fp-border);
+  stroke-width: 1;
+}
+.dash-chart-area {
+  stroke: none;
+}
+.dash-chart-line {
+  fill: none;
+  stroke: var(--fp-accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.dash-chart-axis {
+  fill: var(--fp-faint);
+  font-size: 10px;
+  font-family: var(--fp-font);
+}
+.dash-chart-empty {
+  padding: 2rem 0;
+  text-align: center;
+  color: var(--fp-muted);
+}
+
+/* ---- Overview volume bars (table cell) ----------------------------- */
 .dash-bar-cell {
   width: 12rem;
   vertical-align: middle;
 }
-
 .dash-bar {
   display: block;
   height: 0.6rem;
   min-width: 2px;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--fp-accent) 0%, var(--fp-accent-hover) 100%);
+  background: var(--fp-gradient);
+  transform-origin: left center;
+  animation: dash-bar-grow var(--fp-dur-slow) var(--fp-ease) both;
 }
 
 /* Settlement progress bar (markup carries inline width from the component). */
@@ -648,12 +954,161 @@ footer.dash-main {
   margin: 0.25rem 0 1rem;
 }
 
+/* ---- Empty state --------------------------------------------------- */
+.dash-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.5rem;
+  padding: 2.5rem 1rem;
+  color: var(--fp-muted);
+}
+.dash-empty-icon {
+  color: var(--fp-faint);
+  opacity: 0.8;
+}
+
 /* ---- Impersonation banner — must be impossible to miss. ------------- */
 .dash-impersonation-banner {
   padding: 0.75rem 1.5rem;
   background: var(--fp-danger);
   color: #fff;
   border-bottom: 4px solid var(--fp-warning);
+}
+
+/* ---- Keyframes ------------------------------------------------------ */
+@keyframes dash-section-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes dash-underline {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes dash-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes dash-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes dash-bar-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* ---- Motion: entrances only when the viewer allows it -------------- */
+@media (prefers-reduced-motion: no-preference) {
+  .dash-stats .dash-stat {
+    animation: dash-card-in var(--fp-dur-slow) var(--fp-ease) both;
+  }
+  .dash-stats .dash-stat:nth-child(1) {
+    animation-delay: 0.04s;
+  }
+  .dash-stats .dash-stat:nth-child(2) {
+    animation-delay: 0.1s;
+  }
+  .dash-stats .dash-stat:nth-child(3) {
+    animation-delay: 0.16s;
+  }
+  .dash-stats .dash-stat:nth-child(4) {
+    animation-delay: 0.22s;
+  }
+
+  /* Staggered row reveal, capped so later rows don't delay noticeably. */
+  .dash-table tbody tr {
+    animation: dash-row-in 0.4s var(--fp-ease) both;
+  }
+  .dash-table tbody tr:nth-child(1) {
+    animation-delay: 0.02s;
+  }
+  .dash-table tbody tr:nth-child(2) {
+    animation-delay: 0.05s;
+  }
+  .dash-table tbody tr:nth-child(3) {
+    animation-delay: 0.08s;
+  }
+  .dash-table tbody tr:nth-child(4) {
+    animation-delay: 0.11s;
+  }
+  .dash-table tbody tr:nth-child(5) {
+    animation-delay: 0.14s;
+  }
+  .dash-table tbody tr:nth-child(6) {
+    animation-delay: 0.17s;
+  }
+  .dash-table tbody tr:nth-child(n + 7) {
+    animation-delay: 0.2s;
+  }
+
+  /* The volume chart line draws itself in (JS seeds the dash length). */
+  .dash-chart-line.dash-draw,
+  .dash-spark-line.dash-draw {
+    stroke-dasharray: var(--dash-len);
+    stroke-dashoffset: var(--dash-len);
+    animation: dash-draw 1.1s var(--fp-ease) 0.1s forwards;
+  }
+  @keyframes dash-draw {
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+}
+
+/* Reduced motion: no entrance transforms, everything at its final state. */
+@media (prefers-reduced-motion: reduce) {
+  .dash-main > section,
+  .dash-centered,
+  .dash-bar {
+    animation: none !important;
+  }
+  .dash-bar {
+    transform: none;
+  }
+}
+
+/* Smooth palette change when the viewer flips the theme toggle. */
+@media (prefers-reduced-motion: no-preference) {
+  .dash-shell,
+  .dash-shell .dash-stat,
+  .dash-shell .dash-table,
+  .dash-shell .dash-dl,
+  .dash-shell .dash-filters,
+  .dash-centered,
+  .checkout-root,
+  .checkout-card {
+    transition: background-color var(--fp-dur) var(--fp-ease),
+      border-color var(--fp-dur) var(--fp-ease),
+      color var(--fp-dur) var(--fp-ease);
+  }
 }
 
 /* ---- Responsive ---------------------------------------------------- */
@@ -668,6 +1123,10 @@ footer.dash-main {
   }
   .dash-main {
     padding: 1.25rem 1rem;
+  }
+  .dash-shell h1,
+  .dash-centered h1 {
+    font-size: 1.55rem;
   }
   .dash-dl {
     grid-template-columns: 1fr;

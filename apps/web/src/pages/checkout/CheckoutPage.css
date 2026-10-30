@@ -10,21 +10,46 @@ body {
 }
 
 .checkout-root {
+  position: relative;
   min-height: 100vh;
   background: var(--fp-bg);
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 2.5rem 1rem;
+  padding: 3rem 1rem;
   box-sizing: border-box;
   font-family: var(--fp-font);
   color: var(--fp-text);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+/* Signature aurora wash + a whisper of grain behind the card. The customer's
+   first impression — branded, calm, unmistakably FilsPay. */
+.checkout-root::before {
+  content: "";
+  position: absolute;
+  inset: -20% -10% auto -10%;
+  height: 70%;
+  background: var(--fp-aurora);
+  opacity: 0.9;
+  pointer-events: none;
+}
+.checkout-root::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: var(--fp-grain);
+  background-size: 160px 160px;
+  opacity: 0.03;
+  pointer-events: none;
 }
 
 .checkout-page {
+  position: relative;
   width: 100%;
   max-width: 440px;
+  animation: checkout-rise var(--fp-dur-slow) var(--fp-ease) both;
 }
 
 .checkout-page *,
@@ -38,8 +63,14 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 0.9rem;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
   padding: 0 0.2rem;
+}
+.checkout-header-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
 }
 
 .checkout-secure {
@@ -53,27 +84,36 @@ body {
 
 /* ---- Card ------------------------------------------------------------ */
 .checkout-card {
+  position: relative;
   background: var(--fp-surface);
   border: 1px solid var(--fp-border);
-  border-radius: var(--fp-radius-lg);
+  border-radius: var(--fp-radius-xl);
   box-shadow: var(--fp-shadow-lg);
-  padding: 1.6rem 1.5rem;
-  border-top: 4px solid var(--fp-accent);
+  padding: 1.75rem 1.6rem;
+  overflow: hidden;
 }
-.checkout-tone-success .checkout-card {
-  border-top-color: var(--fp-success);
+/* The brand gradient keyline across the top of the card, tinted per state. */
+.checkout-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: var(--fp-gradient);
 }
-.checkout-tone-error .checkout-card {
-  border-top-color: var(--fp-danger);
+.checkout-tone-success .checkout-card::before {
+  background: linear-gradient(90deg, var(--fp-success), var(--fp-accent-2));
 }
-.checkout-tone-info .checkout-card {
-  border-top-color: var(--fp-info);
+.checkout-tone-error .checkout-card::before {
+  background: var(--fp-danger);
+}
+.checkout-tone-info .checkout-card::before {
+  background: linear-gradient(90deg, var(--fp-info), var(--fp-accent));
 }
 
 .checkout-card h1 {
-  font-size: 1.3rem;
+  font-size: 1.4rem;
   font-weight: 700;
-  letter-spacing: -0.015em;
+  letter-spacing: var(--fp-tracking-tight);
   margin: 0 0 0.5rem;
   color: var(--fp-heading);
 }
@@ -85,29 +125,32 @@ body {
 
 /* ---- Amount summary -------------------------------------------------- */
 .checkout-summary {
-  padding-bottom: 1.1rem;
-  margin-bottom: 1.1rem;
+  padding-bottom: 1.2rem;
+  margin-bottom: 1.2rem;
   border-bottom: 1px solid var(--fp-border);
 }
 .checkout-merchant {
   font-size: 0.92rem;
   font-weight: 600;
   color: var(--fp-muted);
-  margin: 0 0 0.25rem;
+  margin: 0 0 0.3rem;
 }
+/* The hero: a big, tight-tracked amount that reveals on mount. */
 .checkout-amount {
-  font-size: 2.1rem;
-  font-weight: 750;
-  letter-spacing: -0.02em;
+  font-size: 2.6rem;
+  font-weight: 700;
+  letter-spacing: var(--fp-tracking-tighter);
   color: var(--fp-heading);
   font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
   margin: 0;
+  line-height: 1.05;
 }
 .checkout-description,
 .checkout-reference {
   color: var(--fp-muted);
   font-size: 0.9rem;
-  margin: 0.3rem 0 0;
+  margin: 0.4rem 0 0;
 }
 
 .checkout-error {
@@ -115,7 +158,7 @@ body {
   background: var(--fp-danger-bg);
   border: 1px solid var(--fp-danger-bd);
   border-radius: var(--fp-radius-sm);
-  padding: 0.6rem 0.75rem;
+  padding: 0.65rem 0.8rem;
   margin: 0 0 1rem;
   font-size: 0.9rem;
   font-weight: 500;
@@ -125,7 +168,7 @@ body {
 .checkout-form {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 0.9rem;
 }
 
 .checkout-form label {
@@ -138,7 +181,7 @@ body {
 }
 
 .checkout-form input {
-  padding: 0.65rem 0.7rem;
+  padding: 0.7rem 0.75rem;
   font-size: 1rem;
   font-family: var(--fp-mono);
   letter-spacing: 0.02em;
@@ -146,7 +189,8 @@ body {
   background: var(--fp-surface);
   border: 1px solid var(--fp-border-strong);
   border-radius: var(--fp-radius-sm);
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  transition: border-color var(--fp-dur-fast) var(--fp-ease),
+    box-shadow var(--fp-dur-fast) var(--fp-ease);
 }
 .checkout-form input:focus {
   outline: none;
@@ -163,19 +207,27 @@ body {
 }
 
 .checkout-form button {
-  margin-top: 0.4rem;
-  padding: 0.8rem;
+  margin-top: 0.5rem;
+  padding: 0.85rem;
   font-size: 1rem;
   font-weight: 700;
+  letter-spacing: 0.01em;
   color: #fff;
-  background: var(--fp-accent);
-  border: 1px solid var(--fp-accent);
+  background: var(--fp-gradient);
+  border: 1px solid transparent;
   border-radius: var(--fp-radius-sm);
   cursor: pointer;
-  transition: background 0.12s ease;
+  box-shadow: 0 4px 14px rgba(var(--fp-accent-rgb), 0.3);
+  transition: transform var(--fp-dur) var(--fp-ease),
+    box-shadow var(--fp-dur) var(--fp-ease), filter var(--fp-dur-fast) var(--fp-ease);
 }
 .checkout-form button:hover:not(:disabled) {
-  background: var(--fp-accent-hover);
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+  box-shadow: var(--fp-shadow-glow);
+}
+.checkout-form button:active:not(:disabled) {
+  transform: translateY(0) scale(0.99);
 }
 .checkout-form button:focus-visible {
   outline: none;
@@ -184,6 +236,7 @@ body {
 .checkout-form button:disabled {
   cursor: not-allowed;
   opacity: 0.65;
+  box-shadow: none;
 }
 
 /* YA: cosmetic only, never sent to the server */
@@ -196,8 +249,8 @@ body {
 }
 
 .checkout-help {
-  margin-top: 1.2rem;
-  padding-top: 0.9rem;
+  margin-top: 1.3rem;
+  padding-top: 0.95rem;
   border-top: 1px solid var(--fp-border);
   font-size: 0.74rem;
   line-height: 1.5;
@@ -217,12 +270,12 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 3rem;
-  height: 3rem;
+  width: 3.4rem;
+  height: 3.4rem;
   border-radius: 50%;
-  font-size: 1.5rem;
+  font-size: 1.6rem;
   font-weight: 700;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.85rem;
 }
 .checkout-result-icon-success {
   color: var(--fp-success);
@@ -230,12 +283,38 @@ body {
   border: 1px solid var(--fp-success-bd);
 }
 
+/* Animated success check: a ring that pops, a tick that draws, a pulse halo. */
+.checkout-check {
+  position: relative;
+  display: block;
+  width: 4.25rem;
+  height: 4.25rem;
+  margin: 0.25rem auto 0.95rem;
+}
+.checkout-check-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.checkout-check-ring {
+  fill: var(--fp-success-bg);
+  stroke: var(--fp-success);
+  stroke-width: 3;
+}
+.checkout-check-tick {
+  fill: none;
+  stroke: var(--fp-success);
+  stroke-width: 4.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .checkout-receipt {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 0.4rem 1rem;
-  margin: 1.1rem 0 0;
-  padding-top: 1.1rem;
+  gap: 0.5rem 1rem;
+  margin: 1.2rem 0 0;
+  padding-top: 1.2rem;
   border-top: 1px solid var(--fp-border);
   font-size: 0.9rem;
 }
@@ -286,7 +365,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 0.35rem;
-  margin-top: 1rem;
+  margin-top: 1.1rem;
   color: var(--fp-faint);
   font-size: 0.78rem;
 }
@@ -295,16 +374,98 @@ body {
   font-weight: 700;
 }
 
+/* ---- Motion ---------------------------------------------------------- */
+@media (prefers-reduced-motion: no-preference) {
+  .checkout-amount {
+    animation: checkout-amount-in 0.55s var(--fp-ease-spring) both;
+  }
+  .checkout-summary .checkout-merchant {
+    animation: checkout-rise 0.45s var(--fp-ease) both;
+  }
+  .checkout-check-ring {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: checkout-ring-pop 0.45s var(--fp-ease-spring) both;
+  }
+  .checkout-check-tick {
+    stroke-dasharray: 48;
+    stroke-dashoffset: 48;
+    animation: checkout-tick-draw 0.4s var(--fp-ease) 0.3s forwards;
+  }
+  .checkout-check-pulse {
+    fill: none;
+    stroke: var(--fp-success);
+    stroke-width: 2;
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: checkout-pulse 1.1s var(--fp-ease) 0.4s 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .checkout-page {
+    animation: none;
+  }
+  .checkout-check-pulse {
+    display: none;
+  }
+}
+
+@keyframes checkout-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes checkout-amount-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes checkout-ring-pop {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@keyframes checkout-tick-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes checkout-pulse {
+  from {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  to {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
+
 /* ---- Responsive ------------------------------------------------------ */
 @media (max-width: 480px) {
   .checkout-root {
-    padding: 1.25rem 0.85rem;
+    padding: 1.5rem 0.85rem;
   }
   .checkout-card {
-    padding: 1.3rem 1.1rem;
+    padding: 1.4rem 1.15rem;
   }
   .checkout-amount {
-    font-size: 1.8rem;
+    font-size: 2.1rem;
   }
   .checkout-form-row {
     flex-wrap: wrap;

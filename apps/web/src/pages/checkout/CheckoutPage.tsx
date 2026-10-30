@@ -7,6 +7,7 @@ import { bahrainDateTime } from "../../format.js";
 import type { PaymentLinkPublicDto, SimulatedCardInput } from "../../types.js";
 import { endsCheckoutAttempt, isOutcomeUnknown, resolveLostPayment } from "../../utils/checkoutRecovery.js";
 import { Logo } from "../../components/Logo.js";
+import { ThemeToggle } from "../../components/ThemeToggle.js";
 import "./CheckoutPage.css";
 
 /** A small inline lock glyph — a trust cue for the hosted payment page. No
@@ -30,6 +31,21 @@ function LockIcon({ size = 13 }: { size?: number }) {
   );
 }
 
+/** A satisfying success mark: a ring that pops, a tick that draws itself, and
+ *  a single pulse halo. Pure SVG + CSS (see CheckoutPage.css); reduced-motion
+ *  viewers get the final static mark. */
+function SuccessCheck() {
+  return (
+    <span className="checkout-check" aria-hidden="true">
+      <svg className="checkout-check-svg" viewBox="0 0 52 52" fill="none">
+        <circle className="checkout-check-pulse" cx="26" cy="26" r="24" />
+        <circle className="checkout-check-ring" cx="26" cy="26" r="23" />
+        <path className="checkout-check-tick" d="M15 27l7.5 7.5L37 19" />
+      </svg>
+    </span>
+  );
+}
+
 /** The chrome shared by every checkout state: brand header, a single content
  *  card, and a FilsPay trust footer. Presentation only — each state renders
  *  its own content inside. `tone` tints the card header strip for success /
@@ -46,8 +62,11 @@ function CheckoutShell({
       <div className={`checkout-page checkout-tone-${tone}`}>
         <header className="checkout-header">
           <Logo tone="ink" size={24} />
-          <span className="checkout-secure">
-            <LockIcon /> Secure checkout
+          <span className="checkout-header-right">
+            <span className="checkout-secure">
+              <LockIcon /> Secure checkout
+            </span>
+            <ThemeToggle />
           </span>
         </header>
         <div className="checkout-card">{children}</div>
@@ -256,9 +275,7 @@ export function CheckoutPage() {
     return (
       <CheckoutShell tone="success">
         <div className="checkout-result">
-          <span className="checkout-result-icon checkout-result-icon-success" aria-hidden="true">
-            ✓
-          </span>
+          <SuccessCheck />
           <h1>Payment successful</h1>
           <p className="checkout-message">Thank you — your payment has been received.</p>
         </div>
@@ -305,9 +322,7 @@ export function CheckoutPage() {
     return (
       <CheckoutShell tone="success">
         <div className="checkout-result">
-          <span className="checkout-result-icon checkout-result-icon-success" aria-hidden="true">
-            ✓
-          </span>
+          <SuccessCheck />
           <h1>Already paid</h1>
           <p className="checkout-message">This invoice has already been paid.</p>
         </div>
