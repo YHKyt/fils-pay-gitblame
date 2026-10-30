@@ -28,6 +28,16 @@ export function createPool(config: Config): Pool {
   pool.on("error", (err) => {
     console.error("[pg pool] unexpected error on idle client", { date: formatIsoDate(new Date()), err });
   });
+  // The listener above only covers idle clients: pg-pool detaches it while a
+  // client is checked out. A checked-out client whose connection dies between
+  // two statements emits 'error' on the client itself, which with no listener
+  // crashed the process. The caller's next query on it still fails, and
+  // withTransaction releases it as broken.
+  pool.on("connect", (client) => {
+    client.on("error", (err) => {
+      console.error("[pg pool] connection lost on a checked-out client", { date: formatIsoDate(new Date()), err });
+    });
+  });
 
   if (process.env.LOG_LEVEL === "debug") {
     const origQuery = pool.query.bind(pool) as Pool["query"];

@@ -1,0 +1,20 @@
+# Simulates the hosted box (one Dilmune server: 1 vCPU, 2 GB RAM) on a
+# bigger development machine, for load tests. Every long-running service is
+# pinned to the same single CPU, so they compete for it as on the real box;
+# memory caps come from docker-compose.yml (they already sum to under 2 GB).
+#
+#   docker compose -p <name> -f ops/docker-compose.yml -f ops/compose.box-sim.yml up -d
+#
+# BOX_SIM_CPU picks which host CPU (default 1). Never use this file on the
+# hosted box itself: it has one CPU and needs no pinning.
+services:
+  postgres:
+    cpuset: "${BOX_SIM_CPU:-1}"
+  api:
+    cpuset: "${BOX_SIM_CPU:-1}"
+  web:
+    cpuset: "${BOX_SIM_CPU:-1}"
+  settlement:
+    cpuset: "${BOX_SIM_CPU:-1}"
+  reporting:
+    cpuset: "${BOX_SIM_CPU:-1}"
