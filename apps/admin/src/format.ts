@@ -6,6 +6,8 @@
  * +03:00 offset is exact; apps/api uses the same technique.
  */
 
+import { formatBhd, parseBhdToFils, toFils } from "@filspay/money";
+
 const BAHRAIN_UTC_OFFSET = "+03:00";
 const BAHRAIN_OFFSET_MS = 3 * 60 * 60 * 1000;
 const DAY_MS = 86_400_000;
@@ -137,4 +139,29 @@ export function enumLabel(value: string | null | undefined, fallback = "-"): str
   if (mapped) return mapped;
   const spaced = key.replace(/[_.-]+/g, " ");
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+/** Reads an operator-typed BHD amount ("12.5", "-3.250") as integer fils
+ *  via the platform's string parser (never parseFloat). Returns an error
+ *  sentence instead of throwing, for inline form validation. */
+export function readBhdInput(
+  input: string,
+  opts: { allowNegative?: boolean; allowZero?: boolean } = {},
+): { ok: true; fils: number } | { ok: false; error: string } {
+  const text = input.trim().replace(/,/g, "");
+  if (!text) return { ok: false, error: "Enter an amount in BHD." };
+  let fils: number;
+  try {
+    fils = parseBhdToFils(text);
+  } catch {
+    return { ok: false, error: "Enter a BHD amount with up to 3 decimals, for example 12.500." };
+  }
+  if (fils < 0 && !opts.allowNegative) return { ok: false, error: "Enter a positive amount." };
+  if (fils === 0 && !opts.allowZero) return { ok: false, error: "Enter an amount other than 0.000 BHD." };
+  return { ok: true, fils };
+}
+
+/** `12.500 BHD` / `-3.250 BHD` from integer fils. */
+export function bhd(fils: number): string {
+  return `${formatBhd(toFils(fils, { allowNegative: true }))} BHD`;
 }
