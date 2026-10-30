@@ -173,7 +173,7 @@ export function WebhookReplayPage() {
                   <td>
                     {merchant.displayName}
                     <div className="admin-muted">
-                      <code>{merchant.id}</code>
+                      <code title={merchant.id}>{merchant.id.slice(0, 8)}</code>
                     </div>
                   </td>
                   <td>

@@ -222,7 +222,7 @@ export function MerchantListPage() {
               <td>
                 <Link to={`/merchants/${merchant.id}`}>{merchant.displayName}</Link>
                 <div className="admin-muted">
-                  <code>{merchant.id}</code>
+                  <code title={merchant.id}>{merchant.id.slice(0, 8)}</code>
                 </div>
               </td>
               <td>

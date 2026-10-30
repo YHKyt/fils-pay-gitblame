@@ -321,7 +321,7 @@ export function MerchantDetailPage() {
       </p>
       <h1>{merchant.displayName}</h1>
       <p className="admin-muted">
-        <code>{merchant.id}</code>
+        Merchant ref <code title={merchant.id}>{merchant.id.slice(0, 8)}</code>
       </p>
 
       {actionError ? <p className="admin-error">{actionError}</p> : null}

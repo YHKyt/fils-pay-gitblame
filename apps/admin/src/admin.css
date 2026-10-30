@@ -1788,3 +1788,21 @@ body:has(.admin-centered) .admin-centered {
 .admin-import-preview tr.is-error td { background: var(--fp-danger-bg, #fdecee); }
 .admin-error-text { color: var(--fp-danger-fg, #a3122a); font-weight: 600; }
 .admin-table tfoot th { border-top: 2px solid var(--fp-border-strong); font-weight: 700; }
+
+/* P2: wide screens. Section content uses the width instead of a narrow
+   column; forms stay readable but no longer sit as a small island. */
+@media (min-width: 1400px) {
+  .admin-main { padding: 2.25rem 3rem 3.5rem; }
+  .admin-form { max-width: 56rem; }
+  .admin-main > section > .admin-form textarea { min-height: 12rem; }
+}
+@media (min-width: 1800px) {
+  .admin-main { max-width: 1760px; font-size: 1.04rem; }
+}
+.admin-num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+@media (max-width: 600px) {
+  .admin-detail-side { position: static; }
+  .admin-form select,
+  .admin-form input,
+  .admin-form textarea { max-width: 100%; min-width: 0; }
+}
