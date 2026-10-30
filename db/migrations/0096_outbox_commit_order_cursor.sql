@@ -38,3 +38,29 @@ ALTER TABLE reporting_outbox_cursor
   ADD COLUMN last_processed_xact_id xid8 NOT NULL DEFAULT '0',
   ADD COLUMN id_floor BIGINT NOT NULL DEFAULT 0,
   ADD COLUMN rebuilt_snapshot pg_snapshot;
+
+-- Refunds in the daily volume rollup. The consumer never read
+-- refund.succeeded, so refunds were missing from the merchant reports.
+-- Constant defaults: metadata-only, no table rewrite.
+ALTER TABLE merchant_daily_volume
+  ADD COLUMN refund_count INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN refund_gross_fils BIGINT NOT NULL DEFAULT 0;
+
+-- Backfill exactly the refund.succeeded events the consumer has already
+-- moved past (they will never be read again), from the same payload and
+-- with the same Asia/Bahrain bucketing it now uses. Events after the
+-- watermark are left to the consumer, so nothing is counted twice.
+INSERT INTO merchant_daily_volume (merchant_id, volume_date, refund_count, refund_gross_fils, last_updated_at)
+SELECT (o.payload->>'merchantId')::uuid,
+       (o.created_at AT TIME ZONE 'Asia/Bahrain')::date,
+       COUNT(*),
+       SUM((o.payload->>'amountFils')::bigint),
+       now()
+  FROM outbox_events o
+ WHERE o.event_type = 'refund.succeeded'
+   AND o.id <= COALESCE((SELECT last_processed_id FROM reporting_outbox_cursor WHERE consumer_name = 'reporting'), 0)
+ GROUP BY 1, 2
+ON CONFLICT (merchant_id, volume_date) DO UPDATE
+  SET refund_count = merchant_daily_volume.refund_count + EXCLUDED.refund_count,
+      refund_gross_fils = merchant_daily_volume.refund_gross_fils + EXCLUDED.refund_gross_fils,
+      last_updated_at = now();

@@ -13,6 +13,7 @@ import { test } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import { enqueueEvent } from "@filspay/events";
 import { drainPast } from "../../../reporting/src/consumer/testSupport.js";
+import { getVolumes } from "../analytics/query.js";
 import { refreshAnalyticsRollups } from "./reportingRebuild.js";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -112,4 +113,50 @@ test("a capture still uncommitted while the rebuild runs is applied by the consu
 
   await drainPast(pool!, config, [inFlight]);
   assert.deepEqual(await captured(merchantId), { count: 1, grossFils: 7_000 });
+});
+
+test("refunds land in the volume rollup once, through a rebuild, and show in the analytics volumes query", { skip }, async () => {
+  const merchantId = await createMerchant("refunds");
+  const captureId = await recordCapture(pool!, merchantId, 10_000);
+  await drainPast(pool!, config, [captureId]);
+
+  // A refund, as processRefund.ts records it: the refunds row and the
+  // refund.succeeded outbox event in one transaction.
+  const client = await pool!.connect();
+  let refundEventId: bigint;
+  try {
+    await client.query("BEGIN");
+    const tx = await client.query<{ id: string }>(
+      `SELECT id FROM transactions WHERE merchant_id = $1`,
+      [merchantId],
+    );
+    const refund = await client.query<{ id: string }>(
+      `INSERT INTO refunds (transaction_id, merchant_id, amount_fils, fee_reversed_fils, status, acquirer_reference, created_by_type, created_by_id)
+       VALUES ($1, $2, 3_000, 75, 'succeeded', $3, 'merchant_api_key', $4) RETURNING id`,
+      [tx.rows[0]!.id, merchantId, `rf-${randomUUID()}`, randomUUID()],
+    );
+    refundEventId = (
+      await enqueueEvent(client, {
+        eventType: "refund.succeeded",
+        aggregateType: "transaction",
+        aggregateId: tx.rows[0]!.id,
+        payload: { merchantId, refundId: refund.rows[0]!.id, amountFils: 3_000, feeReversedFils: 75, refundedTotalFils: 3_000, newStatus: "partially_refunded" },
+      })
+    ).id;
+    await client.query("COMMIT");
+  } finally {
+    client.release();
+  }
+
+  // The rebuild counts it from the refunds table before the worker reads it.
+  await rebuild();
+  await drainPast(pool!, config, [refundEventId]);
+
+  const today = new Date(Date.now() + 3 * 3_600_000).toISOString().slice(0, 10);
+  const tomorrow = new Date(Date.now() + 27 * 3_600_000).toISOString().slice(0, 10);
+  const volumes = await getVolumes(pool!, { merchantId, from: today, to: tomorrow });
+  assert.equal(volumes.points.length, 1);
+  assert.equal(volumes.points[0]!.capturedGrossFils, 10_000);
+  assert.equal(volumes.points[0]!.refundCount, 1);
+  assert.equal(volumes.points[0]!.refundGrossFils, 3_000);
 });

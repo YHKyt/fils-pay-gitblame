@@ -41,17 +41,29 @@ export async function refreshAnalyticsRollups(client: PoolClient): Promise<Rebui
         RETURNING 1
      ), volume AS (
        INSERT INTO merchant_daily_volume
-           (merchant_id, volume_date, captured_count, captured_gross_fils, voided_count, last_updated_at)
-        SELECT t.merchant_id,
-               (te.occurred_at AT TIME ZONE 'Asia/Bahrain')::date,
-               COUNT(*) FILTER (WHERE te.event_type IN ('captured', 'partially_captured')),
-               COALESCE(SUM(te.amount_fils) FILTER (WHERE te.event_type IN ('captured', 'partially_captured')), 0),
-               COUNT(*) FILTER (WHERE te.event_type = 'voided'),
-               now()
-          FROM transaction_events te
-          JOIN transactions t ON t.id = te.transaction_id
-         WHERE te.event_type IN ('captured', 'partially_captured', 'voided')
-         GROUP BY t.merchant_id, (te.occurred_at AT TIME ZONE 'Asia/Bahrain')::date
+           (merchant_id, volume_date, captured_count, captured_gross_fils, voided_count,
+            refund_count, refund_gross_fils, last_updated_at)
+        SELECT merchant_id, volume_date, SUM(captured_count), SUM(captured_gross_fils), SUM(voided_count),
+               SUM(refund_count), SUM(refund_gross_fils), now()
+          FROM (
+            SELECT t.merchant_id,
+                   (te.occurred_at AT TIME ZONE 'Asia/Bahrain')::date AS volume_date,
+                   COUNT(*) FILTER (WHERE te.event_type IN ('captured', 'partially_captured')) AS captured_count,
+                   COALESCE(SUM(te.amount_fils) FILTER (WHERE te.event_type IN ('captured', 'partially_captured')), 0) AS captured_gross_fils,
+                   COUNT(*) FILTER (WHERE te.event_type = 'voided') AS voided_count,
+                   0 AS refund_count,
+                   0 AS refund_gross_fils
+              FROM transaction_events te
+              JOIN transactions t ON t.id = te.transaction_id
+             WHERE te.event_type IN ('captured', 'partially_captured', 'voided')
+             GROUP BY 1, 2
+            UNION ALL
+            SELECT r.merchant_id, (r.occurred_at AT TIME ZONE 'Asia/Bahrain')::date, 0, 0, 0, COUNT(*), SUM(r.amount_fils)
+              FROM refunds r
+             WHERE r.status = 'succeeded'
+             GROUP BY 1, 2
+          ) per_source
+         GROUP BY merchant_id, volume_date
         RETURNING 1
      ), horizon AS (
        SELECT pg_current_snapshot() AS snap

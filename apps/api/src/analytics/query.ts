@@ -48,6 +48,8 @@ export interface VolumePointDto {
   capturedCount: number;
   capturedGrossFils: number;
   voidedCount: number;
+  refundCount: number;
+  refundGrossFils: number;
 }
 
 export interface VolumesResponse {
@@ -66,6 +68,8 @@ interface VolumeRow {
   captured_count: number;
   captured_gross_fils: string | number;
   voided_count: number;
+  refund_count: number;
+  refund_gross_fils: string | number;
 }
 
 interface CursorRow {
@@ -90,6 +94,8 @@ function serializeVolumePoint(row: VolumeRow): VolumePointDto {
     capturedCount: row.captured_count,
     capturedGrossFils: Number(row.captured_gross_fils),
     voidedCount: row.voided_count,
+    refundCount: row.refund_count,
+    refundGrossFils: Number(row.refund_gross_fils),
   };
 }
 
@@ -114,7 +120,7 @@ export async function getVolumes(
 ): Promise<VolumesResponse> {
   const [pointsResult, asOf] = await Promise.all([
     pool.query<VolumeRow>(
-      `SELECT volume_date, captured_count, captured_gross_fils, voided_count
+      `SELECT volume_date, captured_count, captured_gross_fils, voided_count, refund_count, refund_gross_fils
          FROM merchant_daily_volume
         WHERE merchant_id = $1 AND volume_date >= $2 AND volume_date < $3
         ORDER BY volume_date ASC`,
