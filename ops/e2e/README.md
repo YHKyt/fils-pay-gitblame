@@ -37,6 +37,10 @@ body it got.
 | `ADMIN_OTP`, `MERCHANT_OTP` | unset | an OTP read from the real channel |
 | `DATABASE_URL` | unset | local stacks only, see below |
 | `CARD_PAN` | `4000000000000010` | simulator card that is not a magic decline |
+| `SUPPORT_ADMIN_EMAIL` | `support@filspay.test` | `support`-role admin for the role-check and read-only impersonation checks (skipped if it cannot log in) |
+| `TEST_MERCHANT_NAME` | `Gamma Hospitality Group` | a `testMode` merchant that must never settle |
+| `WEBHOOK_TEST_URL` | `https://example.com/filspay-judge-suite` | public https URL for the webhook endpoint; deliveries to it fail, but every attempt is recorded with its payload and signature |
+| `ACQUIRER_CALLBACK_SIGNING_SECRET` | unset | local stacks only: enables the signed-callback half of FP-201 |
 | `VERBOSE=1` | off | print every request and passing detail |
 
 ## OTP
@@ -48,6 +52,30 @@ login response (only when `OTP_DEV_EXPOSE=true`, never on a hosted box),
 `ADMIN_OTP` / `MERCHANT_OTP`, `DATABASE_URL` (re-keys the pending challenge
 row to a fresh random code, then submits that code over HTTP), or an
 interactive prompt.
+
+## Case-file checks
+
+Four sections map one check (or a few) to each item of the case file; each
+check name starts with its item:
+
+- `case file: finance memo`: CSV import of 4.755 / 4.75 BD, balance
+  rebuild vs cache (FP-203), fee shown vs fee charged, MDR recalculation
+  never touches paid batches, test merchants never settle, Bahrain business
+  day, login without OTP (pending session, reused code, attempt limit),
+  cross-merchant link cancel.
+- `case file: incident log`: concurrent pays of one link, acquirer callback
+  signature and redelivery (FP-201), webhook endpoint secret (FP-240).
+- `case file: FP-300 refunds end to end`: pro-rata fee reversal summing to
+  the whole fee, timeline events, signed `refund.succeeded` webhook verified
+  with the endpoint secret over the exact body, reports, analytics and
+  reconciliation, one payout notification per batch.
+- `case file: handwritten list`: refund above captured, split payouts,
+  support-role and impersonation limits, API key rotation and revocation,
+  reporting query timings, oversized upload.
+
+Checks marked `(DB)` read Postgres directly and run only with `DATABASE_URL`
+(there is no HTTP view of those rows); everything else is HTTP only.
+`docs/audit/judgeprep.md` lists every check with its last local result.
 
 ## Notes
 
