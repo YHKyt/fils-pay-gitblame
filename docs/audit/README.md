@@ -14,7 +14,7 @@ ratings such as "Medium-High"; they are listed as written).
 
 | File | IDs | What it covers | Findings |
 |---|---|---|---|
-| [BRIEFING.md](BRIEFING.md) | — | Team briefing for the case review and the judges: scoreboard, case-file coverage map, top findings, FP-300 demo, judge Q&A. Its scoreboard is recounted over every write-up in this table (140). | summary only |
+| [BRIEFING.md](BRIEFING.md) | — | Team briefing for the case review and the judges: scoreboard, case-file coverage map, top findings, FP-300 demo, judge Q&A. Its scoreboard is recounted over every write-up in this table (149). | summary only |
 | [money-and-settlement.md](money-and-settlement.md) | M1–M17 | Money parsing, payouts, splits, balance rebuild, MDR, daily close, counters, fee display, scheme residue, March sweep, sandbox merchants, reporting wedge, hold janitor, refunded-status recompute, fresh-database boot | 17 (3 Critical, 8 High, 5 Medium, 1 Low) |
 | [api-security-and-refunds.md](api-security-and-refunds.md) | S1–S8, R1–R7, W1–W4, H1, P1–P2, T1 | Auth and OTP, impersonation, FP-300 refunds (built as R1), webhooks, payment links, hosting, test isolation | 21 fixed + the FP-300 feature (R1); S8 is a review with no change |
 | ↳ same file, "Sweep findings" | A1–A8 (admin plane), M1–M13 (merchant plane) | Table-form sweep of the admin and merchant surfaces | 8 + 13 |
@@ -35,10 +35,13 @@ ratings such as "Medium-High"; they are listed as written).
 | [apihygiene.md](apihygiene.md) | H-LOG, H-HDR, H-404 | Payment-link tokens in the request log, missing security and cache headers, uniform 404 shape | 3 (1 Low/Medium, 2 Low) + 1 reported-only |
 | [opsfix.md](opsfix.md) | O1–O8 | Hosting: the seed wiping a live database, a stack that could not boot, hosted login, proxy addresses, committed password, simulator declines, operational docs | 7 (3 High, 4 Low); O7 is an open decision, not a fix |
 | [settlefix2.md](settlefix2.md) | unnumbered | Follow-ups to refund netting: MDR recalculation paying a refund out again, reconciliation counting payout legs, a failed ROLLBACK hiding the real error | 3 (2 High, 1 Low) |
+| [apitxn.md](apitxn.md) | TX1–TX4 | Transactions API: a NUL byte in `reference` after the card is authorized, malformed cards, capturing the rest of a refunded partial capture, literal list search | 4 (1 High, 1 Medium, 2 Low) |
+| [eventsbus.md](eventsbus.md) | EV1 | Outbox events: a freshly seeded deployment reported almost none of its own history | 1 (Medium) |
+| [gosettle2.md](gosettle2.md) | GS1–GS4 | Settlement CLI, scheme export and daemon: empty scheme file for an open batch, daemon settings that stop the close, partial `run-batch` report, fallback amount precision | 4 (2 Medium, 1 Low-Medium, 1 Low) |
 | [mystery-timeline.md](mystery-timeline.md) | rows 1–24 | The vanished developer: timeline, the three transmissions, and the 24 clues that point to real bugs, each with its fix status | mystery deliverable |
 | [ai-config-traps.md](ai-config-traps.md) | claim rows | Claim-by-claim check of the planted `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, the ONBOARDING canary and AI-citing code comments | reference, no fixes of its own |
 
-Fixed findings across the write-ups: 17 + 21 + 8 + 13 + 20 + 5 + 5 + 2 + 3 + 4 + 4 + 2 + 1 + 5 + 2 + 2 + 5 + 8 + 3 + 7 + 3 = **140**, plus the FP-300 feature.
+Fixed findings across the write-ups: 17 + 21 + 8 + 13 + 20 + 5 + 5 + 2 + 3 + 4 + 4 + 2 + 1 + 5 + 2 + 2 + 5 + 8 + 3 + 7 + 3 + 4 + 1 + 4 = **149**, plus the FP-300 feature.
 
 Some of these are defensive fixes to code that nothing calls today, and they
 are labelled as such so they are not mistaken for live bugs: admin-plane A7
