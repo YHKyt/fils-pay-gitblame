@@ -12,6 +12,7 @@ function StatCard({
   sub,
   spark,
   idSuffix,
+  accent = "teal",
 }: {
   label: string;
   value: number;
@@ -19,10 +20,11 @@ function StatCard({
   sub: string;
   spark: number[];
   idSuffix: string;
+  accent?: "gold" | "teal";
 }) {
   const animated = useCountUp(value);
   return (
-    <div className="dash-stat">
+    <div className={`dash-stat dash-stat-${accent}`}>
       <span className="dash-stat-label">{label}</span>
       <span className="dash-stat-value">{format(animated)}</span>
       <span className="dash-stat-sub">{sub}</span>
@@ -67,6 +69,7 @@ export function StatCards({
         sub={`Across ${days} ${days === 1 ? "day" : "days"}`}
         spark={grossSpark}
         idSuffix="gross"
+        accent="gold"
       />
       <StatCard
         label="Transactions"
@@ -91,6 +94,7 @@ export function StatCards({
         sub={`${pPoints.length} settled ${pPoints.length === 1 ? "batch" : "batches"}`}
         spark={payoutSpark}
         idSuffix="payout"
+        accent="gold"
       />
     </div>
   );

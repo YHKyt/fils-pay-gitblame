@@ -45,7 +45,7 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const redirectTo = (location.state as { from?: string } | null)?.from ?? "/dashboard/transactions";
+  const redirectTo = (location.state as { from?: string } | null)?.from ?? "/dashboard/overview";
 
   if (status === "authenticated") {
     return <Navigate to={redirectTo} replace />;
@@ -122,12 +122,17 @@ export function LoginPage() {
   }
 
   return (
+    <div className="dash-login-bg">
     <main className="dash-centered">
       <div className="dash-login-logo">
-        <Logo tone="ink" size={30} />
+        <Logo tone="ink" size={34} />
       </div>
-      <h1>Merchant dashboard</h1>
-      <p className="dash-muted">Sign in to your FilsPay account.</p>
+      <h1>{step.kind === "otp" ? "Check your code" : "Merchant dashboard"}</h1>
+      <p className="dash-muted dash-login-tagline">
+        {step.kind === "otp"
+          ? "A one-time code keeps your account secure."
+          : "The pearl of Gulf payments. Sign in to your FilsPay account."}
+      </p>
 
       {error ? <p className="dash-error">{error}</p> : null}
       {notice ? <p className="dash-notice">{notice}</p> : null}
@@ -135,20 +140,19 @@ export function LoginPage() {
       {step.kind === "credentials" ? (
         <form onSubmit={(e) => void handleCredentials(e)} className="dash-form">
           <label>
-            Merchant ID
+            Business ID
             <input
               type="text"
               required
               autoComplete="off"
               spellCheck={false}
-              placeholder="00000000-0000-0000-0000-000000000000"
               value={merchantId}
               onChange={(e) => setMerchantId(e.target.value)}
             />
           </label>
           <p className="dash-muted dash-hint">
-            The UUID issued when your account was created. Your API integration
-            already uses this value.
+            Find it in your welcome email or ask your FilsPay contact. We
+            remember it on this device after your first sign-in.
           </p>
           <label>
             Email
@@ -199,19 +203,26 @@ export function LoginPage() {
           <button type="submit" className="dash-button dash-button-primary" disabled={submitting}>
             {submitting ? "Verifying..." : "Verify"}
           </button>
-          <button
-            type="button"
-            className="dash-button"
-            disabled={submitting}
-            onClick={() => void handleResend()}
-          >
-            Resend code
-          </button>
-          <button type="button" className="dash-button" onClick={() => backToCredentials(null)}>
-            Start over
+          {/* Resend keeps the viewer from re-entering their password just to
+              get a fresh code. The API owns the cadence rule (`resendOtp`),
+              so this button simply asks for a new challenge. */}
+          <div className="dash-resend-row">
+            <span className="dash-muted">Didn't get the code?</span>
+            <button
+              type="button"
+              className="dash-resend"
+              disabled={submitting}
+              onClick={() => void handleResend()}
+            >
+              Resend code
+            </button>
+          </div>
+          <button type="button" className="dash-button dash-button-ghost" onClick={() => backToCredentials(null)}>
+            Use a different account
           </button>
         </form>
       )}
     </main>
+    </div>
   );
 }

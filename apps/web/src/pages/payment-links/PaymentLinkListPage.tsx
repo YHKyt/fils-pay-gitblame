@@ -6,7 +6,7 @@ import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { Pagination } from "../../components/Pagination.js";
 import { SkeletonRows } from "../../components/SkeletonRows.js";
-import { bhd, dash, dateTime } from "../../format.js";
+import { bhd, dash, dateTime, statusLabel } from "../../format.js";
 import type { PaymentLinkDto, PaymentLinkStatus } from "../../types.js";
 import { paymentLinkDisplayStatus } from "../../utils/paymentLinkStatus.js";
 
@@ -92,7 +92,7 @@ export function PaymentLinkListPage() {
 
       {error ? <p className="dash-error">{error}</p> : null}
 
-      <table className="dash-table">
+      <div className="dash-tablewrap"><table className="dash-table">
         <thead>
           <tr>
             <th>Reference</th>
@@ -115,7 +115,7 @@ export function PaymentLinkListPage() {
                 <td>{dash(link.description)}</td>
                 <td className="dash-num">{bhd(link.amountFils)}</td>
                 <td>
-                  <span className={`dash-status dash-status-${displayStatus}`}>{displayStatus}</span>
+                  <span className={`dash-status dash-status-${displayStatus}`}>{statusLabel(displayStatus)}</span>
                 </td>
                 <td>{dateTime(link.expiresAt)}</td>
                 <td>{dateTime(link.paidAt)}</td>
@@ -130,7 +130,7 @@ export function PaymentLinkListPage() {
             </tr>
           ) : null}
         </tbody>
-      </table>
+      </table></div>
 
       {loading ? <p className="dash-loading">Loading…</p> : null}
 

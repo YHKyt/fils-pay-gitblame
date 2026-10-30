@@ -4,7 +4,8 @@ import { cancelPaymentLink, getMerchantPaymentLink } from "../../api/paymentLink
 import { ApiError, describeError } from "../../api/client.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
-import { bhd, dash, dateTime } from "../../format.js";
+import { ConfirmDialog } from "../../components/ConfirmDialog.js";
+import { bhd, dash, dateTime, statusLabel } from "../../format.js";
 import type { PaymentLinkDto } from "../../types.js";
 import { canCancelPaymentLink, paymentLinkDisplayStatus } from "../../utils/paymentLinkStatus.js";
 
@@ -28,6 +29,7 @@ export function PaymentLinkDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [cancelConfirm, setCancelConfirm] = useState(false);
 
   const load = useCallback(async () => {
     if (!merchantId || !id) return;
@@ -49,15 +51,16 @@ export function PaymentLinkDetailPage() {
 
   async function handleCancel(): Promise<void> {
     if (!merchantId || !id) return;
-    if (!window.confirm("Cancel this payment link? It can no longer be paid.")) return;
     setSubmitting(true);
     setActionError(null);
     try {
       await cancelPaymentLink(merchantId, id);
+      setCancelConfirm(false);
       await load();
     } catch (err) {
       // Includes `409 not_cancelable` for a link that is paid, already
       // canceled, or `reserved` mid-payment-attempt.
+      setCancelConfirm(false);
       setActionError(describeError(err));
     } finally {
       setSubmitting(false);
@@ -89,7 +92,7 @@ export function PaymentLinkDetailPage() {
       <section>
         <h1>Payment link not found</h1>
         <p>
-          No payment link with this id exists on your account.{" "}
+          No payment link with this ID exists on your account.{" "}
           <Link to="/dashboard/payment-links">Back to payment links</Link>
         </p>
       </section>
@@ -103,10 +106,18 @@ export function PaymentLinkDetailPage() {
 
   return (
     <section>
-      <h1>Payment link</h1>
-      <p className="dash-muted">
-        <code>{link.id}</code>
-      </p>
+      <div className="dash-page-head">
+        <div>
+          <p className="dash-eyebrow">
+            <Link to="/dashboard/payment-links">Payment links</Link> / Detail
+          </p>
+          <h1>Payment link</h1>
+          <p className="dash-muted dash-id-line">
+            <code>{link.id}</code>
+          </p>
+        </div>
+        <span className={`dash-status dash-status-${displayStatus}`}>{statusLabel(displayStatus)}</span>
+      </div>
 
       <dl className="dash-dl">
         <dt>Amount</dt>
@@ -115,7 +126,7 @@ export function PaymentLinkDetailPage() {
         <dd>{link.currency}</dd>
         <dt>Status</dt>
         <dd>
-          <span className={`dash-status dash-status-${displayStatus}`}>{displayStatus}</span>
+          <span className={`dash-status dash-status-${displayStatus}`}>{statusLabel(displayStatus)}</span>
         </dd>
         <dt>Reference</dt>
         <dd>{dash(link.reference)}</dd>
@@ -160,16 +171,29 @@ export function PaymentLinkDetailPage() {
             type="button"
             className="dash-button dash-button-danger"
             disabled={submitting}
-            onClick={() => void handleCancel()}
+            onClick={() => setCancelConfirm(true)}
           >
-            {submitting ? "Canceling..." : "Cancel payment link"}
+            Cancel payment link
           </button>
         </RequireRole>
       ) : null}
 
-      <p>
-        <Link to="/dashboard/payment-links">Back to payment links</Link>
-      </p>
+      <ConfirmDialog
+        open={cancelConfirm}
+        title="Cancel this payment link"
+        amount={bhd(link.amountFils)}
+        message={
+          <>
+            Once canceled, {link.reference ? <strong>{link.reference}</strong> : "this link"} can no longer be
+            paid. You can always create a new link.
+          </>
+        }
+        confirmLabel="Cancel link"
+        tone="danger"
+        busy={submitting}
+        onConfirm={() => void handleCancel()}
+        onCancel={() => setCancelConfirm(false)}
+      />
     </section>
   );
 }

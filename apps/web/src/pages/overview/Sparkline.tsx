@@ -24,8 +24,8 @@ export function Sparkline({ values, idSuffix }: { values: number[]; idSuffix: st
     <svg className="dash-stat-spark" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" aria-hidden="true">
       <defs>
         <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="var(--fp-accent)" stopOpacity="0.28" />
-          <stop offset="1" stopColor="var(--fp-accent)" stopOpacity="0" />
+          <stop offset="0" stopColor="var(--fp-spark-color, var(--fp-accent))" stopOpacity="0.3" />
+          <stop offset="1" stopColor="var(--fp-spark-color, var(--fp-accent))" stopOpacity="0" />
         </linearGradient>
       </defs>
       <path className="dash-spark-area" d={area} fill={`url(#${gid})`} />

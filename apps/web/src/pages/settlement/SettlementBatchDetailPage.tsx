@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getSettlementBatch, getSettlementBatchTransactions } from "../../api/settlement.js";
 import { ApiError, describeError } from "../../api/client.js";
-import { bhd, dash, dateTime } from "../../format.js";
+import { bhd, dash, dateTime, statusLabel } from "../../format.js";
 import type { SettlementBatchDetailDto, SettlementBatchTransactionDto } from "../../types.js";
 
 type LoadState =
@@ -81,24 +81,26 @@ export function SettlementBatchDetailPage() {
   }
 
   const { batch } = state;
-  const displayProgress = parseFloat((batch.grossFils / 10000).toFixed(2));
 
   return (
     <section>
-      <h1>Settlement batch {batch.batchDate}</h1>
-      {batch.status === "closed" && (
-        <div className="dash-progress-bar" style={{ width: "100%", background: "var(--fp-border)", height: 6 }}>
-          <div style={{ width: `${Math.min(displayProgress, 100)}%`, background: "var(--fp-accent)", height: 6 }} />
+      <div className="dash-page-head">
+        <div>
+          <p className="dash-eyebrow">
+            <Link to="/dashboard/settlement">Settlements</Link> / Batch
+          </p>
+          <h1>Settlement batch {batch.batchDate}</h1>
+          <p className="dash-muted dash-id-line">
+            <code>{batch.id}</code>
+          </p>
         </div>
-      )}
-      <p className="dash-muted">
-        <code>{batch.id}</code>
-      </p>
+        <span className={`dash-status dash-status-${batch.status}`}>{statusLabel(batch.status)}</span>
+      </div>
 
       <dl className="dash-dl">
         <dt>Status</dt>
         <dd>
-          <span className={`dash-status dash-status-${batch.status}`}>{batch.status}</span>
+          <span className={`dash-status dash-status-${batch.status}`}>{statusLabel(batch.status)}</span>
         </dd>
         <dt>Gross</dt>
         <dd>{bhd(batch.grossFils)}</dd>
@@ -109,7 +111,7 @@ export function SettlementBatchDetailPage() {
         <dt>Closed at</dt>
         <dd>{dateTime(batch.closedAt)}</dd>
         <dt>Paid at</dt>
-        <dd>{dateTime(batch.paidAt)}</dd>
+        <dd>{batch.paidAt ? dateTime(batch.paidAt) : "Not paid yet"}</dd>
         <dt>Included transactions</dt>
         <dd>{batch.includedTransactionCount}</dd>
         <dt>Capture events in this batch</dt>
@@ -127,7 +129,7 @@ export function SettlementBatchDetailPage() {
       </dl>
 
       <h2>Included transactions</h2>
-      <table className="dash-table">
+      <div className="dash-tablewrap"><table className="dash-table">
         <thead>
           <tr>
             <th className="dash-num">Line</th>
@@ -150,7 +152,7 @@ export function SettlementBatchDetailPage() {
               </td>
               <td>{dash(line.reference)}</td>
               <td>
-                <span className={`dash-status dash-status-${line.status}`}>{line.status}</span>
+                <span className={`dash-status dash-status-${line.status}`}>{statusLabel(line.status)}</span>
               </td>
               <td className="dash-num">{bhd(line.authorizedFils)}</td>
               <td className="dash-num">{bhd(line.capturedFils)}</td>
@@ -163,7 +165,7 @@ export function SettlementBatchDetailPage() {
             </tr>
           ) : null}
         </tbody>
-      </table>
+      </table></div>
       <p className="dash-muted">
         The scheme amount is the card-network export figure, quantized to two
         decimal places at that boundary — it can be up to 9 fils below the

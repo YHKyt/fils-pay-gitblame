@@ -4,6 +4,16 @@
    `dash-*`, `checkout-*` and `fp-*` rule reads the same values; a brand tweak
    happens here once.
 
+   ── "Pearl of the Gulf" ─────────────────────────────────────────────────
+   A premium Bahraini fintech identity, not a generic blue SaaS skin:
+     • a deep petrol / midnight-teal base (the Gulf at dusk);
+     • luminous pearl off-white surfaces (the pearl the Gulf is famous for);
+     • a signature BRASS-GOLD accent — a real metallic gradient — on every
+       primary action, key figure, the logo, active state and hairline rule;
+     • a bright teal-mint secondary for money that went up (success/positive);
+     • a warm coral for danger.
+   The warmth of gold on pearl over cool petrol is the whole point.
+
    Theming has two layers, so a real toggle and the OS preference both work:
      • light is the :root default;
      • dark is applied either by the OS (prefers-color-scheme) UNLESS the
@@ -17,63 +27,87 @@
   color-scheme: light;
 
   /* ---- Brand palette ------------------------------------------------- */
-  /* Deep ink navy base + a vivid teal→emerald accent story. This is the
-     FilsPay signature: ink surfaces, a luminous accent, nothing borrowed. */
-  --fp-ink: #0b1f3a; /* primary navy — top bar chrome + the brand chip */
-  --fp-ink-700: #0f2a4a; /* lifted navy for gradients/hover on dark surfaces */
-  --fp-ink-900: #081829; /* deepest navy for the aurora floor */
-  --fp-heading: #0b1f3a; /* heading / amount / wordmark text on light surfaces */
+  /* Deep petrol/midnight-teal base — top-bar chrome, hero floors, the mark's
+     backing disc. The Gulf at dusk. */
+  --fp-ink: #0a3a32; /* primary petrol — top bar + the brand chip */
+  --fp-ink-700: #0d4a40; /* lifted petrol for gradients/hover on dark surfaces */
+  --fp-ink-900: #06231f; /* deepest petrol for the aurora floor */
+  --fp-heading: #06231f; /* heading / amount / wordmark text on pearl surfaces */
 
-  --fp-accent: #0fb5a6; /* teal — primary actions, active nav */
-  --fp-accent-2: #15c39a; /* emerald — the second stop of the brand gradient */
-  --fp-accent-hover: #0c9488;
-  --fp-accent-soft: #e6f7f5; /* accent tint for subtle fills */
-  --fp-accent-rgb: 15, 181, 166; /* for rgba() glows */
+  /* The signature brass-gold. --fp-accent drives primary actions, active nav,
+     focus rings and key numbers; --fp-accent-hover is the readable deep-gold
+     used for links and gold text on pearl (pure #c8a24b fails AA as text). */
+  --fp-gold: #c8a24b;
+  --fp-gold-2: #e6c877;
+  --fp-gold-deep: #8a6a20;
+  --fp-accent: #c8a24b; /* brass gold — primary actions, active nav */
+  --fp-accent-2: #e6c877; /* light gold — the second stop of the brand gradient */
+  --fp-accent-hover: #8a6a20; /* readable deep gold for links / text */
+  --fp-accent-soft: #f6eed6; /* warm gold tint for subtle fills/hovers */
+  --fp-accent-rgb: 200, 162, 75; /* for rgba() glows */
 
-  /* The one brand gradient, reused for primary actions, highlights and the
-     logo mark so the teal→emerald reads as deliberate, not decorative. */
-  --fp-gradient: linear-gradient(135deg, #0fb5a6 0%, #15c39a 100%);
-  --fp-gradient-ink: linear-gradient(155deg, #0f2a4a 0%, #0b1f3a 55%, #081829 100%);
-  /* Aurora/mesh wash painted behind the ink chrome and the checkout page — a
-     signature glow built only from brand hues. */
+  /* Teal-mint secondary — positive money, the second stop of the data-viz. */
+  --fp-teal: #15c39a;
+  --fp-teal-ink: #0e8f70;
+  --fp-teal-rgb: 21, 195, 154;
+
+  /* The one brand gradient: a struck-brass sweep, reused on primary actions,
+     the logo mark, volume bars and card keylines so the gold reads as a
+     deliberate material, not decoration. A soft inner highlight sells metal. */
+  --fp-gradient: linear-gradient(135deg, #b8902f 0%, #d8b253 45%, #f0d488 100%);
+  --fp-gradient-ink: linear-gradient(155deg, #0d4a40 0%, #0a3a32 52%, #06231f 100%);
+  /* Pearlescent aurora wash — gold, mint and a pearl highlight, built only
+     from brand hues. Painted behind the ink chrome and the hosted pay page. */
   --fp-aurora:
-    radial-gradient(60% 120% at 12% -10%, rgba(21, 195, 154, 0.35) 0%, rgba(21, 195, 154, 0) 60%),
-    radial-gradient(45% 100% at 98% 0%, rgba(15, 181, 166, 0.28) 0%, rgba(15, 181, 166, 0) 55%),
-    radial-gradient(90% 160% at 50% 120%, rgba(11, 31, 58, 0.18) 0%, rgba(11, 31, 58, 0) 70%);
+    radial-gradient(60% 120% at 12% -10%, rgba(230, 200, 119, 0.4) 0%, rgba(230, 200, 119, 0) 60%),
+    radial-gradient(48% 100% at 96% 4%, rgba(21, 195, 154, 0.28) 0%, rgba(21, 195, 154, 0) 55%),
+    radial-gradient(90% 150% at 50% 118%, rgba(6, 35, 31, 0.22) 0%, rgba(6, 35, 31, 0) 70%);
+  /* A narrow pearlescent sheen used sparingly on hero/card headers — the
+     soft nacre shimmer of a pearl under light. */
+  --fp-sheen: linear-gradient(
+    110deg,
+    rgba(255, 255, 255, 0) 32%,
+    rgba(255, 255, 255, 0.55) 48%,
+    rgba(230, 200, 119, 0.35) 54%,
+    rgba(255, 255, 255, 0) 70%
+  );
 
-  --fp-surface: #ffffff;
-  --fp-surface-2: #f7f9fc; /* zebra / inset surface */
-  --fp-surface-glass: rgba(255, 255, 255, 0.72); /* glassy overlay surface */
-  --fp-bg: #eef2f8; /* app background */
-  --fp-bg-2: #e4ebf5;
-  --fp-border: #e4e9f0;
-  --fp-border-strong: #d4dbe6;
+  /* Pearl surfaces — warm off-whites, never pure clinical white. */
+  --fp-surface: #fdfcf7;
+  --fp-surface-2: #f6f1e4; /* zebra / inset surface */
+  --fp-surface-glass: rgba(253, 252, 247, 0.72); /* glassy overlay surface */
+  --fp-bg: #f1ecdf; /* app background — a calm pearl */
+  --fp-bg-2: #e9e1cd;
+  --fp-border: #e7e0cd; /* warm hairline */
+  --fp-border-strong: #d8cdb2;
+  /* A hair of real gold for signature dividers (card tops, section rules). */
+  --fp-hairline: linear-gradient(90deg, rgba(200, 162, 75, 0) 0%, rgba(200, 162, 75, 0.55) 50%, rgba(200, 162, 75, 0) 100%);
 
-  --fp-text: #0f172a;
-  --fp-muted: #5b6b82;
-  --fp-faint: #8a97a8;
+  --fp-text: #1c332d;
+  --fp-muted: #5c6b63;
+  --fp-faint: #8a978e;
 
-  /* Status colours (text + soft background + border for pills/badges) */
-  --fp-success: #16a34a;
-  --fp-success-bg: #e8f6ee;
-  --fp-success-bd: #b7e2c6;
-  --fp-danger: #dc2626;
-  --fp-danger-bg: #fdecec;
-  --fp-danger-bd: #f3c2c2;
-  --fp-warning: #b45309; /* AA-readable amber on light bg */
-  --fp-warning-bg: #fdf0dc;
-  --fp-warning-bd: #f0d5a6;
-  --fp-info: #2563eb;
-  --fp-info-bg: #e8effd;
-  --fp-info-bd: #c3d5fa;
-  --fp-neutral: #475569;
-  --fp-neutral-bg: #eef1f6;
-  --fp-neutral-bd: #d7deea;
+  /* Status colours (text + soft background + border for pills/badges). */
+  --fp-success: #0e9e7a; /* mint — reads as "money went up" */
+  --fp-success-bg: #e2f6f0;
+  --fp-success-bd: #b2e5d6;
+  --fp-danger: #c23a2e; /* warm coral danger */
+  --fp-danger-bg: #fbe9e5;
+  --fp-danger-bd: #f1c6bf;
+  --fp-warning: #a9741a; /* AA-readable amber on pearl */
+  --fp-warning-bg: #f9f0d8;
+  --fp-warning-bd: #ecd9a4;
+  --fp-info: #2e7d74; /* petrol-teal, not generic blue */
+  --fp-info-bg: #e1f0ed;
+  --fp-info-bd: #bcded6;
+  --fp-neutral: #556158;
+  --fp-neutral-bg: #efeadd;
+  --fp-neutral-bd: #ddd4c0;
 
   /* ---- Type ---------------------------------------------------------- */
-  /* Inter is bundled (see main.tsx); the stack keeps system fonts as the
-     fallback for the instant before woff2 decode. A tuned monospace carries
-     amounts and ids so digits line up. */
+  /* All three families are bundled (see main.tsx); each stack keeps a system
+     fallback for the instant before woff2 decode. */
+  --fp-display: "Fraunces", "Iowan Old Style", Georgia, "Times New Roman", serif;
   --fp-font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --fp-mono: "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 
@@ -81,19 +115,20 @@
   --fp-tracking-tight: -0.02em;
   --fp-tracking-tighter: -0.03em;
   --fp-tracking-wide: 0.04em;
+  --fp-tracking-widest: 0.16em;
 
   /* ---- Shape --------------------------------------------------------- */
-  --fp-radius-sm: 8px;
-  --fp-radius: 12px;
-  --fp-radius-lg: 16px;
-  --fp-radius-xl: 22px;
+  --fp-radius-sm: 9px;
+  --fp-radius: 13px;
+  --fp-radius-lg: 18px;
+  --fp-radius-xl: 24px;
 
-  /* Layered, soft elevation + a faint teal-tinted ambient shadow. */
-  --fp-shadow-sm: 0 1px 2px rgba(11, 31, 58, 0.06);
-  --fp-shadow: 0 1px 2px rgba(11, 31, 58, 0.06), 0 4px 12px rgba(11, 31, 58, 0.06);
-  --fp-shadow-lg: 0 2px 6px rgba(11, 31, 58, 0.08), 0 18px 40px rgba(11, 31, 58, 0.14);
-  --fp-shadow-glow: 0 8px 24px rgba(var(--fp-accent-rgb), 0.35); /* accent lift */
-  --fp-ring: 0 0 0 3px rgba(var(--fp-accent-rgb), 0.35); /* focus ring */
+  /* Layered, soft elevation + a faint petrol-tinted ambient shadow. */
+  --fp-shadow-sm: 0 1px 2px rgba(6, 35, 31, 0.07);
+  --fp-shadow: 0 1px 2px rgba(6, 35, 31, 0.07), 0 4px 14px rgba(6, 35, 31, 0.08);
+  --fp-shadow-lg: 0 2px 6px rgba(6, 35, 31, 0.1), 0 20px 44px rgba(6, 35, 31, 0.16);
+  --fp-shadow-glow: 0 8px 26px rgba(var(--fp-accent-rgb), 0.4); /* gold lift */
+  --fp-ring: 0 0 0 3px rgba(var(--fp-accent-rgb), 0.4); /* focus ring */
 
   /* ---- Motion -------------------------------------------------------- */
   --fp-ease: cubic-bezier(0.22, 1, 0.36, 1); /* expressive ease-out */
@@ -108,62 +143,77 @@
 }
 
 /* ---- Dark theme ------------------------------------------------------ */
-/* A real, intentional dark theme: deep navy-black surfaces, a brighter accent
-   for contrast, grain-lit ink chrome — not an inverted grey. */
+/* A real, intentional dark theme: deep petrol-black surfaces, brass-gold and
+   mint accents that glow against them — not an inverted grey. */
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --fp-ink: #060f1d;
-  --fp-ink-700: #0e2947;
-  --fp-ink-900: #030a15;
-  --fp-heading: #f1f6fc;
+  --fp-ink: #06231f;
+  --fp-ink-700: #0c3e35;
+  --fp-ink-900: #031512;
+  --fp-heading: #f4efe2;
 
-  --fp-accent: #2dd4bf;
-  --fp-accent-2: #34d399;
-  --fp-accent-hover: #5eead4;
-  --fp-accent-soft: #10342f;
-  --fp-accent-rgb: 45, 212, 191;
+  --fp-gold: #e6c877;
+  --fp-gold-2: #f3dc9a;
+  --fp-gold-deep: #c8a24b;
+  --fp-accent: #e6c877; /* brighter gold for contrast on petrol-black */
+  --fp-accent-2: #f3dc9a;
+  --fp-accent-hover: #f3dc9a;
+  --fp-accent-soft: #2a2415;
+  --fp-accent-rgb: 230, 200, 119;
 
-  --fp-gradient: linear-gradient(135deg, #2dd4bf 0%, #34d399 100%);
-  --fp-gradient-ink: linear-gradient(155deg, #0e2947 0%, #081829 55%, #030a15 100%);
+  --fp-teal: #2ad8ad;
+  --fp-teal-ink: #58e6c4;
+  --fp-teal-rgb: 42, 216, 173;
+
+  --fp-gradient: linear-gradient(135deg, #c8a24b 0%, #e6c877 50%, #f3dc9a 100%);
+  --fp-gradient-ink: linear-gradient(155deg, #0c3e35 0%, #06231f 55%, #031512 100%);
   --fp-aurora:
-    radial-gradient(60% 120% at 12% -10%, rgba(52, 211, 153, 0.22) 0%, rgba(52, 211, 153, 0) 60%),
-    radial-gradient(45% 100% at 98% 0%, rgba(45, 212, 191, 0.2) 0%, rgba(45, 212, 191, 0) 55%),
-    radial-gradient(90% 160% at 50% 120%, rgba(45, 212, 191, 0.12) 0%, rgba(45, 212, 191, 0) 70%);
+    radial-gradient(60% 120% at 12% -10%, rgba(230, 200, 119, 0.26) 0%, rgba(230, 200, 119, 0) 60%),
+    radial-gradient(48% 100% at 96% 4%, rgba(42, 216, 173, 0.22) 0%, rgba(42, 216, 173, 0) 55%),
+    radial-gradient(90% 150% at 50% 118%, rgba(42, 216, 173, 0.12) 0%, rgba(42, 216, 173, 0) 70%);
+  --fp-sheen: linear-gradient(
+    110deg,
+    rgba(255, 255, 255, 0) 32%,
+    rgba(255, 255, 255, 0.22) 48%,
+    rgba(230, 200, 119, 0.3) 54%,
+    rgba(255, 255, 255, 0) 70%
+  );
 
-  --fp-surface: #0f1b2d;
-  --fp-surface-2: #13233a;
-  --fp-surface-glass: rgba(16, 28, 46, 0.66);
-  --fp-bg: #070e1a;
-  --fp-bg-2: #0a1424;
-  --fp-border: #1e2f45;
-  --fp-border-strong: #2a3d57;
+  --fp-surface: #0b241f;
+  --fp-surface-2: #0f2f29;
+  --fp-surface-glass: rgba(11, 36, 31, 0.66);
+  --fp-bg: #051916;
+  --fp-bg-2: #082019;
+  --fp-border: #1a3a33;
+  --fp-border-strong: #295249;
+  --fp-hairline: linear-gradient(90deg, rgba(230, 200, 119, 0) 0%, rgba(230, 200, 119, 0.5) 50%, rgba(230, 200, 119, 0) 100%);
 
-  --fp-text: #e7edf5;
-  --fp-muted: #9fb0c6;
-  --fp-faint: #7889a0;
+  --fp-text: #e8ece6;
+  --fp-muted: #9db4a8;
+  --fp-faint: #74897e;
 
-  --fp-success: #4ade80;
-  --fp-success-bg: #10281b;
-  --fp-success-bd: #1f4d33;
-  --fp-danger: #f87171;
-  --fp-danger-bg: #2a1414;
-  --fp-danger-bd: #4d2323;
-  --fp-warning: #fbbf24;
-  --fp-warning-bg: #2a2110;
-  --fp-warning-bd: #4d3d1a;
-  --fp-info: #60a5fa;
-  --fp-info-bg: #12213d;
-  --fp-info-bd: #243a5e;
-  --fp-neutral: #94a3b8;
-  --fp-neutral-bg: #1b2a40;
-  --fp-neutral-bd: #2c3f59;
+  --fp-success: #39d9ac;
+  --fp-success-bg: #0a2a22;
+  --fp-success-bd: #1c4d3f;
+  --fp-danger: #f08a7d;
+  --fp-danger-bg: #2d1512;
+  --fp-danger-bd: #553029;
+  --fp-warning: #ecc462;
+  --fp-warning-bg: #2a230f;
+  --fp-warning-bd: #4d3f1a;
+  --fp-info: #5fc9bb;
+  --fp-info-bg: #0c2b28;
+  --fp-info-bd: #1f4a45;
+  --fp-neutral: #9db4a8;
+  --fp-neutral-bg: #122e28;
+  --fp-neutral-bd: #244a42;
 
-  --fp-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --fp-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 16px rgba(0, 0, 0, 0.45);
-  --fp-shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.5), 0 24px 48px rgba(0, 0, 0, 0.6);
-  --fp-shadow-glow: 0 8px 28px rgba(var(--fp-accent-rgb), 0.4);
-  --fp-ring: 0 0 0 3px rgba(var(--fp-accent-rgb), 0.45);
+  --fp-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --fp-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 6px 18px rgba(0, 0, 0, 0.5);
+  --fp-shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.55), 0 26px 52px rgba(0, 0, 0, 0.65);
+  --fp-shadow-glow: 0 8px 30px rgba(var(--fp-accent-rgb), 0.45);
+  --fp-ring: 0 0 0 3px rgba(var(--fp-accent-rgb), 0.5);
 }
 
 /* Same dark palette when the OS asks for dark and the viewer hasn't forced
@@ -173,56 +223,71 @@
   :root:not([data-theme="light"]) {
     color-scheme: dark;
 
-    --fp-ink: #060f1d;
-    --fp-ink-700: #0e2947;
-    --fp-ink-900: #030a15;
-    --fp-heading: #f1f6fc;
+    --fp-ink: #06231f;
+    --fp-ink-700: #0c3e35;
+    --fp-ink-900: #031512;
+    --fp-heading: #f4efe2;
 
-    --fp-accent: #2dd4bf;
-    --fp-accent-2: #34d399;
-    --fp-accent-hover: #5eead4;
-    --fp-accent-soft: #10342f;
-    --fp-accent-rgb: 45, 212, 191;
+    --fp-gold: #e6c877;
+    --fp-gold-2: #f3dc9a;
+    --fp-gold-deep: #c8a24b;
+    --fp-accent: #e6c877;
+    --fp-accent-2: #f3dc9a;
+    --fp-accent-hover: #f3dc9a;
+    --fp-accent-soft: #2a2415;
+    --fp-accent-rgb: 230, 200, 119;
 
-    --fp-gradient: linear-gradient(135deg, #2dd4bf 0%, #34d399 100%);
-    --fp-gradient-ink: linear-gradient(155deg, #0e2947 0%, #081829 55%, #030a15 100%);
+    --fp-teal: #2ad8ad;
+    --fp-teal-ink: #58e6c4;
+    --fp-teal-rgb: 42, 216, 173;
+
+    --fp-gradient: linear-gradient(135deg, #c8a24b 0%, #e6c877 50%, #f3dc9a 100%);
+    --fp-gradient-ink: linear-gradient(155deg, #0c3e35 0%, #06231f 55%, #031512 100%);
     --fp-aurora:
-      radial-gradient(60% 120% at 12% -10%, rgba(52, 211, 153, 0.22) 0%, rgba(52, 211, 153, 0) 60%),
-      radial-gradient(45% 100% at 98% 0%, rgba(45, 212, 191, 0.2) 0%, rgba(45, 212, 191, 0) 55%),
-      radial-gradient(90% 160% at 50% 120%, rgba(45, 212, 191, 0.12) 0%, rgba(45, 212, 191, 0) 70%);
+      radial-gradient(60% 120% at 12% -10%, rgba(230, 200, 119, 0.26) 0%, rgba(230, 200, 119, 0) 60%),
+      radial-gradient(48% 100% at 96% 4%, rgba(42, 216, 173, 0.22) 0%, rgba(42, 216, 173, 0) 55%),
+      radial-gradient(90% 150% at 50% 118%, rgba(42, 216, 173, 0.12) 0%, rgba(42, 216, 173, 0) 70%);
+    --fp-sheen: linear-gradient(
+      110deg,
+      rgba(255, 255, 255, 0) 32%,
+      rgba(255, 255, 255, 0.22) 48%,
+      rgba(230, 200, 119, 0.3) 54%,
+      rgba(255, 255, 255, 0) 70%
+    );
 
-    --fp-surface: #0f1b2d;
-    --fp-surface-2: #13233a;
-    --fp-surface-glass: rgba(16, 28, 46, 0.66);
-    --fp-bg: #070e1a;
-    --fp-bg-2: #0a1424;
-    --fp-border: #1e2f45;
-    --fp-border-strong: #2a3d57;
+    --fp-surface: #0b241f;
+    --fp-surface-2: #0f2f29;
+    --fp-surface-glass: rgba(11, 36, 31, 0.66);
+    --fp-bg: #051916;
+    --fp-bg-2: #082019;
+    --fp-border: #1a3a33;
+    --fp-border-strong: #295249;
+    --fp-hairline: linear-gradient(90deg, rgba(230, 200, 119, 0) 0%, rgba(230, 200, 119, 0.5) 50%, rgba(230, 200, 119, 0) 100%);
 
-    --fp-text: #e7edf5;
-    --fp-muted: #9fb0c6;
-    --fp-faint: #7889a0;
+    --fp-text: #e8ece6;
+    --fp-muted: #9db4a8;
+    --fp-faint: #74897e;
 
-    --fp-success: #4ade80;
-    --fp-success-bg: #10281b;
-    --fp-success-bd: #1f4d33;
-    --fp-danger: #f87171;
-    --fp-danger-bg: #2a1414;
-    --fp-danger-bd: #4d2323;
-    --fp-warning: #fbbf24;
-    --fp-warning-bg: #2a2110;
-    --fp-warning-bd: #4d3d1a;
-    --fp-info: #60a5fa;
-    --fp-info-bg: #12213d;
-    --fp-info-bd: #243a5e;
-    --fp-neutral: #94a3b8;
-    --fp-neutral-bg: #1b2a40;
-    --fp-neutral-bd: #2c3f59;
+    --fp-success: #39d9ac;
+    --fp-success-bg: #0a2a22;
+    --fp-success-bd: #1c4d3f;
+    --fp-danger: #f08a7d;
+    --fp-danger-bg: #2d1512;
+    --fp-danger-bd: #553029;
+    --fp-warning: #ecc462;
+    --fp-warning-bg: #2a230f;
+    --fp-warning-bd: #4d3f1a;
+    --fp-info: #5fc9bb;
+    --fp-info-bg: #0c2b28;
+    --fp-info-bd: #1f4a45;
+    --fp-neutral: #9db4a8;
+    --fp-neutral-bg: #122e28;
+    --fp-neutral-bd: #244a42;
 
-    --fp-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --fp-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 16px rgba(0, 0, 0, 0.45);
-    --fp-shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.5), 0 24px 48px rgba(0, 0, 0, 0.6);
-    --fp-shadow-glow: 0 8px 28px rgba(var(--fp-accent-rgb), 0.4);
-    --fp-ring: 0 0 0 3px rgba(var(--fp-accent-rgb), 0.45);
+    --fp-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+    --fp-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 6px 18px rgba(0, 0, 0, 0.5);
+    --fp-shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.55), 0 26px 52px rgba(0, 0, 0, 0.65);
+    --fp-shadow-glow: 0 8px 30px rgba(var(--fp-accent-rgb), 0.45);
+    --fp-ring: 0 0 0 3px rgba(var(--fp-accent-rgb), 0.5);
   }
 }

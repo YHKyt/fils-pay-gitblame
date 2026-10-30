@@ -4,7 +4,7 @@ import { listDeliveries, listWebhookEndpoints, replayDelivery } from "../../api/
 import { describeError } from "../../api/client.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { Pagination } from "../../components/Pagination.js";
-import { dash, dateTime } from "../../format.js";
+import { dash, dateTime, statusLabel } from "../../format.js";
 import type { WebhookDeliveryDto, WebhookDeliveryStatus, WebhookEndpointDto } from "../../types.js";
 
 /** `webhook_deliveries.status`' four CHECK values. Note the dispatcher only
@@ -132,7 +132,7 @@ export function WebhookEndpointDetailPage() {
           </dd>
           <dt>Status</dt>
           <dd>
-            <span className={`dash-status dash-status-${endpoint.status}`}>{endpoint.status}</span>
+            <span className={`dash-status dash-status-${endpoint.status}`}>{statusLabel(endpoint.status)}</span>
           </dd>
           <dt>Created at</dt>
           <dd>{dateTime(endpoint.createdAt)}</dd>
@@ -159,7 +159,7 @@ export function WebhookEndpointDetailPage() {
 
       {error ? <p className="dash-error">{error}</p> : null}
 
-      <table className="dash-table">
+      <div className="dash-tablewrap"><table className="dash-table">
         <thead>
           <tr>
             <th>Created</th>
@@ -236,7 +236,7 @@ export function WebhookEndpointDetailPage() {
             </tr>
           ) : null}
         </tbody>
-      </table>
+      </table></div>
 
       {loading ? <p className="dash-loading">Loading…</p> : null}
 

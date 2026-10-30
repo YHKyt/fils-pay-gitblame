@@ -2,13 +2,25 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { RouterProvider } from "react-router-dom";
 import { router } from "./router.js";
-// Inter, bundled offline via @fontsource (woff2 emitted into dist by Vite) —
-// no CDN, so the hosted air-gapped box renders the brand type with no network.
-// 400 body, 500/600 UI weights, 700 for headings and amounts.
+// Brand type, all bundled offline via @fontsource (woff2 emitted into dist by
+// Vite) — no CDN, so the hosted air-gapped box renders the identity with no
+// network. Three families carry the "Pearl of the Gulf" voice:
+//   • Fraunces — a high-contrast display serif for the wordmark, page titles
+//     and hero amounts (the characterful, unmistakable part of the brand);
+//   • Inter — body, UI, tables and forms (even, legible at small sizes);
+//   • JetBrains Mono — amounts, ids and codes (tabular digits that line up).
+import "@fontsource/fraunces/400.css";
+import "@fontsource/fraunces/500.css";
+import "@fontsource/fraunces/600.css";
+import "@fontsource/fraunces/700.css";
+import "@fontsource/fraunces/900.css";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
 import "@fontsource/inter/700.css";
+import "@fontsource/jetbrains-mono/400.css";
+import "@fontsource/jetbrains-mono/500.css";
+import "@fontsource/jetbrains-mono/700.css";
 import "./tokens.css";
 import { applyStoredTheme } from "./theme.js";
 

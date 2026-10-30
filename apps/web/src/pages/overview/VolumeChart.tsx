@@ -52,16 +52,29 @@ export function VolumeChart({ points }: { points: VolumePointDto[] }) {
         aria-label={`Daily captured gross volume, peak ${bhd(max)}`}
       >
         <defs>
+          {/* Signature gold→teal area wash: brass at the crest, Gulf-mint as
+              it falls to the baseline. */}
           <linearGradient id="fp-chart-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="var(--fp-accent)" stopOpacity="0.3" />
-            <stop offset="1" stopColor="var(--fp-accent)" stopOpacity="0.02" />
+            <stop offset="0" stopColor="var(--fp-gold)" stopOpacity="0.38" />
+            <stop offset="0.6" stopColor="var(--fp-teal)" stopOpacity="0.14" />
+            <stop offset="1" stopColor="var(--fp-teal)" stopOpacity="0.02" />
+          </linearGradient>
+          <linearGradient id="fp-chart-stroke" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stopColor="var(--fp-gold-deep)" />
+            <stop offset="0.5" stopColor="var(--fp-gold)" />
+            <stop offset="1" stopColor="var(--fp-teal)" />
           </linearGradient>
         </defs>
         {gridYs.map((gy, i) => (
           <line key={i} className="dash-chart-grid" x1={padL} y1={gy} x2={width - padR} y2={gy} />
         ))}
         <path className="dash-chart-area" d={area} fill="url(#fp-chart-fill)" />
-        <path className="dash-chart-line dash-draw" d={line} style={{ ["--dash-len" as string]: "3000" }} />
+        <path
+          className="dash-chart-line dash-draw"
+          d={line}
+          stroke="url(#fp-chart-stroke)"
+          style={{ ["--dash-len" as string]: "3000" }}
+        />
         {n > 1 ? (
           <>
             <text className="dash-chart-axis" x={padL} y={height - 8} textAnchor="start">

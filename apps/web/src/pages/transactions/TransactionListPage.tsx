@@ -4,7 +4,7 @@ import { listTransactions } from "../../api/transactions.js";
 import { describeError } from "../../api/client.js";
 import { Pagination } from "../../components/Pagination.js";
 import { SkeletonRows } from "../../components/SkeletonRows.js";
-import { bhd, dash, dateTime, dayStartIso } from "../../format.js";
+import { bhd, dash, dateTime, dayStartIso, statusLabel } from "../../format.js";
 import { classNames, pluralize, truncateMiddle } from "../../utils/helpers.js";
 import type { TransactionDto, TransactionStatus } from "../../types.js";
 
@@ -95,7 +95,7 @@ export function TransactionListPage() {
               checked={statuses.includes(status)}
               onChange={() => toggleStatus(status)}
             />
-            {status}
+            {statusLabel(status)}
           </label>
         ))}
       </fieldset>
@@ -127,9 +127,9 @@ export function TransactionListPage() {
 
       {error ? <p className="dash-error">{error}</p> : null}
 
-      <p>{pluralize(transactions.length, "transaction")} loaded</p>
+      <p className="dash-muted">Showing {pluralize(transactions.length, "transaction")}</p>
 
-      <table className="dash-table">
+      <div className="dash-tablewrap"><table className="dash-table">
         <thead>
           <tr>
             <th>Occurred</th>
@@ -148,7 +148,7 @@ export function TransactionListPage() {
               </td>
               <td>{dash(txn.reference)}</td>
               <td>
-                <span className={classNames("dash-status", `dash-status-${txn.status}`)}>{txn.status}</span>
+                <span className={classNames("dash-status", `dash-status-${txn.status}`)}>{statusLabel(txn.status)}</span>
               </td>
               <td className="dash-num">{bhd(txn.amountFils)}</td>
               <td className="dash-num">{bhd(txn.capturedFils)}</td>
@@ -164,7 +164,7 @@ export function TransactionListPage() {
             </tr>
           ) : null}
         </tbody>
-      </table>
+      </table></div>
 
       {loading ? <p className="dash-loading">Loading…</p> : null}
 

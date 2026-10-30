@@ -8,7 +8,7 @@ import {
 import { describeError } from "../../api/client.js";
 import { SkeletonRows } from "../../components/SkeletonRows.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
-import { dateTime } from "../../format.js";
+import { dateTime, statusLabel } from "../../format.js";
 import type { WebhookEndpointDto } from "../../types.js";
 
 /**
@@ -96,7 +96,7 @@ export function WebhookEndpointListPage() {
 
       {error ? <p className="dash-error">{error}</p> : null}
 
-      <table className="dash-table">
+      <div className="dash-tablewrap"><table className="dash-table">
         <thead>
           <tr>
             <th>URL</th>
@@ -116,7 +116,7 @@ export function WebhookEndpointListPage() {
                 <code>{endpoint.secretPrefix}</code>
               </td>
               <td>
-                <span className={`dash-status dash-status-${endpoint.status}`}>{endpoint.status}</span>
+                <span className={`dash-status dash-status-${endpoint.status}`}>{statusLabel(endpoint.status)}</span>
               </td>
               <td>{dateTime(endpoint.createdAt)}</td>
               <td>
@@ -146,7 +146,7 @@ export function WebhookEndpointListPage() {
             </tr>
           ) : null}
         </tbody>
-      </table>
+      </table></div>
 
       {loading ? <p className="dash-loading">Loading…</p> : null}
     </section>

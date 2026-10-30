@@ -1,8 +1,10 @@
 import { useRef, useState } from "react";
+import { parseBhdToFils } from "@filspay/money";
 import { describeError, request } from "../../api/client.js";
 import { useDashboardAuth } from "../../auth/DashboardAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { bhd } from "../../format.js";
+import { ConfirmDialog } from "../../components/ConfirmDialog.js";
 import type { TransactionDto } from "../../types.js";
 import { attemptFor, isDefinitiveFailure, type IdempotentAttempt } from "../../utils/idempotencyIntent.js";
 
@@ -34,6 +36,7 @@ export function RefundDrawer({ txn, onRefunded }: RefundDrawerProps) {
   const { me } = useDashboardAuth();
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("");
+  const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // One key per refund *intent*, not per click or keystroke: a double-click
@@ -46,20 +49,45 @@ export function RefundDrawer({ txn, onRefunded }: RefundDrawerProps) {
   const remainingFils = txn.capturedFils - txn.refundedFils;
   if (!REFUNDABLE_STATUSES.has(txn.status) || remainingFils <= 0) return null;
 
-  async function handleRefund(event: React.FormEvent): Promise<void> {
+  // Parse the BHD-entered amount (3 decimals) to integer fils. Blank = a full
+  // refund of everything still refundable. The API payload stays integer fils,
+  // so no money behaviour changes — only the unit the operator types in.
+  function parseAmountFils(): { fils: number | null; error: string | null } {
+    const trimmed = amount.trim();
+    if (trimmed === "") return { fils: null, error: null };
+    let fils: number;
+    try {
+      fils = parseBhdToFils(trimmed);
+    } catch {
+      return { fils: null, error: "Enter an amount in BHD, up to 3 decimals (for example 12.500)." };
+    }
+    if (fils <= 0) return { fils: null, error: "Enter a refund amount above 0.000 BHD." };
+    if (fils > remainingFils) return { fils: null, error: `You can refund at most ${bhd(remainingFils)} on this payment.` };
+    return { fils, error: null };
+  }
+
+  const parsed = parseAmountFils();
+  const refundFils = parsed.fils ?? remainingFils;
+
+  function reviewRefund(event: React.FormEvent): void {
     event.preventDefault();
-    if (!merchantId || submitting) return;
-    if (!window.confirm("Refund this transaction? The money goes back to the cardholder and cannot be recalled.")) {
+    if (parsed.error) {
+      setError(parsed.error);
       return;
     }
+    setError(null);
+    setConfirming(true);
+  }
 
+  async function doRefund(): Promise<void> {
+    if (!merchantId || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
-      const trimmed = amount.trim();
-      // Left blank, amountFils is omitted and the API refunds everything
-      // still refundable.
-      const body = trimmed === "" ? { transactionId: txn.id } : { transactionId: txn.id, amountFils: Number(trimmed) };
+      const body =
+        parsed.fils === null
+          ? { transactionId: txn.id }
+          : { transactionId: txn.id, amountFils: parsed.fils };
 
       const payload = JSON.stringify(body);
       const current = attemptFor(attempt.current, payload);
@@ -72,6 +100,7 @@ export function RefundDrawer({ txn, onRefunded }: RefundDrawerProps) {
       });
 
       attempt.current = null;
+      setConfirming(false);
       setOpen(false);
       setAmount("");
       // Refetch rather than patch: the refund wrote a new transaction_events
@@ -82,6 +111,7 @@ export function RefundDrawer({ txn, onRefunded }: RefundDrawerProps) {
       // again), so the next attempt needs a fresh one. A network error or
       // 5xx keeps the key so the retry is deduplicated server-side.
       if (isDefinitiveFailure(err)) attempt.current = null;
+      setConfirming(false);
       setError(describeError(err));
     } finally {
       setSubmitting(false);
@@ -93,26 +123,36 @@ export function RefundDrawer({ txn, onRefunded }: RefundDrawerProps) {
       <div className="dash-actions">
         {error ? <p className="dash-error">{error}</p> : null}
         {open ? (
-          <form className="dash-form dash-form-inline" onSubmit={(e) => void handleRefund(e)}>
+          <form className="dash-form dash-form-inline" onSubmit={reviewRefund}>
             <label>
-              Amount in fils (blank refunds everything still refundable)
-              <input
-                type="number"
-                min={1}
-                step={1}
-                max={remainingFils}
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-              />
+              Refund amount
+              <span className="dash-money-input">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  placeholder={formatRefundable(remainingFils)}
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  aria-describedby="refund-hint"
+                />
+                <span className="dash-money-suffix">BHD</span>
+              </span>
             </label>
-            <p className="dash-muted">
-              Captured: {bhd(txn.capturedFils)} · Already refunded: {bhd(txn.refundedFils)} · Refundable:{" "}
-              {bhd(remainingFils)}
+            <p id="refund-hint" className="dash-muted">
+              Leave blank to refund the full {bhd(remainingFils)}. Captured {bhd(txn.capturedFils)} · Already
+              refunded {bhd(txn.refundedFils)}.
             </p>
-            <button type="submit" className="dash-button dash-button-danger" disabled={submitting}>
-              {submitting ? "Refunding..." : "Refund"}
+            <button type="submit" className="dash-button dash-button-danger">
+              Review refund
             </button>
-            <button type="button" className="dash-button" disabled={submitting} onClick={() => setOpen(false)}>
+            <button
+              type="button"
+              className="dash-button"
+              onClick={() => {
+                setOpen(false);
+                setError(null);
+              }}
+            >
               Cancel
             </button>
           </form>
@@ -122,6 +162,30 @@ export function RefundDrawer({ txn, onRefunded }: RefundDrawerProps) {
           </button>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirming}
+        title="Refund to the cardholder"
+        amount={bhd(refundFils)}
+        message={
+          <>
+            This refunds <strong>{bhd(refundFils)}</strong> to the cardholder for{" "}
+            {txn.reference ? <strong>{txn.reference}</strong> : "this payment"}. The money goes back to their
+            card and can't be recalled.
+          </>
+        }
+        confirmLabel={`Refund ${bhd(refundFils)}`}
+        tone="danger"
+        busy={submitting}
+        onConfirm={() => void doRefund()}
+        onCancel={() => setConfirming(false)}
+      />
     </RequireRole>
   );
+}
+
+/** The refundable amount as a plain BHD number for the input placeholder
+ *  (no "BHD" suffix, which the adornment already shows). */
+function formatRefundable(fils: number): string {
+  return bhd(fils).replace(" BHD", "");
 }
