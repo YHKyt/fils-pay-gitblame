@@ -218,36 +218,23 @@ async function attemptOneDelivery(
   );
 }
 
-/** Step B: attempt every currently-due 'pending' delivery, sequentially. */
+/** Step B: attempt up to STEP_B_BATCH_LIMIT currently-due 'pending'
+ *  deliveries, sequentially. */
 // Claims due rows atomically: SKIP LOCKED + pushing next_attempt_at out by a
 // lease means a second replica (or an overlapping NOTIFY + poll pass) can't
 // select the same row and send the delivery twice. The outcome UPDATE in
 // attemptOneDelivery then sets the real next_attempt_at; a crash mid-send
 // just retries after the lease.
+// Rows are claimed one at a time, right before their send: the lease only
+// has to cover one send (at most webhookRequestTimeoutMs). Claiming the whole
+// batch up front let the lease on rows queued behind slow sends lapse while
+// they still waited their turn, so another pass claimed and sent them too.
 async function attemptDueDeliveries(pool: Pool, transport: WebhookTransport, config: DispatcherConfig): Promise<number> {
-  const leaseMs = Math.max(config.webhookRequestTimeoutMs * 2, 30_000);
-  const dueResult = await pool.query<DueDeliveryRow>(
-    `WITH claimed AS (
-       UPDATE webhook_deliveries wd
-          SET next_attempt_at = now() + ($2::text || ' milliseconds')::interval
-        WHERE wd.id IN (
-          SELECT id FROM webhook_deliveries
-           WHERE status = 'pending' AND next_attempt_at <= now()
-             -- a disabled endpoint's pending rows wait (unclaimed) until it is re-enabled
-             AND EXISTS (SELECT 1 FROM webhook_endpoints we
-                          WHERE we.id = webhook_deliveries.endpoint_id AND we.status = 'active')
-           ORDER BY next_attempt_at ASC
-           LIMIT $1
-           FOR UPDATE SKIP LOCKED)
-       RETURNING wd.id, wd.endpoint_id, wd.event_type, wd.delivery_event_id, wd.payload, wd.attempt_count
-     )
-     SELECT c.*, we.url, we.secret_ciphertext
-       FROM claimed c
-       JOIN webhook_endpoints we ON we.id = c.endpoint_id`,
-    [STEP_B_BATCH_LIMIT, leaseMs],
-  );
-
-  for (const row of dueResult.rows) {
+  let attempted = 0;
+  while (attempted < STEP_B_BATCH_LIMIT) {
+    const row = await claimNextDueDelivery(pool, config);
+    if (!row) break;
+    attempted += 1;
     try {
       await attemptOneDelivery(pool, transport, config, row);
     } catch (err: unknown) {
@@ -256,18 +243,43 @@ async function attemptDueDeliveries(pool: Pool, transport: WebhookTransport, con
       // webhookSecretEncryptionKey) must never abort the whole pass — that
       // would couple every OTHER merchant's delivery to this one poisoned
       // row. Endpoints are never coupled to each other.
-      // Deliberately leave this row's status/attempt_count/next_attempt_at
-      // untouched: it is simply retried next pass, which self-heals if the
-      // failure was transient and otherwise degrades to "this one row never
-      // progresses" rather than "webhook delivery silently stops platform-
-      // wide."
+      // Deliberately leave this row's status/attempt_count untouched: its
+      // lease keeps it out of the rest of this pass and it is retried once
+      // the lease lapses, which self-heals if the failure was transient and
+      // otherwise degrades to "this one row never progresses" rather than
+      // "webhook delivery silently stops platform-wide."
       console.error(
         "[webhooks/dispatcher] delivery attempt threw before/around transport call, skipping row for this pass",
         { deliveryId: row.id, endpointId: row.endpoint_id, err },
       );
     }
   }
-  return dueResult.rows.length;
+  return attempted;
+}
+
+async function claimNextDueDelivery(pool: Pool, config: DispatcherConfig): Promise<DueDeliveryRow | undefined> {
+  const leaseMs = Math.max(config.webhookRequestTimeoutMs * 2, 30_000);
+  const dueResult = await pool.query<DueDeliveryRow>(
+    `WITH claimed AS (
+       UPDATE webhook_deliveries wd
+          SET next_attempt_at = now() + ($1::text || ' milliseconds')::interval
+        WHERE wd.id IN (
+          SELECT id FROM webhook_deliveries
+           WHERE status = 'pending' AND next_attempt_at <= now()
+             -- a disabled endpoint's pending rows wait (unclaimed) until it is re-enabled
+             AND EXISTS (SELECT 1 FROM webhook_endpoints we
+                          WHERE we.id = webhook_deliveries.endpoint_id AND we.status = 'active')
+           ORDER BY next_attempt_at ASC
+           LIMIT 1
+           FOR UPDATE SKIP LOCKED)
+       RETURNING wd.id, wd.endpoint_id, wd.event_type, wd.delivery_event_id, wd.payload, wd.attempt_count
+     )
+     SELECT c.*, we.url, we.secret_ciphertext
+       FROM claimed c
+       JOIN webhook_endpoints we ON we.id = c.endpoint_id`,
+    [leaseMs],
+  );
+  return dueResult.rows[0];
 }
 
 /**
