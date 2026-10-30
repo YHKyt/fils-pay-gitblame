@@ -156,8 +156,11 @@ services:
     environment:
       SETTLEMENT_INTERNAL_TOKEN: ${SETTLEMENT_INTERNAL_TOKEN:?set in ops/.env}
       DATABASE_URL: *database-url
+    # After seed too: the daemon reads the tables the seed truncates.
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      seed:
         condition: service_completed_successfully
 
   reporting:
@@ -170,8 +173,14 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: *database-url
+    # After seed, not just migrate: the seed's TRUNCATE ... CASCADE needs an
+    # exclusive lock on outbox_events, which this consumer polls. Started
+    # alongside the seed, the two deadlocked (40P01) and the first `up` on an
+    # empty volume failed every time.
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      seed:
         condition: service_completed_successfully
 
 volumes:
