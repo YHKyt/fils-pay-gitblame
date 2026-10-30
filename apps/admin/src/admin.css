@@ -1720,3 +1720,32 @@ body:has(.admin-centered) .admin-centered {
   pointer-events: none;
   opacity: 0.45;
 }
+
+/* Calm motion for an ops tool: no row cascade, no hover lift on cards
+   that are not links. Reduced motion turns everything off. */
+.admin-table tbody tr {
+  animation: none;
+}
+.admin-stat:hover {
+  transform: none;
+  box-shadow: var(--fp-shadow-sm);
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Submit buttons keep their own width instead of stretching the form. */
+.admin-form > button,
+.admin-form > div > button {
+  align-self: flex-start;
+}
+
+/* Faint text was ~2.6:1 on the light theme. */
+:root:not([data-theme="dark"]) {
+  --fp-faint: #76857f;
+}
