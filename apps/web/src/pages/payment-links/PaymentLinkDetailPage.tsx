@@ -113,9 +113,12 @@ export function PaymentLinkDetailPage() {
           <p className="dash-eyebrow">
             <Link to="/dashboard/payment-links">Payment links</Link> / Detail
           </p>
-          <h1>Payment link</h1>
+          <h1>
+            {bhdDisplay(link.amountFils)}
+            {link.reference ? <span className="dash-h1-sub"> · {link.reference}</span> : null}
+          </h1>
           <p className="dash-muted dash-id-line">
-            <code>{link.id}</code>
+            <code title="Payment link ID">{link.id}</code>
           </p>
         </div>
         <span className={`dash-status dash-status-${displayStatus}`}>{statusLabel(displayStatus)}</span>
