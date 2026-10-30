@@ -43,6 +43,11 @@ const businessDateLayout = "2006-01-02"
 // is already committing.
 const shutdownTimeout = 30 * time.Second
 
+// adminRunTimeout bounds one admin run-batch or recalculate-mdr. The run
+// does not stop when the caller hangs up (see runContext), so this and the
+// end of a graceful shutdown are what stop a run that never finishes.
+const adminRunTimeout = 30 * time.Minute
+
 // runBatchRequest is POST /internal/run-batch's body.
 type runBatchRequest struct {
 	Date       string `json:"date"`
@@ -128,12 +133,36 @@ type errorResponse struct {
 // Every route requires the bearer token; this server has no unauthenticated
 // health route.
 func Handler(pool *pgxpool.Pool, cfg config.Config) http.Handler {
+	return handler(context.Background(), pool, cfg)
+}
+
+// handler is Handler with the server's lifetime: Serve passes the context it
+// cancels once its graceful-shutdown wait is over, which still stops an admin
+// run that has outlived its caller (see runContext).
+func handler(lifetime context.Context, pool *pgxpool.Pool, cfg config.Config) http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/internal/run-batch", requireBearerToken(cfg.InternalToken, requirePost(handleRunBatch(pool))))
+	mux.Handle("/internal/run-batch", requireBearerToken(cfg.InternalToken, requirePost(handleRunBatch(lifetime, pool))))
 	mux.Handle("/internal/rebuild-balances", requireBearerToken(cfg.InternalToken, requirePost(handleRebuildBalances(pool))))
 	// FH: recalculate-mdr is 'safe' per ADMIN.md -- finance runs it after every rate change
-	mux.Handle("/internal/recalculate-mdr", requireBearerToken(cfg.InternalToken, requirePost(handleRecalculateMDR(pool))))
+	mux.Handle("/internal/recalculate-mdr", requireBearerToken(cfg.InternalToken, requirePost(handleRecalculateMDR(lifetime, pool))))
 	return mux
+}
+
+// runContext is the context an admin run-batch or recalculate-mdr runs
+// under. It is detached from the request: apps/api gives up after
+// SETTLEMENT_INTERNAL_REQUEST_TIMEOUT_MS (30 s by default) and closes the
+// connection, which cancels r.Context(). RunDailyBatch is a sequence of
+// separate transactions (close, then pay out, per merchant), so a run still
+// going at that point stopped partway: the current batch closed but unpaid,
+// the later merchants not settled at all. The run now ends when it is done,
+// after adminRunTimeout, or when lifetime ends.
+func runContext(lifetime context.Context, r *http.Request) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), adminRunTimeout)
+	stop := context.AfterFunc(lifetime, cancel)
+	return ctx, func() {
+		stop()
+		cancel()
+	}
 }
 
 // Serve starts the internal HTTP server on cfg.InternalPort and blocks
@@ -152,7 +181,7 @@ func Serve(ctx context.Context, pool *pgxpool.Pool, cfg config.Config) error {
 	baseCtx, cancelInFlight := context.WithCancel(context.WithoutCancel(ctx))
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           Handler(pool, cfg),
+		Handler:           handler(baseCtx, pool, cfg),
 		BaseContext:       func(net.Listener) context.Context { return baseCtx },
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -221,7 +250,7 @@ func requirePost(next http.Handler) http.Handler {
 // handleRunBatch parses the request and calls the existing, unmodified
 // settlement.RunDailyBatch — the same function the `run-batch` CLI
 // subcommand calls, with the same arguments.
-func handleRunBatch(pool *pgxpool.Pool) http.Handler {
+func handleRunBatch(lifetime context.Context, pool *pgxpool.Pool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body runBatchRequest
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil {
@@ -255,7 +284,9 @@ func handleRunBatch(pool *pgxpool.Pool) http.Handler {
 			onlyMerchant = &merchantID
 		}
 
-		report, err := settlement.RunDailyBatch(r.Context(), pool, businessDate, onlyMerchant)
+		runCtx, cancel := runContext(lifetime, r)
+		defer cancel()
+		report, err := settlement.RunDailyBatch(runCtx, pool, businessDate, onlyMerchant)
 
 		results := make([]merchantBatchOutcomeResponse, 0, len(report.MerchantResults))
 		for _, result := range report.MerchantResults {
@@ -324,7 +355,7 @@ func handleRebuildBalances(pool *pgxpool.Pool) http.Handler {
 // settlement.RecalculateMDR — the same per-event ComputeSettlementFee
 // formula CloseBatch uses, applied to a merchant's historical batches at
 // their current contracted rate.
-func handleRecalculateMDR(pool *pgxpool.Pool) http.Handler {
+func handleRecalculateMDR(lifetime context.Context, pool *pgxpool.Pool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body recalculateMDRRequest
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&body); err != nil {
@@ -348,7 +379,9 @@ func handleRecalculateMDR(pool *pgxpool.Pool) http.Handler {
 			return
 		}
 
-		result, err := settlement.RecalculateMDR(r.Context(), pool, merchantID, from, to)
+		runCtx, cancel := runContext(lifetime, r)
+		defer cancel()
+		result, err := settlement.RecalculateMDR(runCtx, pool, merchantID, from, to)
 		// A refusal on the data, with nothing committed: the caller asked
 		// for a range holding a batch that cannot be re-rated per event.
 		if errors.Is(err, settlement.ErrBatchEventsIncomplete) {
