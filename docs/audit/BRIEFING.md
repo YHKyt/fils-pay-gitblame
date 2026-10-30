@@ -69,7 +69,14 @@ Counted from every write-up in `docs/audit/`, using the per-file numbers in the 
 | Seed realism (`seeddemo.md`, SD1-SD5) | 0 | 2 | 3 | 0 | 5 |
 | Bug hunt A (`hunt-a.md`, HA1-HA3) | 0 | 1 | 2 | 0 | 3 |
 | Bug hunt B (`hunt-b.md`, HB1-HB2) | 0 | 0 | 2 | 0 | 2 |
-| **Total** | **15** | **70** | **67** | **35** | **187** |
+| Fix round F1 (`fixf1.md`, FA1-FA4) | 0 | 0 | 1 | 3 | 4 |
+| Fix round F2 (`fixf2.md`, FB1-FB5; FB6 is docs only) | 0 | 1 | 3 | 1 | 5 |
+| Fix round F3 (`fixf3.md`, FC1-FC4) | 0 | 1 | 2 | 1 | 4 |
+| Hosting hardening (`hostharden.md`, HH1-HH3 and HH5; HH4 is sizing config) | 0 | 2 | 2 | 0 | 4 |
+| Capacity index (migration 0125, `hostharden.md` "Reported, not fixed", fixed in `5583a87`) | 0 | 1 | 0 | 0 | 1 |
+| **Total** | **15** | **75** | **75** | **40** | **205** |
+
+Added after the last fix batches: fixf1, fixf2, fixf3, hostharden and the capacity index (18 findings). Not counted there: FB6 (docs only), HH4 (box sizing config, no failing test), and every fixfp item. fixfp (FP1-FP6) restores base behaviour (limit clamp, PAN with spaces, public link fields, webhook replay roles, KYC `submitted`) or refines an earlier fix of ours (idempotent CSV re-upload), so it adds nothing; S7, M7 (recalculation), AD1 and AM1 were reviewed and kept, not new fixes. The strict count (merging the four shared-root-cause fixes) is 201.
 
 Duplicates are counted once: JP3 is SD5, JP5 is the zero-net payout item in `eventsbus.md`, the out-of-order consumer item in `sqlhunt.md` is RP1, and the one-merchant-stops-the-run item in `settleguards.md` is `settlerun.md`. Not counted: R1 (the feature), S8 (a review with no change), items with no severity or still open (see the README), and unrated "fixed in" notes inside reported-only sections.
 
