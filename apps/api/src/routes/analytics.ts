@@ -8,6 +8,7 @@ import {
   getTopLinks,
   getVolumes,
 } from "../analytics/query.js";
+import { parseOptionalPositiveInt } from "../lib/requestParams.js";
 
 interface DateRangeQuery {
   from?: string;
@@ -122,7 +123,7 @@ export async function analyticsRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: requireMerchantAuth },
     async (request) => {
       const { from, to } = parseDateRange(request.query);
-      const rawLimit = request.query.limit !== undefined ? Number.parseInt(request.query.limit, 10) : undefined;
+      const rawLimit = parseOptionalPositiveInt(request.query.limit, "limit");
       const limit = clampTopLinksLimit(rawLimit);
 
       return getTopLinks(app.db, {

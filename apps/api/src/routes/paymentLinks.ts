@@ -12,6 +12,7 @@ import { cancelPaymentLink } from "../paymentLinks/cancel.js";
 import { getPaymentLinkForMerchant, listPaymentLinks } from "../paymentLinks/query.js";
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "../lib/errors.js";
 import type { SimulatedCardInput } from "../acquirer/types.js";
+import { parseOptionalPositiveInt } from "../lib/requestParams.js";
 
 interface MerchantIdParams {
   merchantId: string;
@@ -126,7 +127,7 @@ export async function paymentLinkMerchantRoutes(app: FastifyInstance): Promise<v
       assertOwnMerchant(request);
       const q = request.query;
       const status = q.status === undefined ? undefined : Array.isArray(q.status) ? q.status : [q.status];
-      const limit = q.limit !== undefined ? Number.parseInt(q.limit, 10) : undefined;
+      const limit = parseOptionalPositiveInt(q.limit, "limit");
 
       return listPaymentLinks(app.db, app.config, {
         merchantId: request.params.merchantId,

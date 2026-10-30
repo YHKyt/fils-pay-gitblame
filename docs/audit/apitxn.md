@@ -85,6 +85,6 @@ regression test that fails on the pre-fix code and passes on the fix.
 - **Fixed in `1195b44`: `limit=0` on the list returned one row** (it was clamped to 1) instead of a 400 or the default.
   - Since B6b (`eaca6e2`), the route already answered 400 `invalid_request` for a negative or non-numeric limit, so zero now gets the same 400. The parser is `parseOptionalPositiveInt`, renamed from `parseOptionalNonNegativeInt`.
   - An empty `limit=` still means the default page, and a value above 100 is still capped.
-  - The lenient lists keep their WF5 behaviour: payment links, deliveries, settlement batches and admin lists use the default page for a non-numeric limit, and still clamp 0 to 1.
+  - Payment links, webhook deliveries, settlement batches and analytics top-links now follow the same rule (they used to page with a non-numeric limit and clamp 0 to 1). Admin lists keep the lenient default.
   - Test: `apps/api/src/routes/transactionsListLimit.test.ts`. On the old code, `limit=0` gave `400 !== 200`.
 - **Card data in the authorize idempotency hash (PCI).** Fixed in `0c34a1e`; see `api-security-and-refunds.md` S9.

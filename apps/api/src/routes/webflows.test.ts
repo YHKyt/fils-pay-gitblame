@@ -203,12 +203,17 @@ test("WF4: webhook endpoint create/update reject a non-string url and an unknown
   assert.deepEqual(after.rows[0], { url: "http://127.0.0.1:9/hook", status: "active" });
 });
 
-test("WF5: a non-numeric limit on the payment-link and delivery lists uses the default page size, not a 500", async () => {
+test("WF5: a zero or non-numeric limit on the payment-link and delivery lists is a 400 (like transactions), not a 500", async () => {
   const { merchantId, auth } = await approvedMerchant("limit");
   await createLink(merchantId, auth);
-  const links = await app.inject({ method: "GET", url: `/v1/merchants/${merchantId}/payment-links?limit=abc`, headers: auth });
-  assert.equal(links.statusCode, 200, links.body);
-  assert.equal(links.json<{ paymentLinks: unknown[] }>().paymentLinks.length, 1);
+  for (const bad of ["abc", "0", "-1"]) {
+    const links = await app.inject({ method: "GET", url: `/v1/merchants/${merchantId}/payment-links?limit=${bad}`, headers: auth });
+    assert.equal(links.statusCode, 400, links.body);
+    assert.equal(links.json<{ error: string }>().error, "invalid_request");
+  }
+  const page = await app.inject({ method: "GET", url: `/v1/merchants/${merchantId}/payment-links?limit=1`, headers: auth });
+  assert.equal(page.statusCode, 200, page.body);
+  assert.equal(page.json<{ paymentLinks: unknown[] }>().paymentLinks.length, 1);
 
   const created = await app.inject({
     method: "POST",
@@ -217,9 +222,17 @@ test("WF5: a non-numeric limit on the payment-link and delivery lists uses the d
     payload: { url: "http://127.0.0.1:9/hook" },
   });
   const { id } = created.json<{ id: string }>();
+  for (const bad of ["abc", "0"]) {
+    const deliveries = await app.inject({
+      method: "GET",
+      url: `/v1/merchants/${merchantId}/webhook-endpoints/${id}/deliveries?limit=${bad}`,
+      headers: auth,
+    });
+    assert.equal(deliveries.statusCode, 400, deliveries.body);
+  }
   const deliveries = await app.inject({
     method: "GET",
-    url: `/v1/merchants/${merchantId}/webhook-endpoints/${id}/deliveries?limit=abc`,
+    url: `/v1/merchants/${merchantId}/webhook-endpoints/${id}/deliveries?limit=5`,
     headers: auth,
   });
   assert.equal(deliveries.statusCode, 200, deliveries.body);

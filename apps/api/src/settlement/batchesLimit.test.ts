@@ -1,8 +1,8 @@
 /**
  * GET /v1/settlement/batches?limit=<not a number>: parseInt gives NaN,
  * Math.max/Math.min pass NaN through, and Postgres rejects LIMIT NaN, so the
- * caller got a 500. A garbage limit now falls back to the default page size,
- * the same way the analytics top-links limit already does. Requires
+ * caller got a 500. A zero, negative or garbage limit is now a 400
+ * invalid_request, the same contract as GET /v1/transactions. Requires
  * DATABASE_URL.
  */
 import assert from "node:assert/strict";
@@ -34,7 +34,7 @@ test.after(async () => {
   await pool.end();
 });
 
-test("a non-numeric limit lists batches with the default page size instead of a 500", async () => {
+test("a zero or non-numeric limit is a 400 (not a 500, not a page of one); a valid limit pages", async () => {
   const m = await pool.query<{ id: string }>(
     `INSERT INTO merchants (display_name, mdr_bps) VALUES ($1, 250) RETURNING id`,
     [`Batches Limit ${randomUUID()}`],
@@ -52,9 +52,18 @@ test("a non-numeric limit lists batches with the default page size instead of a 
     [merchantId],
   );
 
+  for (const bad of ["abc", "0"]) {
+    const refused = await app.inject({
+      method: "GET",
+      url: `/v1/settlement/batches?limit=${bad}`,
+      headers: { authorization: `Bearer ${rawKey}` },
+    });
+    assert.equal(refused.statusCode, 400, refused.body);
+    assert.equal((refused.json() as { error: string }).error, "invalid_request");
+  }
   const res = await app.inject({
     method: "GET",
-    url: "/v1/settlement/batches?limit=abc",
+    url: "/v1/settlement/batches?limit=10",
     headers: { authorization: `Bearer ${rawKey}` },
   });
   assert.equal(res.statusCode, 200, res.body);
