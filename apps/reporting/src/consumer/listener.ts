@@ -24,10 +24,24 @@ export function startReportingConsumer(pool: Pool, config: ReportingConfig): Rep
   let running = false;
   let stopped = false;
 
+  // Set when more work may be waiting once the running pass ends: a NOTIFY
+  // or tick arrived mid-pass (its events may be past that pass's snapshot),
+  // or the pass applied a full batch. Without it a backlog drained one
+  // batch per poll interval (500 events / 15 s) instead of back to back.
+  let rerun = false;
+
   const triggerPass = (): void => {
-    if (running || stopped) return;
+    if (stopped) return;
+    if (running) {
+      rerun = true;
+      return;
+    }
     running = true;
+    rerun = false;
     runConsumerPass(pool, config)
+      .then(({ processedCount }) => {
+        if (processedCount >= config.consumerBatchLimit) rerun = true;
+      })
       .catch((err: unknown) => {
         // A thrown error from one pass must never crash the listener or the
         // process — the next NOTIFY or poll tick simply tries again.
@@ -35,6 +49,7 @@ export function startReportingConsumer(pool: Pool, config: ReportingConfig): Rep
       })
       .finally(() => {
         running = false;
+        if (rerun) triggerPass();
       });
   };
 
