@@ -7,6 +7,7 @@ import { Brand } from "../../components/Brand.js";
 import { safeReturnPath } from "../../utils/safeReturnPath.js";
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import type { AdminLoginResponse } from "../../types.js";
+import "./LoginPage.css";
 
 type Step =
   | { kind: "credentials" }
@@ -90,10 +91,40 @@ export function LoginPage() {
   }
 
   return (
-    <main className="admin-centered">
-      <Brand />
-      <p className="admin-login-tagline">Pearl of the Gulf · operations console</p>
-      <p className="admin-muted">
+    <div className="alogin-root">
+    <aside className="alogin-brand">
+      <div className="alogin-brand-inner">
+        <div className="alogin-brand-mark">
+          <Brand />
+        </div>
+        <div className="alogin-brand-copy">
+          <p className="alogin-kicker">Pearl of the Gulf · operations console</p>
+          <p className="alogin-headline">
+            Every merchant, every fils, <em>one console.</em>
+          </p>
+          <ul className="alogin-points">
+            <li>
+              <span className="alogin-dot" aria-hidden="true" />
+              Merchant onboarding, KYC and balances
+            </li>
+            <li>
+              <span className="alogin-dot" aria-hidden="true" />
+              Settlement, fees and reconciliation
+            </li>
+            <li>
+              <span className="alogin-dot" aria-hidden="true" />
+              Role-based access, every action audited
+            </li>
+          </ul>
+        </div>
+        <p className="alogin-foot">Restricted system. Authorised FilsPay staff only.</p>
+      </div>
+    </aside>
+    <main className="alogin-main">
+    <div className="alogin-card">
+      <span className="alogin-badge">Admin</span>
+      <h1 className="alogin-title">{step.kind === "credentials" ? "Sign in to Operations" : "Check your code"}</h1>
+      <p className="admin-muted alogin-sub">
         {step.kind === "credentials"
           ? "Sign in with your admin credentials. A one-time code follows."
           : "Enter the one-time code to finish signing in."}
@@ -181,6 +212,8 @@ export function LoginPage() {
           </p>
         </form>
       )}
+    </div>
     </main>
+    </div>
   );
 }

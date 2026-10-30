@@ -1,0 +1,318 @@
+/* Merchant sign-in (/dashboard/login): full-viewport split screen. Petrol
+   brand panel left, pearl form right. Below 1024px the brand panel becomes a
+   compact header. Every selector is prefixed `alogin-` (or scoped under it)
+   so nothing reaches the rest of the dashboard. */
+
+.alogin-root {
+  --al-petrol-0: #041a17;
+  --al-petrol-1: #06231f;
+  --al-petrol-2: #0a3a32;
+  --al-petrol-3: #0d4a40;
+  --al-gold-1: #b8902f;
+  --al-gold-2: #d8b253;
+  --al-gold-3: #f0d488;
+  --al-gold-grad: linear-gradient(135deg, var(--al-gold-1), var(--al-gold-2) 55%, var(--al-gold-3));
+  display: grid;
+  grid-template-columns: minmax(0, 46fr) minmax(0, 54fr);
+  min-height: 100vh;
+  min-height: 100dvh;
+  font-family: var(--fp-font);
+  color: var(--fp-text);
+  background: var(--fp-surface);
+  font-size: clamp(15px, 0.55vw + 8px, 18px);
+  -webkit-font-smoothing: antialiased;
+}
+.alogin-root *,
+.alogin-root *::before,
+.alogin-root *::after {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+/* ---- Brand panel ------------------------------------------------------ */
+.alogin-brand {
+  position: relative;
+  overflow: hidden;
+  color: #e9efe9;
+  background:
+    radial-gradient(90% 60% at 0% 0%, rgba(216, 178, 83, 0.12), transparent 60%),
+    radial-gradient(70% 50% at 100% 100%, rgba(21, 195, 154, 0.08), transparent 60%),
+    linear-gradient(165deg, var(--al-petrol-2) 0%, var(--al-petrol-1) 35%, #03120f 75%, #020c0a 100%);
+}
+.alogin-brand::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(240, 212, 136, 0.16) 1px, transparent 1.4px),
+    var(--fp-grain);
+  background-size: 22px 22px, 160px 160px;
+  -webkit-mask-image: linear-gradient(115deg, #000 0%, rgba(0, 0, 0, 0.35) 55%, transparent 90%);
+  mask-image: linear-gradient(115deg, #000 0%, rgba(0, 0, 0, 0.35) 55%, transparent 90%);
+  pointer-events: none;
+}
+/* One slow gold sheen sweeps across the panel on load. */
+.alogin-brand::after {
+  content: "";
+  position: absolute;
+  inset: -20% auto -20% -60%;
+  width: 45%;
+  background: linear-gradient(100deg, transparent, rgba(240, 212, 136, 0.13), transparent);
+  transform: skewX(-14deg);
+  pointer-events: none;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .alogin-brand::after {
+    animation: alogin-sheen 2.4s cubic-bezier(0.4, 0, 0.2, 1) 0.3s 1 both;
+  }
+  .alogin-brand-copy {
+    animation: alogin-rise 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  .alogin-card {
+    animation: alogin-rise 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) 0.08s both;
+  }
+}
+@keyframes alogin-sheen {
+  0% {
+    left: -60%;
+    opacity: 1;
+  }
+  100% {
+    left: 130%;
+    opacity: 1;
+  }
+}
+@keyframes alogin-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.alogin-brand-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  min-height: 100%;
+  padding: clamp(2rem, 4vw, 4.5rem) clamp(2rem, 5vw, 6rem);
+}
+.alogin-brand-copy {
+  margin: auto 0;
+  max-width: 34rem;
+}
+.alogin-kicker {
+  margin: 0 0 1rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--al-gold-3);
+}
+.alogin-headline {
+  margin: 0 0 2.2rem;
+  max-width: 13ch;
+  font-family: var(--fp-display);
+  font-weight: 500;
+  font-size: clamp(2.6rem, 4.4vw, 5.2rem);
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+  color: #fbfaf4;
+}
+.alogin-headline em {
+  font-style: italic;
+  background: var(--al-gold-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.alogin-points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+}
+.alogin-points li {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(240, 212, 136, 0.12);
+  background: rgba(255, 255, 255, 0.025);
+  font-family: var(--fp-mono);
+  font-size: 0.86rem !important;
+  letter-spacing: 0.01em;
+  font-size: 1.02rem;
+  line-height: 1.45;
+  color: rgba(233, 239, 233, 0.88);
+}
+.alogin-dot {
+  flex: none;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: #15c39a;
+  box-shadow: 0 0 0 4px rgba(21, 195, 154, 0.15), 0 0 12px rgba(21, 195, 154, 0.6);
+}
+.alogin-point-icon-unused {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 10px;
+  color: var(--al-petrol-1);
+  background: var(--al-gold-grad);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+.alogin-foot {
+  margin: 0;
+  padding-top: 1.2rem;
+  border-top: 1px solid rgba(240, 212, 136, 0.14);
+  font-size: 0.82rem;
+  color: rgba(233, 239, 233, 0.6);
+}
+
+/* ---- Form panel ------------------------------------------------------- */
+.alogin-brand-mark .admin-brand {
+  transform: scale(1.25);
+  transform-origin: left center;
+}
+.alogin-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(2rem, 4vw, 4rem) clamp(1.25rem, 4vw, 5rem);
+  background:
+    radial-gradient(80% 50% at 100% 0%, rgba(216, 178, 83, 0.08), transparent 70%),
+    var(--fp-surface);
+}
+.alogin-card {
+  width: 100%;
+  max-width: clamp(400px, 26vw, 520px);
+}
+.alogin-badge {
+  display: inline-block;
+  margin-bottom: 1rem;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #f0d488;
+  background: #06231f;
+  border: 1px solid rgba(216, 178, 83, 0.5);
+}
+.alogin-title {
+  margin: 0 0 0.45rem;
+  font-family: var(--fp-display);
+  font-size: clamp(2rem, 1.8vw + 0.9rem, 2.8rem);
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--fp-heading, #06231f);
+}
+.alogin-sub {
+  margin: 0 0 1.6rem;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.alogin-card .admin-form {
+  display: grid;
+  gap: 1.05rem;
+  margin: 0;
+  max-width: none;
+}
+.alogin-card .admin-form input {
+  width: 100%;
+  height: clamp(3rem, 1.2vw + 2.3rem, 3.5rem);
+  padding: 0 1rem;
+  font-size: 1rem;
+  border-width: 1.5px;
+  border-radius: 12px;
+}
+.alogin-card .admin-form input:focus {
+  border-color: #d8b253;
+  box-shadow: 0 0 0 4px rgba(216, 178, 83, 0.22);
+  outline: none;
+}
+.alogin-card .admin-form > button[type="submit"],
+.alogin-card .admin-login-actions button[type="submit"] {
+  width: 100%;
+  height: clamp(3.2rem, 1.2vw + 2.5rem, 3.7rem);
+  margin-top: 0.4rem;
+  border: 0;
+  border-radius: 14px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #06231f;
+  background: linear-gradient(135deg, #b8902f, #d8b253 55%, #f0d488);
+  box-shadow: 0 10px 28px rgba(184, 144, 47, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+.alogin-card .admin-login-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.alogin-card .admin-login-actions .admin-btn-ghost {
+  flex: 1 1 8rem;
+  height: 2.9rem;
+  border-radius: 12px;
+}
+.alogin-card .admin-error,
+.alogin-card .admin-notice {
+  margin: 0 0 1.1rem;
+}
+.alogin-card code {
+  font-family: var(--fp-mono);
+}
+
+/* ---- Tablet and phone ------------------------------------------------- */
+@media (max-width: 1023.98px) {
+  .alogin-root {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    font-size: 16px;
+  }
+  .alogin-brand-inner {
+    min-height: 0;
+    gap: 1rem;
+    padding: 1.3rem clamp(1rem, 5vw, 3rem) 2rem;
+  }
+  .alogin-brand-mark .admin-brand {
+    transform: none;
+  }
+  .alogin-brand-copy {
+    margin: 0;
+  }
+  .alogin-kicker {
+    margin-bottom: 0.5rem;
+  }
+  .alogin-headline {
+    margin: 0;
+    max-width: none;
+    font-size: clamp(1.8rem, 6.5vw, 2.8rem);
+  }
+  .alogin-points,
+  .alogin-foot {
+    display: none;
+  }
+  .alogin-main {
+    align-items: flex-start;
+    padding: 1.8rem clamp(1rem, 5vw, 3rem) 2.5rem;
+    border-radius: 22px 22px 0 0;
+    margin-top: -16px;
+    position: relative;
+    box-shadow: 0 -10px 30px rgba(2, 12, 10, 0.25);
+  }
+  .alogin-card {
+    max-width: 560px;
+  }
+}
