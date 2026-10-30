@@ -294,7 +294,7 @@ Do a dry run before Saturday. Seed logins are in `db/seed/fixtures/merchants.ts`
 5. AI rule files (CLAUDE.md, AGENTS.md, .cursorrules) were planted to make the next AI keep the bugs.
 6. He left three coded transmissions. Every warning he wrote that we checked was a real bug, and we fixed them.
 
-**Note:** the "still open" list at the end of `mystery-timeline.md` was written at `329e2d4` and is now stale. Since then:
+**Note:** the "still open" list at the end of `mystery-timeline.md` was first written at `329e2d4`; it has been updated. Since that first version:
 - Row 10 (replay ids) is fixed by B3a `a50ab82`.
 - Row 16 (holds) is fixed by M16 `ce85168`.
 - Row 18 (credit approver) is fixed by A6 `dee2df4`.

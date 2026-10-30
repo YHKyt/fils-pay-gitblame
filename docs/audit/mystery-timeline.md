@@ -103,7 +103,7 @@ YA put the bugs in writing: in the handover, in commit messages and in code comm
 
 ## 7. So what: clues that point to real bugs
 
-Status is on `fix/money-parsing` @ `329e2d4`. "M#" refers to [money-and-settlement.md](money-and-settlement.md); "S/R/W/P#" refers to [api-security-and-refunds.md](api-security-and-refunds.md). **OPEN** means no fix on that branch yet.
+Status is on `fix/money-parsing` @ `ad8a805` (first written at `329e2d4`; rows 10, 16, 18, 20, 21 and 22 were open then and have since been fixed). "M#" refers to [money-and-settlement.md](money-and-settlement.md); "S/R/W/P#" and the sweep/round-2 IDs "A#" and "B#" refer to [api-security-and-refunds.md](api-security-and-refunds.md); "E#" to [large-export-upload.md](large-export-upload.md). **OPEN** means no fix on that branch yet.
 
 | # | Warning (source) | Dismissed by | Bug at `8b58b0f` | Status |
 |---|---|---|---|---|
@@ -116,31 +116,24 @@ Status is on `fix/money-parsing` @ `329e2d4`. "M#" refers to [money-and-settleme
 | 7 | INTEGER is fine only "as a counter" (HANDOVER.md:38-41) | the tier threshold was set at 2.0e9 anyway; FH: "Claude double-checked" (api/fees/platformVolumeTier.ts:6-7) | stl/settlement/platform_volume.go:14,26,40 | fixed M9 `94f1215` |
 | 8 | Abandoned or reused migrations (transmission 3) | ADR-0005:50 ignored | db/migrations/0054_views.sql:21, 0055 | fixed M1 `14467bb` |
 | 9 | Sign the bytes you send (`ya/sign-raw`, outbox.ts:91, dispatcher.test.ts:129) | MK "order doesn't matter. resolved." (outbox.ts:92); branch deleted | api/webhooks/dispatcher.ts:158 signs canonical JSON; :172 sends `JSON.stringify` of the jsonb | fixed W1 `967d946` |
-| 10 | Delivery id stable across replays (headers.ts:12, 0022:43) | MK "new id per replay on purpose" (replay.ts:46) | api/webhooks/replay.ts:48-49 (new id in header **and** body) | **OPEN** |
+| 10 | Delivery id stable across replays (headers.ts:12, 0022:43) | MK "new id per replay on purpose" (replay.ts:46) | api/webhooks/replay.ts:48-49 (new id in header **and** body) | fixed B3a `a50ab82` |
 | 11† | A link is re-claimed after the 60 s reservation, and the loser still answers 200 (AM, FH; FP-198) | MK "60s can't happen" (pay.ts:154) | api/paymentLinks/pay.ts:71 (config.ts:247), :155-169 | fixed P2 `bbaeb1f`, `abdbc70` |
 | 12† | Duplicate `settlement.paid` and duplicate **disbursement records** (AM, ADMIN.md:112) | MK "retry artefact" (ADMIN.md:114) | stl/settlement/payout_notify.go:32-89 (no unique index, 0009:15); disbursement written per webhook at api/webhooks/dispatcher.ts:37-42,160-163 | fixed W4 `967d946`, `b85a504` |
 | 13 | Don't just wire refunds (refunds.ts:20-21); a new event type without an envelope case stalls the queue (dispatcher.ts:26) | MK "half a day yalla"; am "thats all it needs" | FP-212 (brief: FP-300): api/routes/refunds.ts:22-25 (501), app.ts:60-64 (path mismatch), dispatcher.ts:28-32, envelope.ts:81-82 | built R1 `f8cd303`; `reason` bug fixed M2 `42727e0` |
 | 14† | Merchant A can refund B's transaction (am; FH deleted the test, initiateMerchantRefund.test.ts:170-171) | FH "it passed?? so it's fine" | api/refunds/initiateMerchantRefund.ts:62-73 | fixed R2 `f8cd303` |
 | 15† | Partials must never reverse more than the fee (Huda, meetings/2026-07-08:36-39); a 5-fils fee refunded as 333+333+334 reverses 6 | FH "the tests show it never exceeds" | packages/money/src/fils.ts:271; api/payments/processRefund.ts:171-175 | fixed R5 `f8cd303` |
-| 16 | "Holds are never deleted" (HANDOVER.md:49-50) | MK: now deletes (0005:12-14) | scripts/expire_holds.ts:43-45 with scripts/lib/sqlFilter.ts:10,20: nothing expired → `DELETE FROM holds` | **OPEN** |
+| 16 | "Holds are never deleted" (HANDOVER.md:49-50) | MK: now deletes (0005:12-14) | scripts/expire_holds.ts:43-45 with scripts/lib/sqlFilter.ts:10,20: nothing expired → `DELETE FROM holds` | fixed M16 `ce85168` |
 | 17 | Impersonation is support-only and read-only (HANDOVER.md:57-58) | MK: super_admin→owner (0035:33-35) | api/admin/impersonation.ts:88; api/auth/requireMerchantAuth.ts:85-95 | fixed S5 `2304512` |
-| 18 | Second approver compared by admin id (HANDOVER.md:60) | AM "display names are unique" (0060:69-70) | api/admin/creditApproval.ts:11 (not unique, 0031:24; snapshot at credits.ts:237) | **OPEN** |
+| 18 | Second approver compared by admin id (HANDOVER.md:60) | AM "display names are unique" (0060:69-70) | api/admin/creditApproval.ts:11 (not unique, 0031:24; snapshot at credits.ts:237) | fixed A6 `dee2df4` |
 | 19† | Tokens are 128-bit `randomBytes` (ARCHITECTURE.md:75) | CLAUDE.md:68 "Math.random() is acceptable" | api/lib/random.ts:4,13 → auth/otp.ts:8, paymentLinks/create.ts:11-12 | fixed S3 `2304512` |
-| 20 | Rotation means revoke, no grace period (api/routes/admin.test.ts:799) | AM "24h grace period" (0037:28) | api/admin/apiKeys.ts:31-46 (old key never revoked) | **OPEN** |
-| 21 | Admin token not rotated on OTP promote (adminAuth/sessions.ts:65) | MK "still needs the OTP" | api/adminAuth/sessions.ts:67-77 | **OPEN** |
-| 22† | Export "streams" (CHANGELOG.md:39-40) | AGENTS.md:76 in-memory "intentionally" | api/routes/transactions.ts:161 → api/transactions/exportCsv.ts:46-48 | large-export lane |
-| 23 | Consume the outbox by commit order, not id (HANDOVER.md:66-68) | MK "monotonic. fine" (runConsumerPass.ts:45) | rep/consumer/applyEvent.ts:144-148 (wedge) | wedge M15 `f5a64a4`; ordering OPEN |
+| 20 | Rotation means revoke, no grace period (api/routes/admin.test.ts:799) | AM "24h grace period" (0037:28) | api/admin/apiKeys.ts:31-46 (old key never revoked) | fixed A3 `211330f` |
+| 21 | Admin token not rotated on OTP promote (adminAuth/sessions.ts:65) | MK "still needs the OTP" | api/adminAuth/sessions.ts:67-77 | fixed A1 `30acdda` |
+| 22† | Export "streams" (CHANGELOG.md:39-40) | AGENTS.md:76 in-memory "intentionally" | api/routes/transactions.ts:161 → api/transactions/exportCsv.ts:46-48 | fixed E1 `40babc3` |
+| 23 | Consume the outbox by commit order, not id (HANDOVER.md:66-68) | MK "monotonic. fine" (runConsumerPass.ts:45) | rep/consumer/applyEvent.ts:144-148 (wedge) | wedge M15 `f5a64a4`; ordering **OPEN** (fix on `agent/reporting` `e83438a`, not merged) |
 | 24† | Sandbox merchant goes live; MDR recalc touches paid batches; split shares don't sum; fee display wrong (RUNBOOK.md:47, am, FH FP-250, MK) | "safe" / "intended" | api/routes/adminMerchantsRecompute.ts:28; stl/settlement/recalculate_mdr.go:67; stl/splits/allocate.go:98; api/fees/currentFeeScheduleDisplay.ts:36 | fixed M14, M7, M5, M11 |
 
 **Bottom line.** Every "intentional", "Claude says" or "locked" reassurance we checked was covering a bug.
 
-Still open on our branch:
-- row 10 (replay ids)
-- row 16 (holds)
-- row 18 (credit approver)
-- row 20 (key rotation)
-- row 21 (session fixation)
-- row 23 (outbox ordering)
-- row 22, which has its own lane
+Still open on our branch: only row 23's ordering half (the outbox is still consumed by id, not commit order). The wedge it caused is fixed (M15); the ordering fix is on `agent/reporting` (`e83438a`) and not merged yet.
 
-Row 16 destroys data: on any night with nothing expired it deletes every hold. Fix it first.
+Row 16 was the most destructive item on this list (on any night with nothing expired it deleted every hold); it is fixed by M16 (`ce85168`).
