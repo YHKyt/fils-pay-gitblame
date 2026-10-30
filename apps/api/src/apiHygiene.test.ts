@@ -51,6 +51,7 @@ test("API hygiene over HTTP", { skip: !databaseUrl && "DATABASE_URL not set" }, 
     lines.length = 0;
     await app.inject({ method: "GET", url: `/v1/payment-links/${token}` });
     await app.inject({ method: "POST", url: `/v1/payment-links/${token}/pay`, payload: {} });
+    await app.inject({ method: "GET", url: `/v1/payment-links/${token}/nope` });
     await app.inject({ method: "GET", url: `/v1/transactions?token=${token}` });
 
     const log = lines.join("");
@@ -61,18 +62,25 @@ test("API hygiene over HTTP", { skip: !databaseUrl && "DATABASE_URL not set" }, 
     assert.deepEqual(urls, [
       "/v1/payment-links/[redacted]",
       "/v1/payment-links/[redacted]/pay",
+      "/v1/payment-links/[redacted]/nope",
       "/v1/transactions?token=[redacted]",
     ]);
     assert.ok(!log.includes(token), "the token must not appear anywhere in the log");
   });
 
   await t.test("security headers on authenticated, public-link and health responses", async () => {
-    for (const url of ["/v1/transactions", "/v1/payment-links/nosuchtoken", "/healthz"]) {
+    for (const url of ["/v1/transactions", "/v1/payment-links/nosuchtoken", "/healthz", "/v1/nope"]) {
       const res = await app.inject({ method: "GET", url });
       assert.equal(res.headers["x-content-type-options"], "nosniff", url);
       assert.equal(res.headers["referrer-policy"], "no-referrer", url);
       assert.equal(res.headers["x-frame-options"], "DENY", url);
       assert.equal(res.headers["cache-control"], "no-store", url);
     }
+  });
+
+  await t.test("unknown routes use the uniform { error, message } shape", async () => {
+    const res = await app.inject({ method: "GET", url: "/v1/does-not-exist" });
+    assert.equal(res.statusCode, 404);
+    assert.deepEqual(res.json(), { error: "not_found", message: "route not found" });
   });
 });

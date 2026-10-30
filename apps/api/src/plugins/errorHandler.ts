@@ -65,6 +65,16 @@ export function errorHandler(
   reply.code(500).send({ error: "internal_error" });
 }
 
+/**
+ * Unknown routes answer in the same `{ error, message }` shape as every
+ * other error, instead of Fastify's default `{ statusCode, error: "Not
+ * Found", message }`. The URL is not echoed or logged: it may carry a
+ * payment-link token.
+ */
+export function notFoundHandler(_request: FastifyRequest, reply: FastifyReply): void {
+  reply.code(404).send({ error: "not_found", message: "route not found" });
+}
+
 function isPgInvalidInput(err: unknown): boolean {
   const { code, routine } = err as { code?: unknown; routine?: unknown };
   if (code === "22007" || code === "22008") return true; // invalid_datetime_format / datetime_field_overflow
