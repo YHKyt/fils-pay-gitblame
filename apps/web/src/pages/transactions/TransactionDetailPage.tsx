@@ -10,7 +10,8 @@ import {
 import { ApiError, describeError } from "../../api/client.js";
 import { RequireRole } from "../../auth/RequireRole.js";
 import { ConfirmDialog } from "../../components/ConfirmDialog.js";
-import { actorLabel, bhdDisplay, dash, dateTime, eventLabel, shortId, statusLabel } from "../../format.js";
+import { CopyId } from "../../components/CopyId.js";
+import { actorDisplay, bhdDisplay, dash, dateTime, eventLabel, shortId, statusLabel, truncateMiddle } from "../../format.js";
 import { usePageTitle } from "../../hooks/usePageTitle.js";
 import type { TransactionDto, TransactionEventDto } from "../../types.js";
 import { attemptFor, isDefinitiveFailure, type IdempotentAttempt } from "../../utils/idempotencyIntent.js";
@@ -190,7 +191,7 @@ export function TransactionDetailPage() {
             {txn.reference ? <span className="dash-h1-sub"> · {txn.reference}</span> : null}
           </h1>
           <p className="dash-muted dash-id-line">
-            <code title="Transaction ID">{txn.id}</code>
+            <CopyId display={`Ref ${shortId(txn.id)}`} value={txn.id} label="Transaction ID" />
           </p>
         </div>
         <span className={`dash-status dash-status-${txn.status}`}>{statusLabel(txn.status)}</span>
@@ -222,7 +223,7 @@ export function TransactionDetailPage() {
         <div className="dash-facts-wide">
           <dt>Acquirer reference</dt>
           <dd>
-            <code className="dash-mono-wrap">{txn.acquirerReference}</code>
+            <CopyId display={truncateMiddle(txn.acquirerReference)} value={txn.acquirerReference} label="Acquirer reference" />
           </dd>
         </div>
         <div>
@@ -344,13 +345,8 @@ export function TransactionDetailPage() {
               <td>{dateTime(event.occurredAt)}</td>
               <td>{eventLabel(event.eventType)}</td>
               <td className="dash-num">{event.amountFils === null ? "—" : bhdDisplay(event.amountFils)}</td>
-              <td>
-                {actorLabel(event.actorType)}
-                {event.actorId && event.actorType !== "system" ? (
-                  <span className="dash-ref-sub" title={event.actorId}>
-                    {shortId(event.actorId)}
-                  </span>
-                ) : null}
+              <td title={event.actorId && event.actorType !== "system" ? event.actorId : undefined}>
+                {actorDisplay(event.actorType, event.actorId)}
               </td>
             </tr>
           ))}
