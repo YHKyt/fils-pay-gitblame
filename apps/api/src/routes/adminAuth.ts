@@ -10,6 +10,7 @@ import {
   revokeAdminSession,
   type AdminRole,
 } from "../adminAuth/sessions.js";
+import { reserveLoginAttempt, resetLoginAttempts } from "../auth/loginLockout.js";
 import { withTransaction } from "../db/withTransaction.js";
 import { BadRequestError, GoneError, TooManyRequestsError, UnauthorizedError } from "../lib/errors.js";
 
@@ -63,13 +64,22 @@ export async function adminAuthRoutes(app: FastifyInstance): Promise<void> {
     );
     const user = userResult.rows[0];
 
-    const passwordOk = await verifyPassword(user ? user.password_hash : DUMMY_PASSWORD_HASH, password);
+    // Brute-force lockout: reserve the attempt before checking the password.
+    const allowed = user
+      ? await reserveLoginAttempt(app.db, "admin_users", user.id, {
+          maxAttempts: app.config.loginMaxFailedAttempts,
+          lockoutMinutes: app.config.loginLockoutMinutes,
+        })
+      : false;
 
-    // The same generic error in every failure case (no row, disabled
-    // account, or wrong password) — the response never discloses which.
-    if (!user || !passwordOk) {
+    const passwordOk = await verifyPassword(user && allowed ? user.password_hash : DUMMY_PASSWORD_HASH, password);
+
+    // The same generic error in every failure case (no row, disabled or
+    // locked account, or wrong password) — the response never discloses which.
+    if (!user || !allowed || !passwordOk) {
       throw new UnauthorizedError("invalid_credentials");
     }
+    await resetLoginAttempts(app.db, "admin_users", user.id);
 
     const { code, expiresAt, rawToken } = await withTransaction(app.db, async (client) => {
       const challenge = await issueAdminChallenge(client, {

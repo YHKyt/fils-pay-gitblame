@@ -8,6 +8,7 @@ import { test } from "node:test";
 import { Pool } from "pg";
 import { buildApp } from "../app.js";
 import { loadConfig } from "../config.js";
+import { hashPassword } from "./passwords.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -117,6 +118,73 @@ for (const status of ["suspended", "closed"] as const) {
     assert.equal((await app.inject({ method: "GET", url: "/v1/auth/me", headers: { cookie } })).statusCode, 200);
     const after = await app.inject({ method: "GET", url: "/v1/transactions", headers: { authorization: bearer } });
     assert.equal(after.statusCode, 200, after.body);
+  });
+}
+
+async function attempt(url: string, payload: Record<string, string>): Promise<number> {
+  return (await app.inject({ method: "POST", url, payload })).statusCode;
+}
+
+const LOCKOUT_CASES = [
+  {
+    plane: "merchant",
+    url: "/v1/auth/login",
+    table: "merchant_users",
+    async account(): Promise<{ id: string; body: Record<string, string> }> {
+      const { merchantId, email } = await signup("lockout");
+      const row = await pool.query<{ id: string }>(
+        `SELECT id FROM merchant_users WHERE merchant_id = $1 AND email = $2`,
+        [merchantId, email],
+      );
+      return { id: row.rows[0]!.id, body: { merchantId, email } };
+    },
+  },
+  {
+    plane: "admin",
+    url: "/v1/admin/auth/login",
+    table: "admin_users",
+    async account(): Promise<{ id: string; body: Record<string, string> }> {
+      const email = `lockout-${randomUUID()}@admin.test`;
+      const row = await pool.query<{ id: string }>(
+        `INSERT INTO admin_users (email, password_hash, display_name, role)
+         VALUES ($1, $2, 'Lockout', 'super_admin') RETURNING id`,
+        [email, await hashPassword(PASSWORD, config)],
+      );
+      return { id: row.rows[0]!.id, body: { email } };
+    },
+  },
+] as const;
+
+for (const c of LOCKOUT_CASES) {
+  test(`${c.plane} login locks the account after repeated wrong passwords, even in parallel`, async () => {
+    const { id, body } = await c.account();
+    const max = config.loginMaxFailedAttempts;
+    assert.ok(max > 1 && max <= 20, "test assumes a small attempt limit");
+
+    // Parallel guesses must not all slip under the limit while argon2 runs.
+    const guesses = await Promise.all(
+      Array.from({ length: max * 3 }, (_, i) => attempt(c.url, { ...body, password: `wrong-${i}` })),
+    );
+    assert.ok(guesses.every((s) => s === 401));
+    const counted = await pool.query<{ failed_login_count: number }>(
+      `SELECT failed_login_count FROM ${c.table} WHERE id = $1`,
+      [id],
+    );
+    assert.equal(counted.rows[0]!.failed_login_count, max, "more password checks ran than the limit allows");
+
+    // Locked: even the right password is refused, with the generic error.
+    const locked = await app.inject({ method: "POST", url: c.url, payload: { ...body, password: PASSWORD } });
+    assert.equal(locked.statusCode, 401, "correct password accepted on a locked account");
+    assert.equal(locked.json().error, "invalid_credentials");
+
+    // Once the lock expires the right password works and clears the count.
+    await pool.query(`UPDATE ${c.table} SET locked_until = now() - interval '1 second' WHERE id = $1`, [id]);
+    assert.equal(await attempt(c.url, { ...body, password: PASSWORD }), 200);
+    const reset = await pool.query<{ failed_login_count: number; locked_until: Date | null }>(
+      `SELECT failed_login_count, locked_until FROM ${c.table} WHERE id = $1`,
+      [id],
+    );
+    assert.deepEqual(reset.rows[0], { failed_login_count: 0, locked_until: null });
   });
 }
 

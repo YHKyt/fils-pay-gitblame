@@ -11,6 +11,7 @@ import {
   promoteSession,
   revokeSession,
 } from "../auth/sessions.js";
+import { reserveLoginAttempt, resetLoginAttempts } from "../auth/loginLockout.js";
 import { withTransaction } from "../db/withTransaction.js";
 import { BadRequestError, GoneError, TooManyRequestsError, UnauthorizedError } from "../lib/errors.js";
 
@@ -67,14 +68,25 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     );
     const user = userResult.rows[0];
 
-    // timing-safe: hashes against a dummy when the user is missing. correct — FH
-    const passwordOk = await verifyPassword(user ? user.password_hash : DUMMY_PASSWORD_HASH, password);
+    // Reserve the attempt before checking the password (brute-force lockout).
+    // A locked account still pays for a dummy hash and gets the same generic
+    // error, so a lock reveals nothing about the account or the password.
+    const allowed = user
+      ? await reserveLoginAttempt(app.db, "merchant_users", user.id, {
+          maxAttempts: app.config.loginMaxFailedAttempts,
+          lockoutMinutes: app.config.loginLockoutMinutes,
+        })
+      : false;
 
-    // The same generic message in every failure case (no row, or wrong
-    // password) — the response never discloses which part was wrong.
-    if (!user || !passwordOk) {
+    // timing-safe: hashes against a dummy when the user is missing or locked.
+    const passwordOk = await verifyPassword(user && allowed ? user.password_hash : DUMMY_PASSWORD_HASH, password);
+
+    // The same generic message in every failure case (no row, locked, or
+    // wrong password) — the response never discloses which part was wrong.
+    if (!user || !allowed || !passwordOk) {
       throw new UnauthorizedError("invalid_credentials");
     }
+    await resetLoginAttempts(app.db, "merchant_users", user.id);
 
     // Bind the OTP + pending session to the user whose password was just
     // verified. An email-only lookup can resolve to another merchant's user

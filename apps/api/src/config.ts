@@ -23,6 +23,10 @@ export interface Config {
   otpCodeLength: number;
   otpMaxAttempts: number;
   otpDevExpose: boolean;
+  /** Wrong passwords (merchant or admin account) before the account is
+   *  locked for loginLockoutMinutes. See auth/loginLockout.ts. */
+  loginMaxFailedAttempts: number;
+  loginLockoutMinutes: number;
 
   argon2MemoryKib: number;
   argon2TimeCost: number;
@@ -225,6 +229,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     otpCodeLength: parseIntEnv(env.OTP_CODE_LENGTH, 6),
     otpMaxAttempts: parseIntEnv(env.OTP_MAX_ATTEMPTS, 5),
     otpDevExpose: parseBoolEnv(env.OTP_DEV_EXPOSE, nodeEnv !== "production"),
+    loginMaxFailedAttempts: parseIntEnv(env.LOGIN_MAX_FAILED_ATTEMPTS, 10),
+    loginLockoutMinutes: parseIntEnv(env.LOGIN_LOCKOUT_MINUTES, 15),
 
     argon2MemoryKib: parseIntEnv(env.ARGON2_MEMORY_KIB, 19_456),
     argon2TimeCost: parseIntEnv(env.ARGON2_TIME_COST, 2),
