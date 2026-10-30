@@ -36,8 +36,13 @@ sharp at all. sharp's in-process cache can only be changed in code
 
 ## Settlement didn't run for a day
 
-The daemon only catches up the most recent business day on restart. For
-anything older:
+Each daemon run closes the most recent business day for every eligible
+merchant. Before that it also closes any of the 31 days before it on which
+a merchant that is eligible now has unbatched captures and no closed batch:
+a day missed while the merchant was suspended, or while the daemon was
+down. Only merchants with captures on such a day get a batch for it; for
+the others, that day's refunds and credits go into their next batch. For
+anything older, or to close a day for every merchant:
 
 ```bash
 settlement run-batch --date=YYYY-MM-DD            # every merchant
