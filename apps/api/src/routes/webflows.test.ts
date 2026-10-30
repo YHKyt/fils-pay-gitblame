@@ -225,3 +225,31 @@ test("WF5: a non-numeric limit on the payment-link and delivery lists uses the d
   assert.equal(deliveries.statusCode, 200, deliveries.body);
   assert.deepEqual(deliveries.json(), { deliveries: [], nextCursor: null });
 });
+
+test("WF6: business profile PATCH rejects invalid values with 400 and leaves the profile unchanged", async () => {
+  const { merchantId, cookie } = await approvedMerchant("profile");
+  await pool.query(
+    `INSERT INTO merchant_business_profiles
+       (merchant_id, legal_name, registration_number, business_type, contact_email, contact_phone, address_line1, city)
+     VALUES ($1, 'Legal Co', 'CR-1', 'llc', 'a@example.test', '+97300000000', 'Road 1', 'Manama')`,
+    [merchantId],
+  );
+  const url = `/v1/merchants/${merchantId}/business-profile`;
+  for (const payload of [
+    { legalName: null },
+    { legalName: "" },
+    { legalName: 5 },
+    { businessType: "corp" },
+    { country: "BHR" },
+  ]) {
+    const res = await app.inject({ method: "PATCH", url, headers: cookie, payload });
+    assert.equal(res.statusCode, 400, `${JSON.stringify(payload)} -> ${res.statusCode} ${res.body}`);
+    assert.equal(res.json().error, "invalid_request");
+  }
+  const ok = await app.inject({ method: "PATCH", url, headers: cookie, payload: { addressLine2: null, city: "Muharraq" } });
+  assert.equal(ok.statusCode, 200, ok.body);
+  const row = await pool.query(`SELECT legal_name, business_type, country, city FROM merchant_business_profiles WHERE merchant_id = $1`, [
+    merchantId,
+  ]);
+  assert.deepEqual(row.rows[0], { legal_name: "Legal Co", business_type: "llc", country: "BH", city: "Muharraq" });
+});
