@@ -45,7 +45,7 @@
   inset: 0;
   background-image:
     radial-gradient(circle at 1px 1px, rgba(240, 212, 136, 0.16) 1px, transparent 1.4px),
-    var(--fp-grain);
+    var(--fp-grain, none);
   background-size: 22px 22px, 160px 160px;
   -webkit-mask-image: linear-gradient(115deg, #000 0%, rgba(0, 0, 0, 0.35) 55%, transparent 90%);
   mask-image: linear-gradient(115deg, #000 0%, rgba(0, 0, 0, 0.35) 55%, transparent 90%);
@@ -116,7 +116,7 @@
 }
 .alogin-headline {
   margin: 0 0 2.2rem;
-  max-width: 13ch;
+  max-width: 16ch;
   font-family: var(--fp-display);
   font-weight: 500;
   font-size: clamp(2.6rem, 4.4vw, 5.2rem);
@@ -198,19 +198,6 @@
   width: 100%;
   max-width: clamp(400px, 26vw, 520px);
 }
-.alogin-badge {
-  display: inline-block;
-  margin-bottom: 1rem;
-  padding: 0.25rem 0.7rem;
-  border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: #f0d488;
-  background: #06231f;
-  border: 1px solid rgba(216, 178, 83, 0.5);
-}
 .alogin-title {
   margin: 0 0 0.45rem;
   font-family: var(--fp-display);
@@ -260,6 +247,12 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.6rem;
+}
+.alogin-card .admin-login-actions button[type="submit"] {
+  flex: 1 1 100%;
+}
+.alogin-card .admin-form p {
+  margin: 0;
 }
 .alogin-card .admin-login-actions .admin-btn-ghost {
   flex: 1 1 8rem;

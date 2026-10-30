@@ -122,7 +122,6 @@ export function LoginPage() {
     </aside>
     <main className="alogin-main">
     <div className="alogin-card">
-      <span className="alogin-badge">Admin</span>
       <h1 className="alogin-title">{step.kind === "credentials" ? "Sign in to Operations" : "Check your code"}</h1>
       <p className="admin-muted alogin-sub">
         {step.kind === "credentials"

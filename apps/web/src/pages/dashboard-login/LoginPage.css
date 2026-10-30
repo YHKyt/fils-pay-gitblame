@@ -214,7 +214,7 @@
   box-shadow: 0 0 0 4px rgba(216, 178, 83, 0.22);
   outline: none;
 }
-.mlogin-card .dash-hint {
+.mlogin-card .dash-form > p.dash-hint {
   margin: -0.5rem 0 0;
   font-size: 0.8rem;
   line-height: 1.45;
@@ -241,6 +241,10 @@
 .mlogin-card .dash-error,
 .mlogin-card .dash-notice {
   margin: 0 0 1.1rem;
+}
+.mlogin-card .dash-form > p {
+  margin: 0;
+  line-height: 1.5;
 }
 .mlogin-card code {
   font-family: var(--fp-mono);
