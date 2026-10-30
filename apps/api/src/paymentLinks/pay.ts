@@ -189,6 +189,9 @@ export async function payPaymentLink(
   // the reservation timeout and be captured too: two acquirer captures for
   // one link. The public read and the claim-failure path report such a link
   // as 'processing' until the merchant captures or voids the authorization.
+  // When the acquirer call itself threw, capture.ts records the attempt as
+  // unresolved (0123): a void is then refused and the merchant's capture
+  // resends the same acquirer key.
   const captureResult = await captureTransaction(pool, acquirer, {
     transactionId: txnId,
     merchantId: link.merchantId,

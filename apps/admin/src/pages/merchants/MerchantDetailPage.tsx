@@ -7,7 +7,7 @@ import { issueCredit } from "../../api/credits.js";
 import { rotateApiKey } from "../../api/apiKeys.js";
 import { startImpersonation } from "../../api/impersonation.js";
 import { describeError, WEB_BASE_URL } from "../../api/client.js";
-import { bahrainDate, date, dateTime } from "../../format.js";
+import { bahrainDate, creditFeeReversalLabel, date, dateTime } from "../../format.js";
 import { attemptFor, isDefinitiveFailure, type IdempotentAttempt } from "../../utils/idempotencyIntent.js";
 import { useAdminAuth } from "../../auth/AdminAuthContext.js";
 import { RequireRole } from "../../auth/RequireRole.js";
@@ -416,7 +416,7 @@ export function MerchantDetailPage() {
               checked={creditReverseFee}
               onChange={(e) => setCreditReverseFee(e.target.checked)}
             />{" "}
-            Also reverse the MDR on this amount ({(merchant.mdrBps / 100).toFixed(2)}%)
+            {creditFeeReversalLabel(creditEffectiveDate)}
           </label>
           <label>
             Memo (optional)

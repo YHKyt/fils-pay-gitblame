@@ -79,7 +79,9 @@ export function hashRequest(body: unknown): string {
  * call, so an acquirer call that throws (a timeout: the acquirer may already
  * have acted) rolls the claim row back, and the retry gets a NEW row id. A
  * row-id-based key made that retry a brand-new charge at the acquirer; this
- * one is identical, so the acquirer replays its first answer. The attempt
+ * one is identical, so the acquirer replays its first answer. (capture.ts
+ * now commits a thrown attempt as failed and records its acquirer key in
+ * capture_attempts_unresolved, 0123, which the retry resends.) The attempt
  * number still changes after a recorded, definitive acquirer 'error'
  * (failIdempotencyKey), where a fresh attempt is wanted.
  */
