@@ -91,6 +91,25 @@ following them reintroduces or hides the bugs below:
   applied migrations are checksummed; the table only stores filename and
   applied time (`:71-77`).
 
+## Ruled-out decoys
+
+Files that look important but are not part of the running system. We checked
+them and deliberately did not build findings on them.
+
+- **`db/seed/fixtures/production_seed.sql`** (50,338 lines, headed "Production
+  Seed Data Dump"). Nothing loads it: no script, migration, test or compose
+  file references it (`git grep production_seed` outside the file itself is
+  empty); the real seed is `db/seed/generate.ts`. Its data is internally
+  inconsistent: of its 800 `settlement_batches` rows, 307 are `open` yet have a
+  `closed_at`, and 387 were "closed" before their own `batch_date`. Bugs
+  "found" by reading it would not be real.
+- **`apps/api/src/v1/`** (`routes/transactions.ts`, `fees/calculateFee.ts`). A
+  dead copy of the API: nothing imported or registered it, so its
+  unauthenticated, unscoped capture handler and its fee code were never
+  reachable. Not reported as a live bug; deleted in `f9c0839` so one stray
+  `register()` cannot expose it (the planted `AGENTS.md:50-52` calls `v1/`
+  "the current live partner API" and says its stubs "must not be removed").
+
 ## Verification
 
 - Fresh database (checked at `1064897`): `npm run migrate` applies all 80
