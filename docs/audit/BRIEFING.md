@@ -70,10 +70,10 @@ Counted from the write-ups in `docs/audit/`. Each one has a fix commit and a reg
 
 | Branch | Commits | What |
 |---|---|---|
-| `agent/settlebatch` | `3aadad7`, `33fa69c`, `8fa8f37` | refunds deducted from the batch payout; per-transaction `test_mode` so sandbox captures never settle; eligibility checked first |
+| `agent/settlebatch` (merged since, `5cdcce7`) | `3aadad7`, `33fa69c`, `8fa8f37` | refunds deducted from the batch payout; per-transaction `test_mode` so sandbox captures never settle; eligibility checked first |
 | `agent/settlebal` | `f392013`, `b4dafd7` | cache moves with `merchant_payable` (no double count after a rebuild); `rebuild-balances --merchant` writes the cache |
-| `agent/ledgerint` | `20533d6`, `8f5513b`, `69857c1` | `ledger_entries` append-only (0092); payout disbursement recorded at pay (0093); rebuild lock order |
-| `agent/reporting` | `e83438a` | outbox consumed in commit-safe order under a locked cursor (0096) |
+| `agent/ledgerint` (merged since, `362e251`) | `20533d6`, `8f5513b`, `69857c1` | `ledger_entries` append-only (0092); payout disbursement recorded at pay (0093); rebuild lock order |
+| `agent/reporting` (merged since, `3667bd7`) | `e83438a` | outbox consumed in commit-safe order under a locked cursor (0096) |
 | `agent/webdisplay` | `f47a55b`, `8331920`, `f997ec5` | Bahrain dates in admin defaults and web filters |
 | `b/h2-auth-edges`, `b/h4-idempotency`, `b/h5-kyc-onboarding` | 5 commits | suspended merchants' sessions and keys refused; acquirer key reused on retry; KYC upload hardening |
 
@@ -301,7 +301,7 @@ Do a dry run before Saturday. Seed logins are in `db/seed/fixtures/merchants.ts`
 - Row 20 (key rotation) is fixed by A3 `211330f`.
 - Row 21 (admin session fixation) is fixed by A1 `30acdda`.
 - Row 22 (export) is fixed by E1 `40babc3`.
-- Row 23 (outbox ordering) is fixed on `agent/reporting` `e83438a`, not merged yet.
+- Row 23 (outbox ordering) is fixed by RP1 `e83438a` (merged in `3667bd7`).
 
 ---
 

@@ -103,7 +103,7 @@ YA put the bugs in writing: in the handover, in commit messages and in code comm
 
 ## 7. So what: clues that point to real bugs
 
-Status is on `fix/money-parsing` @ `ad8a805` (first written at `329e2d4`; rows 10, 16, 18, 20, 21 and 22 were open then and have since been fixed). "M#" refers to [money-and-settlement.md](money-and-settlement.md); "S/R/W/P#" and the sweep/round-2 IDs "A#" and "B#" refer to [api-security-and-refunds.md](api-security-and-refunds.md); "E#" to [large-export-upload.md](large-export-upload.md). **OPEN** means no fix on that branch yet.
+Status is on `fix/money-parsing` @ `1064897` (first written at `329e2d4`; rows 10, 16, 18, 20, 21, 22 and the ordering half of 23 were open then and have since been fixed). "M#" refers to [money-and-settlement.md](money-and-settlement.md); "S/R/W/P#" and the sweep/round-2 IDs "A#" and "B#" refer to [api-security-and-refunds.md](api-security-and-refunds.md); "E#" to [large-export-upload.md](large-export-upload.md). **OPEN** means no fix on that branch yet.
 
 | # | Warning (source) | Dismissed by | Bug at `8b58b0f` | Status |
 |---|---|---|---|---|
@@ -129,11 +129,11 @@ Status is on `fix/money-parsing` @ `ad8a805` (first written at `329e2d4`; rows 1
 | 20 | Rotation means revoke, no grace period (api/routes/admin.test.ts:799) | AM "24h grace period" (0037:28) | api/admin/apiKeys.ts:31-46 (old key never revoked) | fixed A3 `211330f` |
 | 21 | Admin token not rotated on OTP promote (adminAuth/sessions.ts:65) | MK "still needs the OTP" | api/adminAuth/sessions.ts:67-77 | fixed A1 `30acdda` |
 | 22† | Export "streams" (CHANGELOG.md:39-40) | AGENTS.md:76 in-memory "intentionally" | api/routes/transactions.ts:161 → api/transactions/exportCsv.ts:46-48 | fixed E1 `40babc3` |
-| 23 | Consume the outbox by commit order, not id (HANDOVER.md:66-68) | MK "monotonic. fine" (runConsumerPass.ts:45) | rep/consumer/applyEvent.ts:144-148 (wedge) | wedge M15 `f5a64a4`; ordering **OPEN** (fix on `agent/reporting` `e83438a`, not merged) |
+| 23 | Consume the outbox by commit order, not id (HANDOVER.md:66-68) | MK "monotonic. fine" (runConsumerPass.ts:45) | rep/consumer/applyEvent.ts:144-148 (wedge) | wedge M15 `f5a64a4`; ordering fixed RP1 `e83438a` ([reporting.md](reporting.md)) |
 | 24† | Sandbox merchant goes live; MDR recalc touches paid batches; split shares don't sum; fee display wrong (RUNBOOK.md:47, am, FH FP-250, MK) | "safe" / "intended" | api/routes/adminMerchantsRecompute.ts:28; stl/settlement/recalculate_mdr.go:67; stl/splits/allocate.go:98; api/fees/currentFeeScheduleDisplay.ts:36 | fixed M14, M7, M5, M11 |
 
 **Bottom line.** Every "intentional", "Claude says" or "locked" reassurance we checked was covering a bug.
 
-Still open on our branch: only row 23's ordering half (the outbox is still consumed by id, not commit order). The wedge it caused is fixed (M15); the ordering fix is on `agent/reporting` (`e83438a`) and not merged yet.
+Still open on our branch: none of the 24 rows. The last one, row 23's ordering half (the outbox was consumed by id, not commit order), is fixed by RP1 (`e83438a`, merged in `3667bd7`).
 
 Row 16 was the most destructive item on this list (on any night with nothing expired it deleted every hold); it is fixed by M16 (`ce85168`).
