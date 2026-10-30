@@ -1770,3 +1770,40 @@ h1 .dash-ref-sub {
     font-size: 1.25rem;
   }
 }
+
+/* Transaction detail fact card: label-over-value pairs in a 2-column grid. */
+.dash-split {
+  grid-template-columns: minmax(0, 28rem) minmax(0, 1fr);
+}
+.dash-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem 1.25rem;
+}
+.dash-facts > div > dt {
+  margin-top: 0;
+}
+.dash-facts-wide {
+  grid-column: 1 / -1;
+}
+.dash-num-left {
+  font-family: var(--fp-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dash-mono-wrap {
+  font-family: var(--fp-mono);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.dash-h1-sub {
+  font-size: 0.6em;
+  font-weight: 500;
+  color: var(--fp-muted);
+}
+@media (max-width: 960px) {
+  .dash-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

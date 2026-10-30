@@ -185,9 +185,12 @@ export function TransactionDetailPage() {
           <p className="dash-eyebrow">
             <Link to="/dashboard/transactions">Transactions</Link> / Detail
           </p>
-          <h1>Transaction</h1>
+          <h1>
+            {bhdDisplay(txn.amountFils)}
+            {txn.reference ? <span className="dash-h1-sub"> · {txn.reference}</span> : null}
+          </h1>
           <p className="dash-muted dash-id-line">
-            <code>{txn.id}</code>
+            <code title="Transaction ID">{txn.id}</code>
           </p>
         </div>
         <span className={`dash-status dash-status-${txn.status}`}>{statusLabel(txn.status)}</span>
@@ -195,29 +198,41 @@ export function TransactionDetailPage() {
 
       <div className="dash-split">
         <div className="dash-split-main">
-      <dl className="dash-dl dash-dl-stack">
-        <dt>Status</dt>
-        <dd>
-          <span className={`dash-status dash-status-${txn.status}`}>{statusLabel(txn.status)}</span>
-        </dd>
-        <dt>Authorized amount</dt>
-        <dd>{bhdDisplay(txn.amountFils)}</dd>
-        <dt>Captured amount</dt>
-        <dd>{bhdDisplay(txn.capturedFils)}</dd>
-        <dt>Refunded amount</dt>
-        <dd>{bhdDisplay(txn.refundedFils)}</dd>
-        <dt>Currency</dt>
-        <dd>{txn.currency}</dd>
-        <dt>Reference</dt>
-        <dd>{dash(txn.reference)}</dd>
-        <dt>Acquirer reference</dt>
-        <dd>
-          <code>{txn.acquirerReference}</code>
-        </dd>
-        <dt>Occurred at</dt>
-        <dd>{dateTime(txn.occurredAt)}</dd>
-        <dt>Created at</dt>
-        <dd>{dateTime(txn.createdAt)}</dd>
+      <dl className="dash-dl dash-dl-stack dash-facts">
+        <div>
+          <dt>Authorized</dt>
+          <dd className="dash-num-left">{bhdDisplay(txn.amountFils)}</dd>
+        </div>
+        <div>
+          <dt>Captured</dt>
+          <dd className="dash-num-left">{bhdDisplay(txn.capturedFils)}</dd>
+        </div>
+        <div>
+          <dt>Refunded</dt>
+          <dd className="dash-num-left">{bhdDisplay(txn.refundedFils)}</dd>
+        </div>
+        <div>
+          <dt>Currency</dt>
+          <dd>{txn.currency}</dd>
+        </div>
+        <div className="dash-facts-wide">
+          <dt>Reference</dt>
+          <dd>{dash(txn.reference)}</dd>
+        </div>
+        <div className="dash-facts-wide">
+          <dt>Acquirer reference</dt>
+          <dd>
+            <code className="dash-mono-wrap">{txn.acquirerReference}</code>
+          </dd>
+        </div>
+        <div>
+          <dt>Occurred</dt>
+          <dd>{dateTime(txn.occurredAt)}</dd>
+        </div>
+        <div>
+          <dt>Created</dt>
+          <dd>{dateTime(txn.createdAt)}</dd>
+        </div>
       </dl>
 
       {/* Capture and void are hidden from `support`: a support agent looks
