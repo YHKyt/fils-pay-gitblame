@@ -620,11 +620,23 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
               // settlement_batch_id is set here, not left NULL: these
               // events are already settled by this fixture's own closed
               // batch, so a real batching pass must never pick them up a
-              // second time.
+              // second time. metadata is what capture.ts records: the fee
+              // charged (the one this batch's fee_fils sums, above) with
+              // discountBps, so readers take the booked fee, not a
+              // recomputed one.
               await client.query(
-                `INSERT INTO transaction_events (transaction_id, event_type, amount_fils, actor_type, occurred_at, settlement_batch_id)
-                 VALUES ($1, 'captured', $2, 'system', $3, $4)`,
-                [txn.id, txn.capturedFils, txn.occurredAt, dayBatchId],
+                `INSERT INTO transaction_events (transaction_id, event_type, amount_fils, actor_type, metadata, occurred_at, settlement_batch_id)
+                 VALUES ($1, 'captured', $2, 'system', $3, $4, $5)`,
+                [
+                  txn.id,
+                  txn.capturedFils,
+                  JSON.stringify({
+                    feeFils: applyRateFils(txn.capturedFils, rateAt(txn.occurredAt)),
+                    discountBps: fixture.negotiatedDiscountBps ?? 0,
+                  }),
+                  txn.occurredAt,
+                  dayBatchId,
+                ],
               );
               transactionEventCount += 1;
 
