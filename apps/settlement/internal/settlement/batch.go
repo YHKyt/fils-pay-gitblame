@@ -49,6 +49,7 @@ type eligibleEvent struct {
 	transactionID uuid.UUID
 	amountFils    money.Fils
 	occurredAt    time.Time
+	bookedFeeFils *int64 // the fee capture.ts journaled for this event, when the event records it
 }
 
 // CloseBatch computes and freezes settlement figures for one merchant's
@@ -156,8 +157,14 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 	// event — never from transactions.captured_fils (a running total).
 	// A transaction made while the merchant was in test mode never settles,
 	// even when the merchant has gone live since (migration 0091).
+	// booked_fee_fils is the fee capture.ts journaled for the event: since the
+	// discount moved into captureTransaction, the event's metadata carries
+	// feeFils (the same value as its 'capture: MDR fee' legs, discount
+	// included) together with discountBps. Older events recorded a
+	// pre-discount fee with a separate adjustment, so they get NULL here.
 	rows, err := tx.Query(ctx, `
-		SELECT te.id, te.transaction_id, te.amount_fils, te.occurred_at
+		SELECT te.id, te.transaction_id, te.amount_fils, te.occurred_at,
+		       CASE WHEN te.metadata ? 'discountBps' THEN (te.metadata->>'feeFils')::bigint END AS booked_fee_fils
 		  FROM transaction_events te
 		  JOIN transactions t ON t.id = te.transaction_id
 		 WHERE t.merchant_id = $1
@@ -178,7 +185,7 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 	for rows.Next() {
 		var e eligibleEvent
 		var amountFils int64
-		if err := rows.Scan(&e.id, &e.transactionID, &amountFils, &e.occurredAt); err != nil {
+		if err := rows.Scan(&e.id, &e.transactionID, &amountFils, &e.occurredAt, &e.bookedFeeFils); err != nil {
 			rows.Close()
 			return BatchResult{}, fmt.Errorf("settlement: CloseBatch: scan eligible event: %w", err)
 		}
@@ -202,8 +209,12 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 	}
 
 	// Step 8: for each transaction group, and for the batch as a whole.
-	// Fee is recomputed PER EVENT, then summed — never ApplyRateFils
-	// applied once to the pre-summed total.
+	// Fee is taken PER EVENT, then summed — never ApplyRateFils applied once
+	// to the pre-summed total. An event that records the fee its capture
+	// journaled settles exactly that fee: recomputing it here with today's
+	// rate paid out any rate change since capture without journaling it, and
+	// left merchant_payable off by the difference. Only events without a
+	// recorded fee fall back to the recomputation.
 	type txnLine struct {
 		transactionID uuid.UUID
 		grossFils     money.Fils
@@ -217,12 +228,16 @@ func CloseBatch(ctx context.Context, db *pgxpool.Pool, merchantID uuid.UUID, bus
 		var grossForTxn, feeForTxn money.Fils
 		for _, e := range grouped[txnID] {
 			grossForTxn += e.amountFils
+			eventIDs = append(eventIDs, e.id)
+			if e.bookedFeeFils != nil {
+				feeForTxn += money.Fils(*e.bookedFeeFils)
+				continue
+			}
 			effectiveMdrBps := EffectiveMdrBpsAt(schedules, e.occurredAt, mdrBps)
 			if effectiveMdrBps -= tierBonusBps; effectiveMdrBps < 0 {
 				effectiveMdrBps = 0
 			}
 			feeForTxn += ComputeSettlementFee(e.amountFils, effectiveMdrBps, discountBps)
-			eventIDs = append(eventIDs, e.id)
 		}
 		lines = append(lines, txnLine{txnID, grossForTxn, feeForTxn})
 		batchGross += grossForTxn
