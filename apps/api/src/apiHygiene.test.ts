@@ -65,4 +65,14 @@ test("API hygiene over HTTP", { skip: !databaseUrl && "DATABASE_URL not set" }, 
     ]);
     assert.ok(!log.includes(token), "the token must not appear anywhere in the log");
   });
+
+  await t.test("security headers on authenticated, public-link and health responses", async () => {
+    for (const url of ["/v1/transactions", "/v1/payment-links/nosuchtoken", "/healthz"]) {
+      const res = await app.inject({ method: "GET", url });
+      assert.equal(res.headers["x-content-type-options"], "nosniff", url);
+      assert.equal(res.headers["referrer-policy"], "no-referrer", url);
+      assert.equal(res.headers["x-frame-options"], "DENY", url);
+      assert.equal(res.headers["cache-control"], "no-store", url);
+    }
+  });
 });

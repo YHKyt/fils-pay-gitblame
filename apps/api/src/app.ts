@@ -62,6 +62,18 @@ export function buildApp(config: Config, pool: Pool, options: BuildAppOptions = 
   app.register(multipartPlugin, { config });
   app.setErrorHandler(errorHandler);
 
+  // Baseline response headers for a JSON API (no new dependency). Every
+  // response here is per-merchant or per-link data, so nothing may be
+  // stored by a browser or shared cache (FP-207 promised no-store on the
+  // hosted link page); a route that sets its own Cache-Control keeps it.
+  app.addHook("onSend", async (_request, reply, payload) => {
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("Referrer-Policy", "no-referrer");
+    reply.header("X-Frame-Options", "DENY");
+    if (!reply.hasHeader("Cache-Control")) reply.header("Cache-Control", "no-store");
+    return payload;
+  });
+
   app.register(healthRoutes); // unauthenticated, unprefixed
   app.register(authRoutes, { prefix: "/v1/auth" });
   app.register(businessProfileRoutes, { prefix: "/v1/merchants" });
