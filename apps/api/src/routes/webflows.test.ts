@@ -277,7 +277,7 @@ test("WF7: payment-link create rejects non-string reference, description and exp
   assert.equal(ok.statusCode, 201, ok.body);
 });
 
-test("WF8: API key issue rejects a non-string label", async () => {
+test("WF7: API key issue rejects a non-string label", async () => {
   const { merchantId, cookie } = await approvedMerchant("key-label");
   for (const label of [["a", "b"], { x: 1 }, 7]) {
     const res = await app.inject({ method: "POST", url: `/v1/merchants/${merchantId}/api-keys`, headers: cookie, payload: { label } });
