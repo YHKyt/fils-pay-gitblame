@@ -37,11 +37,12 @@ export function parseOptionalInstant(value: unknown, name: string): Date | undef
   return date;
 }
 
-/** An optional non-negative integer from the query string (e.g. `limit`). */
-export function parseOptionalNonNegativeInt(value: unknown, name: string): number | undefined {
+/** An optional positive integer from the query string (e.g. `limit`). Zero
+ *  is refused like a negative: `limit=0` used to be clamped to one row. */
+export function parseOptionalPositiveInt(value: unknown, name: string): number | undefined {
   if (value === undefined || value === "") return undefined;
-  if (typeof value !== "string" || !/^\d{1,9}$/.test(value)) {
-    throw new BadRequestError("invalid_request", `${name} must be a non-negative integer`);
+  if (typeof value !== "string" || !/^\d{1,9}$/.test(value) || Number(value) === 0) {
+    throw new BadRequestError("invalid_request", `${name} must be a positive integer`);
   }
   return Number(value);
 }
