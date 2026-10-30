@@ -42,12 +42,13 @@ func Run(ctx context.Context, db *pgxpool.Pool, cfg config.Config) {
 
 	// Run once immediately on start (covers a restart that lands after the
 	// most recently completed business day's run delay has already
-	// elapsed), then on every tick. A container down across more than one
-	// business day boundary only catches up the single most recent one
-	// here — an operator recovering from a longer outage backfills the
-	// earlier missed dates with `settlement run-batch --date=YYYY-MM-DD`,
-	// which CloseBatch/PayoutBatch's own idempotency makes safe to run for
-	// any past date, processed or not.
+	// elapsed), then on every tick. Each run closes the most recently
+	// completed business day for every eligible merchant, and before it any
+	// of the missedDayLookback earlier days on which an eligible merchant
+	// still has unclaimed captures and no closed batch (closeMissedDays).
+	// Anything older is backfilled with `settlement run-batch
+	// --date=YYYY-MM-DD`, which CloseBatch/PayoutBatch's own idempotency
+	// makes safe to run for any past date, processed or not.
 	// am: runs on boot before the delay check, so a restart at 00:05 closes early. saw it once
 	runIfDue(ctx, db, cfg.DaemonRunDelayMinutes)
 	// Bahrain business-day start of the last successful nightly balance
@@ -103,6 +104,10 @@ func runIfDue(ctx context.Context, db *pgxpool.Pool, runDelayMinutes int) {
 	// am: logs show the close ~03:15 local not 00:15?? whatever, it runs. yalla
 	businessDate := todayStart.AddDate(0, 0, -1)
 
+	// Earlier days a merchant missed come first, so its batches close in
+	// date order.
+	closeMissedDays(ctx, db, businessDate)
+
 	// RunDailyBatch settles every merchant it can and returns the failures
 	// joined together, so an error here does not mean nothing was paid: the
 	// failed merchants are retried on the next tick, and the notifications
@@ -129,6 +134,44 @@ func runIfDue(ctx context.Context, db *pgxpool.Pool, runDelayMinutes int) {
 	}
 
 	logNextRunEstimate(now)
+}
+
+// missedDayLookback is how many business days before yesterday each run
+// checks for days the nightly run never closed (closeMissedDays).
+const missedDayLookback = 31
+
+// closeMissedDays closes and pays every business day in the
+// missedDayLookback days before yesterday on which a merchant that is
+// eligible now has captures that no batch has claimed and no closed or paid
+// batch. RunDailyBatch only selects merchants eligible at that moment, and
+// CloseBatch only ever selects one day's window, so a day missed while a
+// merchant was suspended (or while the daemon was down) was never closed
+// after reactivation unless someone ran `run-batch --date` for it. Each
+// (merchant, day) goes through RunDailyBatch as `run-batch --date
+// --merchant` would. CloseBatch and PayoutBatch are idempotent per merchant
+// and day (one batch row per (merchant_id, batch_date), events claimed under
+// FOR UPDATE), so this cannot settle anything twice.
+func closeMissedDays(ctx context.Context, db *pgxpool.Pool, yesterday time.Time) {
+	missed, err := settlement.FindMissedBusinessDays(ctx, db, yesterday.AddDate(0, 0, -missedDayLookback), yesterday)
+	if err != nil {
+		log.Printf("settlement daemon: finding missed business days failed: %v", err)
+		return
+	}
+	for _, m := range missed {
+		if ctx.Err() != nil {
+			return
+		}
+		merchantID := m.MerchantID
+		date := m.BusinessDate.Format("2006-01-02")
+		report, err := settlement.RunDailyBatch(ctx, db, m.BusinessDate, &merchantID)
+		if err != nil {
+			log.Printf("settlement daemon: missed day %s for merchant %s failed: %v", date, merchantID, err)
+			continue
+		}
+		if len(report.MerchantResults) > 0 {
+			log.Printf("settlement daemon: closed missed day %s for merchant %s", date, merchantID)
+		}
+	}
 }
 
 // balanceRefreshAfter is how long after Bahrain midnight the nightly
