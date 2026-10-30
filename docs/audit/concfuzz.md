@@ -69,6 +69,8 @@ one request, one winner, one ledger group.
 
 ## Reported, not fixed (Claude B's lane: payments/idempotency.ts and its callers)
 
+**Update:** the double capture below is fixed (`fix(idempotency): two retries of a failed key cannot both re-open it`), with the proposed `AND status = 'failed'` and a re-classify; test `apps/api/src/payments/idempotencyRetryRace.test.ts` fails on the old code (captured_fils 4000) and passes on the fix.
+
 ### Two concurrent retries with one Idempotency-Key both execute after a failed attempt — Critical
 
 **Where:** `apps/api/src/payments/idempotency.ts`, `claimIdempotencyKey`, the `failed` branch (`UPDATE ... WHERE id = $1`).
