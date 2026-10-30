@@ -39,7 +39,7 @@ export interface BuildAppOptions {
  * tests use `app.inject(...)` against this — no real socket needed.
  */
 export function buildApp(config: Config, pool: Pool, options: BuildAppOptions = {}): FastifyInstance {
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: true, trustProxy: config.trustProxy });
 
   app.decorate("db", pool);
   app.decorate("config", config);
