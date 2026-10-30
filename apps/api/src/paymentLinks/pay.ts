@@ -178,6 +178,13 @@ export async function payPaymentLink(
     };
   }
 
+  // An earlier attempt whose capture met an acquirer error kept its
+  // authorization for a same-key retry. The link is paid now, so that
+  // retry can never capture it: release it rather than leave the first
+  // customer's funds on hold, capturable as a second charge for one link.
+  // Best effort: the payment itself has already succeeded.
+  await voidOtherLinkAuthorizations(pool, link, txnId).catch(() => undefined);
+
   return {
     statusCode: 200,
     body: {
@@ -218,6 +225,32 @@ async function loseFinalizeRace(
     return { statusCode: 409, body: { error: "payment_link_canceled" } };
   }
   return { statusCode: 409, body: { error: "payment_link_processing" } };
+}
+
+/**
+ * Voids every authorization a pay attempt on this link created, except
+ * `keepTxnId` (null: all of them). Attempts are found through their
+ * authorize idempotency keys (`paylink:<link id>:<key>:authorize`).
+ * voidTransaction leaves anything that is no longer 'authorized' alone.
+ */
+export async function voidOtherLinkAuthorizations(
+  pool: Pool,
+  link: { id: string; merchantId: string },
+  keepTxnId: string | null,
+): Promise<void> {
+  const result = await pool.query<{ resource_id: string }>(
+    `SELECT resource_id FROM idempotency_keys
+      WHERE merchant_id = $1 AND endpoint = 'transactions.authorize' AND key LIKE $2
+        AND resource_id IS NOT NULL AND resource_id IS DISTINCT FROM $3::uuid`,
+    [link.merchantId, `paylink:${link.id}:%:authorize`, keepTxnId],
+  );
+  for (const row of result.rows) {
+    await voidTransaction(pool, {
+      transactionId: row.resource_id,
+      merchantId: link.merchantId,
+      actor: { type: "system", id: link.id },
+    });
+  }
 }
 
 /**

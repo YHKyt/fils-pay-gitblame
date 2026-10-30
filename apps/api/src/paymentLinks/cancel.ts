@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import { voidOtherLinkAuthorizations } from "./pay.js";
 
 export type CancelPaymentLinkResult =
   | { outcome: "canceled" }
@@ -29,6 +30,9 @@ export async function cancelPaymentLink(
     [input.id, input.merchantId, input.reservationTimeoutSeconds],
   );
   if (updateResult.rows[0]) {
+    // An attempt whose capture met an acquirer error kept its authorization
+    // for a retry that can no longer happen: release it.
+    await voidOtherLinkAuthorizations(pool, { id: input.id, merchantId: input.merchantId }, null);
     return { outcome: "canceled" };
   }
 
