@@ -84,3 +84,57 @@ test("every seeded capture is charged the fee schedule rate in force when it hap
     [],
   );
 });
+
+test("every seeded closed batch is one business day, settled from its own linked capture events", { skip, timeout: 300_000 }, async () => {
+  // CloseBatch freezes gross as the sum of the capture events it links, all
+  // from one Asia/Bahrain business day; RecalculateMDR refuses a batch whose
+  // linked events do not add up to its gross.
+  const batches = await pool.query<{ display_name: string; batch_date: string; gross_fils: string; linked: string; off_day: string }>(
+    `SELECT m.display_name, to_char(sb.batch_date, 'YYYY-MM-DD') AS batch_date, sb.gross_fils::text,
+            COALESCE(SUM(te.amount_fils), 0)::text AS linked,
+            COUNT(te.id) FILTER (WHERE (te.occurred_at AT TIME ZONE 'Asia/Bahrain')::date <> sb.batch_date)::text AS off_day
+       FROM settlement_batches sb
+       JOIN merchants m ON m.id = sb.merchant_id
+       LEFT JOIN transaction_events te
+              ON te.settlement_batch_id = sb.id AND te.event_type IN ('captured', 'partially_captured')
+      WHERE sb.status = 'closed'
+      GROUP BY sb.id, m.display_name
+      ORDER BY m.display_name, sb.batch_date`,
+  );
+  assert.ok(batches.rows.length > 60);
+  const bad = batches.rows.filter((b) => b.gross_fils !== b.linked || b.off_day !== "0");
+  assert.deepEqual(
+    bad.slice(0, 4).map((b) => `${b.display_name} ${b.batch_date}: gross ${b.gross_fils}, linked events ${b.linked}, ${b.off_day} from other days`),
+    [],
+    `${bad.length} closed batch(es) not backed by their own day's capture events`,
+  );
+
+  // Every seeded capture has its capture event (the March reconciliation
+  // fixture is a raw ledger import for scripts/reconcile_march and is left
+  // out), and every one dated before SEED_BASE_DATE's business day was
+  // settled by some batch, except the marketplace's, which apps/settlement
+  // is meant to close itself.
+  const missing = await pool.query<{ reference: string; captured_fils: string; events: string }>(
+    `SELECT t.reference, t.captured_fils::text,
+            COALESCE((SELECT SUM(te.amount_fils) FROM transaction_events te
+                       WHERE te.transaction_id = t.id AND te.event_type IN ('captured', 'partially_captured')), 0)::text AS events
+       FROM transactions t
+      WHERE t.captured_fils > 0 AND t.reference NOT LIKE '%-mar-%'
+        AND t.captured_fils <> COALESCE((SELECT SUM(te.amount_fils) FROM transaction_events te
+                       WHERE te.transaction_id = t.id AND te.event_type IN ('captured', 'partially_captured')), 0)
+      ORDER BY t.reference`,
+  );
+  assert.deepEqual(
+    missing.rows.slice(0, 3).map((r) => `${r.reference}: captured ${r.captured_fils}, capture events ${r.events}`),
+    [],
+    `${missing.rows.length} captured transaction(s) without their capture events`,
+  );
+  const unsettled = await pool.query<{ n: string }>(
+    `SELECT COUNT(*)::text AS n
+       FROM transaction_events te JOIN transactions t ON t.id = te.transaction_id
+      WHERE te.event_type IN ('captured', 'partially_captured') AND te.settlement_batch_id IS NULL
+        AND (te.occurred_at AT TIME ZONE 'Asia/Bahrain')::date < DATE '2026-09-01'
+        AND EXISTS (SELECT 1 FROM settlement_batches sb WHERE sb.merchant_id = t.merchant_id AND sb.status = 'closed')`,
+  );
+  assert.equal(unsettled.rows[0]!.n, "0", "captures before 1 September left out of every batch");
+});
