@@ -110,7 +110,9 @@ settlement export-scheme-file --batch=<uuid> --out=/tmp/batch.csv
 
 Re-exporting gives an identical file; it's written from rows frozen at
 close. The `amount` column is in the scheme's two-decimal format and is
-what the scheme was paid; finance reconciles against it.
+what the scheme was paid; finance reconciles against it. A batch that is
+still open, or an id that does not exist, is refused with a non-zero exit and
+no file is written.
 
 ## Month-end residue (finance)
 
