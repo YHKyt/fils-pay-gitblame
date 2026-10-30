@@ -643,32 +643,9 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
           lifetimeEstimate,
         ]);
 
-        // A few outbox events, enqueued inside this same transaction as the
-        // writes that produced them. Payload shapes here must match the
-        // EXACT shapes the real application code enqueues
-        // (apps/api/src/payments/capture.ts, apps/api/src/payments/void.ts,
-        // and apps/settlement's CloseBatch) — apps/reporting's consumer
-        // applies these payload fields directly, with no join back to
-        // transactions/settlement_batches to "fix up" a differently-shaped
-        // seed-only payload.
-        const firstCaptured = transactions.find((t) => t.status === "captured");
-        if (firstCaptured) {
-          const firstCapturedFeeFils = applyRateFils(firstCaptured.capturedFils, fixture.mdrBps);
-          await enqueueEvent(client, {
-            eventType: "transaction.captured",
-            aggregateType: "transaction",
-            aggregateId: firstCaptured.id,
-            payload: {
-              merchantId,
-              amountCapturedFils: firstCaptured.capturedFils,
-              feeFils: firstCapturedFeeFils,
-              newStatus: firstCaptured.status,
-              capturedTotalFils: firstCaptured.capturedFils,
-            },
-          });
-          outboxEventCount += 1;
-        }
-
+        // The voided example keeps its hand-built event. Captures and closed
+        // batches get their outbox events from the seeded rows below, once
+        // everything is inserted, so reporting sees the whole history.
         const firstVoided = transactions.find((t) => t.status === "voided");
         if (firstVoided) {
           await enqueueEvent(client, {
@@ -679,21 +656,6 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
           });
           outboxEventCount += 1;
         }
-
-        await enqueueEvent(client, {
-          eventType: "settlement.batch_closed",
-          aggregateType: "settlement_batch",
-          aggregateId: closedBatchId,
-          payload: {
-            merchantId,
-            batchId: closedBatchId,
-            batchDate: closedBatchDate,
-            grossFils,
-            feeFils,
-            netPayoutFils: netFils,
-          },
-        });
-        outboxEventCount += 1;
       }
 
       // March 2026 capture activity for Alpha Retail Co. Kept in its own
@@ -877,6 +839,49 @@ export async function generate(pool: Pool): Promise<SeedSummary> {
           [row.id, `INV-2025-${String(index + 1).padStart(4, "0")}`],
         );
       }
+
+      // Outbox events for the seeded history, derived from the rows above in
+      // this same transaction. apps/reporting builds the merchant analytics
+      // only from the outbox (live and in its `rebuild` replay), so one
+      // hand-picked event per merchant left the dashboards showing a handful
+      // of the seeded captures and closed batches. Payloads are
+      // the exact shapes capture.ts and CloseBatch enqueue. created_at is
+      // when the capture or close happened, so reporting buckets each one on
+      // its own Asia/Bahrain day, and the webhook dispatcher (which only
+      // delivers events newer than an endpoint) never replays seed history.
+      const capturedOutbox = await client.query(
+        `INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload, created_at)
+         SELECT 'transaction.captured', 'transaction', te.transaction_id,
+                jsonb_build_object(
+                  'merchantId', t.merchant_id,
+                  'amountCapturedFils', te.amount_fils,
+                  'feeFils', COALESCE((te.metadata->>'feeFils')::bigint, 0),
+                  'newStatus', te.event_type,
+                  'capturedTotalFils', SUM(te.amount_fils) OVER (PARTITION BY te.transaction_id ORDER BY te.occurred_at, te.id)),
+                te.occurred_at
+           FROM transaction_events te
+           JOIN transactions t ON t.id = te.transaction_id
+          WHERE te.event_type IN ('captured', 'partially_captured')
+          ORDER BY te.occurred_at, te.id`,
+      );
+      outboxEventCount += capturedOutbox.rowCount ?? 0;
+
+      const batchClosedOutbox = await client.query(
+        `INSERT INTO outbox_events (event_type, aggregate_type, aggregate_id, payload, created_at)
+         SELECT 'settlement.batch_closed', 'settlement_batch', sb.id,
+                jsonb_build_object(
+                  'merchantId', sb.merchant_id,
+                  'batchId', sb.id,
+                  'batchDate', to_char(sb.batch_date, 'YYYY-MM-DD'),
+                  'grossFils', sb.gross_fils,
+                  'feeFils', sb.fee_fils,
+                  'netPayoutFils', sb.net_payout_fils),
+                COALESCE(sb.closed_at, sb.created_at)
+           FROM settlement_batches sb
+          WHERE sb.status IN ('closed', 'paid')
+          ORDER BY COALESCE(sb.closed_at, sb.created_at), sb.id`,
+      );
+      outboxEventCount += batchClosedOutbox.rowCount ?? 0;
 
       await client.query("COMMIT");
     } catch (err) {
